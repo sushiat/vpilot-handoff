@@ -1,6 +1,6 @@
 # Handoff
 
-vPilot companion app: live VATSIM controller list + two-way chat on an Android EFB (home cockpit, tablet runs alongside Navigraph). Two components talking over a LAN WebSocket connection.
+vPilot companion app: live VATSIM controller list + two-way chat on an Android EFB (home cockpit, tablet runs alongside other EFB apps, like charts or performance tools). Two components talking over a LAN WebSocket connection.
 
 ## Components
 
