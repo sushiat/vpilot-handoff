@@ -1,0 +1,22 @@
+# --- .NET / Visual Studio (plugin/) ---
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# --- Android / Gradle (android/) ---
+*.iml
+.gradle/
+local.properties
+.idea/
+captures/
+build/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# --- OS ---
+.DS_Store
+Thumbs.db
