@@ -34,7 +34,7 @@
 			{
 				"label": "plugin: deploy",
 				"type": "shell",
-				"command": "Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose; Copy-Item -Path 'Handoff.RadioHost\\bin\\Debug\\net48\\*' -Destination \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Recurse -Force -Verbose",
+				"command": "Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose; if (Test-Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -PathType Leaf) { Remove-Item \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Force }; New-Item -ItemType Directory -Force -Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" | Out-Null; Copy-Item -Path 'Handoff.RadioHost\\bin\\Debug\\net48\\*' -Destination \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Recurse -Force -Verbose",
 				"options": {
 					"cwd": "${workspaceFolder:plugin}"
 				},

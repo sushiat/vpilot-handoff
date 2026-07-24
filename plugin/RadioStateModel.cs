@@ -30,13 +30,23 @@ namespace Handoff.Plugin
         private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
 
         private readonly object _gate = new object();
+        private readonly Action<string> _logDebug;
         private RadioState _current = new RadioState(null, null, false, DateTimeOffset.Now);
         private StreamWriter _writer;
+        private bool _loggedFirstState;
 
         public event EventHandler Changed;
 
-        public RadioStateModel()
+        /// <param name="logDebug">
+        /// Typically IBroker.PostDebugMessage, so lifecycle events show up in vPilot's
+        /// /dbgwin window -- Debug.WriteLine alone isn't visible without attaching a
+        /// debugger, which is off-limits while connected to VATSIM. Optional so this class
+        /// stays usable without an IBroker (e.g. in tests) if that's ever needed.
+        /// </param>
+        public RadioStateModel(Action<string> logDebug = null)
         {
+            _logDebug = logDebug;
+
             EnsureRadioHostRunning();
 
             new Thread(ReadFromRadioHost) { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
@@ -63,14 +73,18 @@ namespace Handoff.Plugin
         {
             lock (_gate)
             {
-                if (_writer == null) return; // Not connected -- drop silently, matches read-side "best effort" behavior.
+                if (_writer == null)
+                {
+                    Log("Dropped outgoing command, not connected to Handoff.RadioHost: " + message.Type);
+                    return;
+                }
                 try
                 {
                     RadioIpcProtocol.WriteMessage(_writer, message);
                 }
                 catch (IOException ex)
                 {
-                    Debug.WriteLine("RadioStateModel: failed sending command to RadioHost: " + ex.Message);
+                    Log("Failed sending command to Handoff.RadioHost: " + ex.Message);
                 }
             }
         }
@@ -82,6 +96,7 @@ namespace Handoff.Plugin
                 using (var probe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
                 {
                     probe.Connect((int)ConnectTimeout.TotalMilliseconds);
+                    Log("Handoff.RadioHost is already running, reusing it.");
                     return; // Already running (a prior vPilot session's helper, or otherwise) -- reuse it.
                 }
             }
@@ -90,21 +105,29 @@ namespace Handoff.Plugin
                 // Nothing listening -- expected on first launch. Fall through and spawn it.
             }
 
+            var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            var radioHostPath = Path.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
+
+            if (!File.Exists(radioHostPath))
+            {
+                Log("Handoff.RadioHost.exe not found at " + radioHostPath + " -- radio state will be unavailable.");
+                return;
+            }
+
             try
             {
-                var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                var radioHostPath = Path.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
-
-                Process.Start(new ProcessStartInfo
+                Log("Starting Handoff.RadioHost: " + radioHostPath);
+                var process = Process.Start(new ProcessStartInfo
                 {
                     FileName = radioHostPath,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 });
+                Log(process != null ? "Handoff.RadioHost started, PID " + process.Id : "Process.Start returned no process for Handoff.RadioHost.");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("RadioStateModel: failed to start Handoff.RadioHost: " + ex);
+                Log("Failed to start Handoff.RadioHost: " + ex);
             }
         }
 
@@ -117,6 +140,7 @@ namespace Handoff.Plugin
                     using (var pipe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
                     {
                         pipe.Connect((int)ConnectTimeout.TotalMilliseconds);
+                        Log("Connected to Handoff.RadioHost.");
 
                         var writer = new StreamWriter(pipe) { AutoFlush = true };
                         var reader = new StreamReader(pipe);
@@ -129,14 +153,23 @@ namespace Handoff.Plugin
                             {
                                 var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.ModeCEnabled ?? false, DateTimeOffset.Now);
                                 lock (_gate) { _current = next; }
+
+                                if (!_loggedFirstState)
+                                {
+                                    _loggedFirstState = true;
+                                    Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, ModeC={next.ModeCEnabled}");
+                                }
+
                                 Changed?.Invoke(this, EventArgs.Empty);
                             }
                         }
+
+                        Log("Handoff.RadioHost closed the pipe.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("RadioStateModel: RadioHost connection error: " + ex.Message);
+                    Log("Handoff.RadioHost connection error: " + ex.Message);
                 }
                 finally
                 {
@@ -145,6 +178,13 @@ namespace Handoff.Plugin
 
                 Thread.Sleep(ReconnectDelay);
             }
+        }
+
+        private void Log(string message)
+        {
+            var line = "RadioStateModel: " + message;
+            Debug.WriteLine(line);
+            _logDebug?.Invoke(line);
         }
     }
 }
