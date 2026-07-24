@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  plugin:
+    name: Build plugin (.NET Framework 4.8)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build vPilot plugin API stub
+        # The real RossCarlson.Vatsim.Vpilot.Plugins.dll isn't redistributed (see
+        # plugin/README.md), so CI builds against a hand-reconstructed public-API-only
+        # stub instead (see ci/plugin-stub-ref/README.md) and drops it into plugin/lib/
+        # where the HintPath reference expects it.
+        run: |
+          dotnet build ci/plugin-stub-ref/StubRef.csproj -o ci/plugin-stub-ref/out
+          New-Item -ItemType Directory -Force -Path plugin/lib | Out-Null
+          Copy-Item ci/plugin-stub-ref/out/RossCarlson.Vatsim.Vpilot.Plugins.dll plugin/lib/
+        shell: pwsh
+
+      - name: Build
+        run: dotnet build plugin/Handoff.Plugin.csproj
+        shell: pwsh
+
+  android:
+    name: Build android (Gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
