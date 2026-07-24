@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using CTrue.FsConnect;
@@ -56,6 +55,7 @@ namespace Handoff.RadioHost
         private readonly FsConnect _fsConnect;
         private readonly Action<RadioState> _onStateChanged;
         private volatile bool _dataDefinitionsRegistered;
+        private bool _loggedFirstState;
 
         public RadioSimConnectClient(Action<RadioState> onStateChanged)
         {
@@ -64,6 +64,7 @@ namespace Handoff.RadioHost
             _fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
             _fsConnect.FsDataReceived += OnFsDataReceived;
 
+            Logger.Log("RadioSimConnectClient starting.");
             new Thread(ReadFromSimConnect) { Name = "RadioSimConnectClient.ReadFromSimConnect", IsBackground = true }.Start();
         }
 
@@ -91,6 +92,12 @@ namespace Handoff.RadioHost
                         radioSimVars.TransponderState == TransponderStateAlt,
                         DateTimeOffset.Now);
 
+                    if (!_loggedFirstState)
+                    {
+                        _loggedFirstState = true;
+                        Logger.Log($"First SimConnect radio data received: Com1FrequencyMhz={radioSimVars.Com1FrequencyMhz}, Com2FrequencyMhz={radioSimVars.Com2FrequencyMhz}, TransponderState={radioSimVars.TransponderState} -> Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, ModeC={next.ModeCEnabled}");
+                    }
+
                     _onStateChanged(next);
                 }
             }
@@ -98,7 +105,6 @@ namespace Handoff.RadioHost
 
         private void ReadFromSimConnect()
         {
-            var veryFirstConnectError = true;
             while (true)
             {
                 try
@@ -107,6 +113,7 @@ namespace Handoff.RadioHost
                     {
                         try
                         {
+                            Logger.Log("Attempting SimConnect connection...");
                             _fsConnect.Connect("Handoff", "localhost", 0, SimConnectProtocol.Ipv4);
 
                             _fsConnect.RegisterDataDefinition<RadioSimVars>(Requests.RadioSimVars, new List<SimVar>
@@ -125,18 +132,13 @@ namespace Handoff.RadioHost
                             });
                             _dataDefinitionsRegistered = true;
 
-                            veryFirstConnectError = true;
+                            Logger.Log("SimConnect connected and data definitions registered.");
                         }
                         catch (Exception ex)
                         {
                             // SimConnect throws when the sim isn't running -- expected while
-                            // waiting for MSFS to start. Only log the first occurrence so this
-                            // doesn't spam while idle.
-                            if (veryFirstConnectError)
-                            {
-                                veryFirstConnectError = false;
-                                Debug.WriteLine("RadioSimConnectClient: error connecting to sim: " + ex);
-                            }
+                            // waiting for MSFS to start.
+                            Logger.Log("Error connecting to SimConnect: " + ex);
                         }
                     }
 
@@ -147,12 +149,12 @@ namespace Handoff.RadioHost
                     }
                     else
                     {
-                        Thread.Sleep(TimeSpan.FromSeconds(30));
+                        Thread.Sleep(TimeSpan.FromSeconds(5));
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("RadioSimConnectClient: error in read loop: " + ex);
+                    Logger.Log("Error in SimConnect read loop: " + ex);
                     Thread.Sleep(TimeSpan.FromSeconds(5));
                 }
             }

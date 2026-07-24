@@ -1,5 +1,3 @@
-using System;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using Handoff.Plugin;
@@ -24,6 +22,7 @@ namespace Handoff.RadioHost
 
         private static void Main()
         {
+            Logger.Log("Handoff.RadioHost starting, listening on pipe " + RadioIpcProtocol.PipeName);
             var radio = new RadioSimConnectClient(OnRadioStateChanged);
 
             while (true)
@@ -31,6 +30,7 @@ namespace Handoff.RadioHost
                 using (var pipeServer = new NamedPipeServerStream(RadioIpcProtocol.PipeName, PipeDirection.InOut))
                 {
                     pipeServer.WaitForConnection();
+                    Logger.Log("Plugin connected.");
                     HandleConnection(pipeServer, radio);
                 }
             }
@@ -62,7 +62,7 @@ namespace Handoff.RadioHost
             catch (IOException ex)
             {
                 // Plugin (or vPilot itself) disconnected -- expected, go back to waiting.
-                Debug.WriteLine("Handoff.RadioHost: pipe client disconnected: " + ex.Message);
+                Logger.Log("Plugin disconnected: " + ex.Message);
             }
             finally
             {
@@ -91,7 +91,7 @@ namespace Handoff.RadioHost
                 }
                 catch (IOException ex)
                 {
-                    Debug.WriteLine("Handoff.RadioHost: failed writing to pipe client: " + ex.Message);
+                    Logger.Log("Failed writing to pipe client: " + ex.Message);
                     _currentWriter = null;
                 }
             }
