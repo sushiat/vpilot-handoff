@@ -3,7 +3,8 @@ using System;
 namespace Handoff.Plugin
 {
     /// <summary>
-    /// Immutable snapshot of ownship radio state, as last read from SimConnect.
+    /// Immutable snapshot of ownship radio state, as last read from SimConnect (via the
+    /// Handoff.RadioHost helper process).
     /// </summary>
     public sealed class RadioState
     {

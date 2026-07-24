@@ -16,9 +16,10 @@ namespace Handoff.Plugin
             (int)Math.Round(megahertz * 1000) - 100000;
 
         /// <summary>
-        /// Guards a frequency value against the civil VHF airband before it's sent to
-        /// SimConnect as a write. This is a genuine system boundary: the value ultimately
-        /// originates from outside the plugin (the tablet, eventually).
+        /// Guards a frequency value against the civil VHF airband before it's sent onward as a
+        /// write -- both by the plugin (fail fast before an IPC round trip) and, authoritatively,
+        /// by the SimConnect host process before it touches SimConnect. Genuine system boundary:
+        /// the value ultimately originates from outside the plugin (the tablet, eventually).
         /// </summary>
         public static void ValidateAirbandRange(double megahertz)
         {

@@ -20,7 +20,7 @@
 			{
 				"label": "plugin: build",
 				"type": "shell",
-				"command": "dotnet build",
+				"command": "dotnet build Handoff.Plugin.csproj; dotnet build Handoff.RadioHost\\Handoff.RadioHost.csproj",
 				"options": {
 					"cwd": "${workspaceFolder:plugin}"
 				},
@@ -28,19 +28,20 @@
 					"kind": "build",
 					"isDefault": true
 				},
-				"problemMatcher": "$msCompile"
+				"problemMatcher": "$msCompile",
+				"detail": "Builds both the plugin (AnyCPU, loads into vPilot's x86 process) and the Handoff.RadioHost SimConnect helper (x64, separate process -- see plugin/README.md)."
 			},
 			{
 				"label": "plugin: deploy",
 				"type": "shell",
-				"command": "Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose",
+				"command": "Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose; Copy-Item -Path 'Handoff.RadioHost\\bin\\Debug\\net48\\*' -Destination \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Recurse -Force -Verbose",
 				"options": {
 					"cwd": "${workspaceFolder:plugin}"
 				},
 				"group": "build",
 				"dependsOn": "plugin: build",
 				"problemMatcher": [],
-				"detail": "Copies the built plugin DLL into the vPilot Plugins folder (dependencies are embedded via Costura.Fody, so this is the only file needed). Requires the VPILOT_PLUGINS_DIR env var; restart VS Code after setting it for the first time."
+				"detail": "Copies the plugin DLL and the Handoff.RadioHost helper's output folder into the vPilot Plugins folder (as a RadioHost\\ subfolder, so vPilot's plugin scan doesn't trip over its dependency DLLs). Requires the VPILOT_PLUGINS_DIR env var; restart VS Code after setting it for the first time."
 			},
 			{
 				"label": "android: assembleDebug",

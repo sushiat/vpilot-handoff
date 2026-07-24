@@ -25,12 +25,16 @@ once it has its first release.
   `PrivateMessageReceived/RadioMessageReceived/BroadcastMessageReceived/SelcalAlertReceived`
   events plus outgoing `SendPrivateMessage`/`SendRadioMessage` calls, wired up in
   `HandoffPlugin.Initialize`.
-- Plugin: `RadioStateModel`, a SimConnect-based connection for ownship radio state —
-  COM1/COM2 tuned frequency (read and remote-settable) and Mode C transponder state
-  (read-only), independent of `IBroker` since vPilot's plugin API has no ownship telemetry
-  at all. Uses the `CTrue.FsConnect` NuGet package; plugin now builds `x64`-only.
-- Plugin: build now weaves all runtime dependencies (managed and the native
-  `simconnect.dll`) directly into `Handoff.Plugin.dll` via Costura.Fody, so deployment is a
-  single file — vPilot's Plugins folder has no dependency-resolution mechanism of its own.
-- VS Code: `plugin: deploy` task, copying the built plugin DLL to a `VPILOT_PLUGINS_DIR`-configured
-  Plugins folder (builds first via `dependsOn`).
+- Plugin: ownship radio state (COM1/COM2 tuned frequency, read and remote-settable; Mode C
+  transponder state, read-only), independent of `IBroker` since vPilot's plugin API has no
+  ownship telemetry at all. Split across two processes: `Handoff.RadioHost` (a new x64
+  console app owning the actual `CTrue.FsConnect`/SimConnect connection) and
+  `RadioStateModel` in the plugin itself (a named-pipe IPC client that spawns and talks to
+  it). Required because vPilot's own process is x86 (confirmed by direct inspection) while
+  every available modern SimConnect wrapper's native binary is x64-only — an in-process x64
+  SimConnect connection inside the plugin (briefly attempted, including bundling it into a
+  single file via Costura.Fody) cannot load into vPilot at all. Shared wire-format and pure
+  conversion/validation logic lives in `plugin/Shared/`.
+- VS Code: `plugin: deploy` task, copying the built plugin DLL and the `Handoff.RadioHost`
+  helper's output folder to a `VPILOT_PLUGINS_DIR`-configured Plugins folder (builds first
+  via `dependsOn`).

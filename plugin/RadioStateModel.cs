@@ -1,72 +1,45 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.IO;
+using System.IO.Pipes;
+using System.Reflection;
 using System.Threading;
-using CTrue.FsConnect;
-using Microsoft.FlightSimulator.SimConnect;
 
 namespace Handoff.Plugin
 {
     /// <summary>
-    /// Live SimConnect connection for ownship radio state -- COM1/COM2 tuned frequency
-    /// (read + write) and Mode C transponder state (read-only). Independent of IBroker; this
-    /// is the second, separate data source per the architecture doc (vPilot's plugin API has
-    /// no ownship telemetry at all).
+    /// Client for ownship radio state (COM1/COM2 tuned frequency, Mode C transponder),
+    /// served by the separate Handoff.RadioHost process over a local named pipe.
     ///
-    /// Threading: no window handle needed (confirmed via FsConnect's own docs). Runs its own
-    /// background poll loop, mirroring the proven pattern in
-    /// OpenSky.Agent.SimConnectMSFS/SimConnect.cs. IPlugin has no unload hook, so this thread
-    /// simply runs for the process lifetime -- not a regression, nothing else in the plugin
-    /// has a cleanup story either.
+    /// Why a separate process: CTrue.FsConnect's native simconnect.dll is x64-only, but
+    /// vPilot's own process is x86 (confirmed by direct PE-header inspection against a real
+    /// vPilot install) -- an x64 assembly simply cannot load into vPilot at all. Rather than
+    /// depend on vPilot's own bundled 2007-era legacy SimConnect assembly (not ours to rely
+    /// on, and a different, incompatible SDK generation from anything else available), the
+    /// SimConnect integration runs in its own x64 helper process, spawned here and talked to
+    /// over IPC. See plugin/README.md for the full story.
+    ///
+    /// Threading: owns a background thread that (re)connects to the named pipe, reads
+    /// newline-delimited JSON state updates, and forwards writes the other direction. No
+    /// clean shutdown path -- IPlugin has no unload hook, same accepted limitation as
+    /// elsewhere in this plugin.
     /// </summary>
     public sealed class RadioStateModel
     {
-        private const int PollIntervalMs = 1000;
-
-        private enum Requests
-        {
-            RadioSimVars,
-            Com1Write,
-            Com2Write
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct RadioSimVars
-        {
-            public double Com1FrequencyMhz;
-            public double Com2FrequencyMhz;
-            public int TransponderState;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct Com1FrequencyWrite
-        {
-            public double Com1FrequencyMhz;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct Com2FrequencyWrite
-        {
-            public double Com2FrequencyMhz;
-        }
-
-        // TRANSPONDER STATE:1 enum value for altitude-reporting ("Alt"/Mode C) mode.
-        private const int TransponderStateAlt = 4;
+        private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
 
         private readonly object _gate = new object();
-        private readonly FsConnect _fsConnect;
-        private volatile bool _dataDefinitionsRegistered;
         private RadioState _current = new RadioState(null, null, false, DateTimeOffset.Now);
+        private StreamWriter _writer;
 
         public event EventHandler Changed;
 
         public RadioStateModel()
         {
-            _fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
-            _fsConnect.FsDataReceived += OnFsDataReceived;
+            EnsureRadioHostRunning();
 
-            new Thread(ReadFromSimConnect) { Name = "RadioStateModel.ReadFromSimConnect", IsBackground = true }.Start();
+            new Thread(ReadFromRadioHost) { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
         }
 
         public RadioState Current
@@ -77,92 +50,100 @@ namespace Handoff.Plugin
         public void SetCom1Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _fsConnect.UpdateData(Requests.Com1Write, new Com1FrequencyWrite { Com1FrequencyMhz = megahertz });
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom1Frequency, Megahertz = megahertz });
         }
 
         public void SetCom2Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _fsConnect.UpdateData(Requests.Com2Write, new Com2FrequencyWrite { Com2FrequencyMhz = megahertz });
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2Frequency, Megahertz = megahertz });
         }
 
-        private void OnFsDataReceived(object sender, FsDataReceivedEventArgs e)
+        private void SendCommand(RadioIpcMessage message)
         {
-            foreach (var simConnectObject in e.Data)
+            lock (_gate)
             {
-                if (simConnectObject is RadioSimVars radioSimVars)
+                if (_writer == null) return; // Not connected -- drop silently, matches read-side "best effort" behavior.
+                try
                 {
-                    var next = new RadioState(
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com1FrequencyMhz),
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com2FrequencyMhz),
-                        radioSimVars.TransponderState == TransponderStateAlt,
-                        DateTimeOffset.Now);
-
-                    lock (_gate) { _current = next; }
-                    Changed?.Invoke(this, EventArgs.Empty);
+                    RadioIpcProtocol.WriteMessage(_writer, message);
+                }
+                catch (IOException ex)
+                {
+                    Debug.WriteLine("RadioStateModel: failed sending command to RadioHost: " + ex.Message);
                 }
             }
         }
 
-        private void ReadFromSimConnect()
+        private void EnsureRadioHostRunning()
         {
-            var veryFirstConnectError = true;
+            try
+            {
+                using (var probe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
+                {
+                    probe.Connect((int)ConnectTimeout.TotalMilliseconds);
+                    return; // Already running (a prior vPilot session's helper, or otherwise) -- reuse it.
+                }
+            }
+            catch (Exception)
+            {
+                // Nothing listening -- expected on first launch. Fall through and spawn it.
+            }
+
+            try
+            {
+                var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                var radioHostPath = Path.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = radioHostPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("RadioStateModel: failed to start Handoff.RadioHost: " + ex);
+            }
+        }
+
+        private void ReadFromRadioHost()
+        {
             while (true)
             {
                 try
                 {
-                    if (!_fsConnect.Connected)
+                    using (var pipe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
                     {
-                        try
-                        {
-                            _fsConnect.Connect("Handoff", "localhost", 0, SimConnectProtocol.Ipv4);
+                        pipe.Connect((int)ConnectTimeout.TotalMilliseconds);
 
-                            _fsConnect.RegisterDataDefinition<RadioSimVars>(Requests.RadioSimVars, new List<SimVar>
-                            {
-                                new SimVar("COM ACTIVE FREQUENCY:1", "MHz", SIMCONNECT_DATATYPE.FLOAT64),
-                                new SimVar("COM ACTIVE FREQUENCY:2", "MHz", SIMCONNECT_DATATYPE.FLOAT64),
-                                new SimVar("TRANSPONDER STATE:1", "Enum", SIMCONNECT_DATATYPE.INT32)
-                            });
-                            _fsConnect.RegisterDataDefinition<Com1FrequencyWrite>(Requests.Com1Write, new List<SimVar>
-                            {
-                                new SimVar("COM ACTIVE FREQUENCY:1", "MHz", SIMCONNECT_DATATYPE.FLOAT64)
-                            });
-                            _fsConnect.RegisterDataDefinition<Com2FrequencyWrite>(Requests.Com2Write, new List<SimVar>
-                            {
-                                new SimVar("COM ACTIVE FREQUENCY:2", "MHz", SIMCONNECT_DATATYPE.FLOAT64)
-                            });
-                            _dataDefinitionsRegistered = true;
+                        var writer = new StreamWriter(pipe) { AutoFlush = true };
+                        var reader = new StreamReader(pipe);
+                        lock (_gate) { _writer = writer; }
 
-                            veryFirstConnectError = true;
-                        }
-                        catch (Exception ex)
+                        RadioIpcMessage message;
+                        while ((message = RadioIpcProtocol.ReadMessage(reader)) != null)
                         {
-                            // SimConnect throws when the sim isn't running -- expected while
-                            // waiting for MSFS to start. Only log the first occurrence so this
-                            // doesn't spam while idle.
-                            if (veryFirstConnectError)
+                            if (message.Type == RadioIpcMessage.TypeRadioState)
                             {
-                                veryFirstConnectError = false;
-                                Debug.WriteLine("RadioStateModel: error connecting to sim: " + ex);
+                                var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.ModeCEnabled ?? false, DateTimeOffset.Now);
+                                lock (_gate) { _current = next; }
+                                Changed?.Invoke(this, EventArgs.Empty);
                             }
                         }
-                    }
-
-                    if (_fsConnect.Connected && _dataDefinitionsRegistered)
-                    {
-                        _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
-                        Thread.Sleep(PollIntervalMs);
-                    }
-                    else
-                    {
-                        Thread.Sleep(TimeSpan.FromSeconds(30));
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("RadioStateModel: error in read loop: " + ex);
-                    Thread.Sleep(TimeSpan.FromSeconds(5));
+                    Debug.WriteLine("RadioStateModel: RadioHost connection error: " + ex.Message);
                 }
+                finally
+                {
+                    lock (_gate) { _writer = null; }
+                }
+
+                Thread.Sleep(ReconnectDelay);
             }
         }
     }

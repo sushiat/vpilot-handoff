@@ -5,48 +5,22 @@
     <RootNamespace>Handoff.Plugin</RootNamespace>
     <AssemblyName>Handoff.Plugin</AssemblyName>
     <LangVersion>latest</LangVersion>
-    <!-- The CTrue.FsConnect package bundles a native x64-only simconnect.dll; explicit
-         PlatformTarget (rather than AnyCPU) is what lets NuGet's native-asset resolution
-         copy the right binary to the output folder. Assumes vPilot's own host process is
-         x64, true for any current vPilot version, but unverified against this repo. -->
-    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-    <PackageReference Include="CTrue.FsConnect" Version="1.3.3" GeneratePathProperty="true" />
-    <!-- Weaves all Copy Local dependencies (managed + the native SimConnect.dll, see
-         costurax64/) into Handoff.Plugin.dll at build time, so deployment is a single file,
-         since vPilot's Plugins folder has no dependency-resolution mechanism of its own. -->
-    <PackageReference Include="Fody" Version="6.9.3" PrivateAssets="all" />
-    <PackageReference Include="Costura.Fody" Version="6.2.0" PrivateAssets="all" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared/ (with Handoff.RadioHost, the wire format and pure conversion/validation
+         logic for the SimConnect IPC bridge, see plugin/README.md and RadioStateModel.cs) is
+         under this project's own directory, so the default SDK-style glob already includes
+         it; only Handoff.Plugin.Tests and Handoff.RadioHost (separate project directories)
+         need excluding/explicit linking. -->
     <Compile Remove="Handoff.Plugin.Tests\**\*.cs" />
+    <Compile Remove="Handoff.RadioHost\**\*.cs" />
   </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="costurax64\SimConnect.dll" />
-  </ItemGroup>
-
-  <!-- costurax64/ isn't checked in (see .gitignore), since the native SimConnect.dll isn't
-       ours to redistribute via source control, same reasoning as lib/. Regenerated on every
-       build from the NuGet package cache, before CoreCompile embeds it as a resource. -->
-  <Target Name="CopyNativeSimConnectForCostura" BeforeTargets="BeforeBuild">
-    <Copy SourceFiles="$(PkgCTrue_FsConnect)\build\simconnect.dll"
-          DestinationFolder="$(MSBuildProjectDirectory)\costurax64"
-          SkipUnchangedFiles="true" />
-  </Target>
-
-  <!-- CTrue.FsConnect's own .targets file copies SimConnect.dll to the output folder too
-       (as a "NativeLibs" None item), which is redundant now that Costura embeds it and
-       defeats the point of a single-file deploy, so remove that copy. -->
-  <Target Name="RemoveRedundantNativeSimConnectCopy" BeforeTargets="AssignTargetPaths">
-    <ItemGroup>
-      <None Remove="@(NativeLibs)" />
-    </ItemGroup>
-  </Target>
 
   <ItemGroup>
     <Reference Include="RossCarlson.Vatsim.Vpilot.Plugins">
