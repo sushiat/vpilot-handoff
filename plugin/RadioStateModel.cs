@@ -134,7 +134,7 @@ namespace Handoff.Plugin
         {
             try
             {
-                using (var probe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
+                using (var probe = new NamedPipeClientStream(".", RadioIpcProtocol.StatePipeName, PipeDirection.In))
                 {
                     probe.Connect((int)ConnectTimeout.TotalMilliseconds);
                     Log("Handoff.RadioHost is already running, reusing it.");
@@ -178,18 +178,30 @@ namespace Handoff.Plugin
             {
                 try
                 {
-                    using (var pipe = new NamedPipeClientStream(".", RadioIpcProtocol.PipeName, PipeDirection.InOut))
+                    // Two one-directional pipes, not one duplex pipe -- a blocking read on one
+                    // thread concurrent with a write from another thread on the same duplex
+                    // PipeStream hangs indefinitely under .NET Framework's synchronous named
+                    // pipe I/O (confirmed by direct local reproduction). See
+                    // RadioIpcProtocol's doc comment.
+                    using (var statePipe = new NamedPipeClientStream(".", RadioIpcProtocol.StatePipeName, PipeDirection.In))
+                    using (var commandPipe = new NamedPipeClientStream(".", RadioIpcProtocol.CommandPipeName, PipeDirection.Out))
                     {
-                        pipe.Connect((int)ConnectTimeout.TotalMilliseconds);
+                        statePipe.Connect((int)ConnectTimeout.TotalMilliseconds);
+                        commandPipe.Connect((int)ConnectTimeout.TotalMilliseconds);
                         Log("Connected to Handoff.RadioHost.");
 
-                        var writer = new StreamWriter(pipe) { AutoFlush = true };
-                        var reader = new StreamReader(pipe);
+                        var writer = new StreamWriter(commandPipe) { AutoFlush = true };
+                        var reader = new StreamReader(statePipe);
                         lock (_gate) { _writer = writer; }
 
                         RadioIpcMessage message;
                         while (_running && (message = RadioIpcProtocol.ReadMessage(reader)) != null)
                         {
+                            if (!_loggedFirstState)
+                            {
+                                Log("Received message from Handoff.RadioHost, type=" + message.Type);
+                            }
+
                             if (message.Type == RadioIpcMessage.TypeRadioState)
                             {
                                 var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.ModeCEnabled ?? false, DateTimeOffset.Now);
@@ -205,7 +217,7 @@ namespace Handoff.Plugin
                             }
                         }
 
-                        if (_running) Log("Handoff.RadioHost closed the pipe.");
+                        if (_running) Log("Handoff.RadioHost closed the pipe (ReadMessage returned null).");
                     }
                 }
                 catch (Exception ex)
