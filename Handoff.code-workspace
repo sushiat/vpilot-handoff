@@ -34,14 +34,14 @@
 			{
 				"label": "plugin: deploy",
 				"type": "shell",
-				"command": "if ($env:VPILOT_HOST) { Invoke-Command -ComputerName $env:VPILOT_HOST -ScriptBlock { Get-Process -Name 'Handoff.RadioHost' -ErrorAction SilentlyContinue | Stop-Process -Force } }; Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose; if (Test-Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -PathType Leaf) { Remove-Item \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Force }; New-Item -ItemType Directory -Force -Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" | Out-Null; Copy-Item -Path 'Handoff.RadioHost\\bin\\Debug\\net48\\*' -Destination \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Recurse -Force -Verbose",
+				"command": "if ($env:VPILOT_HOST) { Invoke-Command -ComputerName $env:VPILOT_HOST -ScriptBlock { Get-Process -Name 'Handoff.RadioHost' -ErrorAction SilentlyContinue | Stop-Process -Force } }; Copy-Item -Path 'bin\\Debug\\net48\\*.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose; if (Test-Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -PathType Leaf) { Remove-Item \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Force }; New-Item -ItemType Directory -Force -Path \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" | Out-Null; Copy-Item -Path 'Handoff.RadioHost\\bin\\Debug\\net48\\*' -Destination \"$env:VPILOT_PLUGINS_DIR\\RadioHost\" -Recurse -Force -Verbose",
 				"options": {
 					"cwd": "${workspaceFolder:plugin}"
 				},
 				"group": "build",
 				"dependsOn": "plugin: build",
 				"problemMatcher": [],
-				"detail": "Stops any running Handoff.RadioHost on VPILOT_HOST (so its locked files can be overwritten), then copies the plugin DLL and the Handoff.RadioHost helper's output folder into the vPilot Plugins folder (as a RadioHost\\ subfolder, so vPilot's plugin scan doesn't trip over its dependency DLLs). Requires VPILOT_PLUGINS_DIR (and VPILOT_HOST, e.g. \"simrig\", if vPilot runs on a different machine) env vars; restart VS Code after setting them for the first time."
+				"detail": "Stops any running Handoff.RadioHost on VPILOT_HOST (so its locked files can be overwritten), then copies the plugin DLL and its dependencies (Newtonsoft.Json, Fleck) plus the Handoff.RadioHost helper's output folder (as a RadioHost\\ subfolder, so vPilot's plugin scan doesn't trip over its dependency DLLs) into the vPilot Plugins folder. Requires VPILOT_PLUGINS_DIR (and VPILOT_HOST, e.g. \"simrig\", if vPilot runs on a different machine) env vars; restart VS Code after setting them for the first time."
 			},
 			{
 				"label": "android: assembleDebug",

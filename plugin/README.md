@@ -61,7 +61,12 @@ dotnet build Handoff.RadioHost/Handoff.RadioHost.csproj
 
 Two things need copying into `%LOCALAPPDATA%\vPilot\Plugins`:
 
-1. `Handoff.Plugin.dll` (single file, no other dependencies to worry about).
+1. `Handoff.Plugin.dll` **and its dependency DLLs** (`Newtonsoft.Json.dll`, `Fleck.dll`) —
+   no longer single-file since Costura.Fody was dropped (it existed only to bundle
+   SimConnect's native DLL, which now lives entirely in `Handoff.RadioHost` instead). vPilot's
+   plugin-folder scan is fine with extra non-plugin DLLs sitting alongside
+   `Handoff.Plugin.dll` directly (it just skips ones with no `IPlugin` type, same as it
+   already does for its own dependencies) — no subfolder needed here, unlike RadioHost below.
 2. `Handoff.RadioHost`'s whole build output folder, into a `RadioHost\` subfolder — as a
    subfolder specifically, so vPilot's plugin-folder scan doesn't trip over
    `CTrue.FsConnect.dll`/`Newtonsoft.Json.dll`/etc. sitting there as stray non-plugin DLLs.
