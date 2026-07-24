@@ -1,0 +1,53 @@
+{
+	"folders": [
+		{
+			"name": "docs",
+			"path": "."
+		},
+		{
+			"name": "plugin",
+			"path": "plugin"
+		},
+		{
+			"name": "android",
+			"path": "android"
+		}
+	],
+	"settings": {},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "plugin: build",
+				"type": "shell",
+				"command": "dotnet build",
+				"options": {
+					"cwd": "${workspaceFolder:plugin}"
+				},
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				},
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "android: assembleDebug",
+				"type": "shell",
+				"command": "./gradlew assembleDebug",
+				"options": {
+					"cwd": "${workspaceFolder:android}",
+					"env": {
+						"JAVA_HOME": "${env:USERPROFILE}\\scoop\\apps\\openjdk17\\current"
+					}
+				},
+				"group": "build",
+				"presentation": {
+					"reveal": "always",
+					"panel": "dedicated"
+				},
+				"problemMatcher": [],
+				"detail": "Slow, especially on a cold Gradle daemon — runs in its own dedicated terminal panel so it doesn't block other tasks."
+			}
+		]
+	}
+}
