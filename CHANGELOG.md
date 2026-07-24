@@ -25,3 +25,7 @@ once it has its first release.
   `PrivateMessageReceived/RadioMessageReceived/BroadcastMessageReceived/SelcalAlertReceived`
   events plus outgoing `SendPrivateMessage`/`SendRadioMessage` calls, wired up in
   `HandoffPlugin.Initialize`.
+- Plugin: `RadioStateModel`, a SimConnect-based connection for ownship radio state --
+  COM1/COM2 tuned frequency (read and remote-settable) and Mode C transponder state
+  (read-only), independent of `IBroker` since vPilot's plugin API has no ownship telemetry
+  at all. Uses the `CTrue.FsConnect` NuGet package; plugin now builds `x64`-only.
