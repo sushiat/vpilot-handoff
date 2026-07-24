@@ -11,6 +11,7 @@ namespace Handoff.Plugin
         private ControllerStateModel _controllerState;
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
+        private HandoffWebSocketServer _webSocketServer;
 
         public void Initialize(IBroker broker)
         {
@@ -30,6 +31,12 @@ namespace Handoff.Plugin
             // guaranteed on a hard kill/crash, but catches the common case ProcessExit does
             // fire for.
             AppDomain.CurrentDomain.ProcessExit += (sender, e) => _radioState.Stop();
+
+            // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
+            // listener, and the Android app should be able to connect and see plugin status
+            // even before the pilot connects.
+            _webSocketServer = new HandoffWebSocketServer(_controllerState, _chatModel, _radioState, _broker.PostDebugMessage);
+            _webSocketServer.Start();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }

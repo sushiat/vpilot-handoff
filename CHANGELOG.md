@@ -38,3 +38,10 @@ once it has its first release.
 - VS Code: `plugin: deploy` task, copying the built plugin DLL and the `Handoff.RadioHost`
   helper's output folder to a `VPILOT_PLUGINS_DIR`-configured Plugins folder (builds first
   via `dependsOn`).
+- `docs/protocol.md`: the WebSocket contract (controllers, chat, radio state; remote chat
+  send and COM1/COM2 tuning), now filled in.
+- Plugin: `HandoffWebSocketServer`, serving `docs/protocol.md` over a Fleck-hosted WebSocket
+  (`ws://0.0.0.0:48765`) — raw TCP sockets rather than `HttpListener`, so binding to a
+  LAN-reachable address needs no admin rights or `netsh` URL-ACL setup. Started in
+  `HandoffPlugin.Initialize`, independent of the VATSIM connection. Message building/parsing
+  lives in `ProtocolMessages`, unit tested.
