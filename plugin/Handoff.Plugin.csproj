@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Handoff.Plugin.Tests\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="RossCarlson.Vatsim.Vpilot.Plugins">
       <HintPath>lib\RossCarlson.Vatsim.Vpilot.Plugins.dll</HintPath>
       <Private>false</Private>

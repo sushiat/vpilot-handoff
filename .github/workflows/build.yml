@@ -32,6 +32,10 @@ jobs:
         run: dotnet build plugin/Handoff.Plugin.csproj
         shell: pwsh
 
+      - name: Test
+        run: dotnet test plugin/Handoff.Plugin.Tests/Handoff.Plugin.Tests.csproj
+        shell: pwsh
+
   android:
     name: Build android (Gradle)
     runs-on: ubuntu-latest

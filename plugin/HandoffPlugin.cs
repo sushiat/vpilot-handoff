@@ -7,10 +7,12 @@ namespace Handoff.Plugin
         public string Name => "Handoff";
 
         private IBroker _broker;
+        private ControllerStateModel _controllerState;
 
         public void Initialize(IBroker broker)
         {
             _broker = broker;
+            _controllerState = new ControllerStateModel(_broker);
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }
     }

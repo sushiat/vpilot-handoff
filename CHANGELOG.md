@@ -17,3 +17,7 @@ once it has its first release.
 - CI: build workflow (`.github/workflows/build.yml`) verifying both projects still
   build on push/PR, using a hand-reconstructed public-API-only stub of the
   non-redistributable vPilot plugin DLL for the plugin build.
+- Plugin: `ControllerStateModel`, an in-memory live controller list built from
+  `IBroker`'s `ControllerAdded/Deleted/FrequencyChanged/LocationChanged` events, wired
+  up in `HandoffPlugin.Initialize`. First xUnit test project
+  (`plugin/Handoff.Plugin.Tests/`), now run in CI.
