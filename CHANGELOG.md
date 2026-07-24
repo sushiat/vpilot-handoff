@@ -21,3 +21,7 @@ once it has its first release.
   `IBroker`'s `ControllerAdded/Deleted/FrequencyChanged/LocationChanged` events, wired
   up in `HandoffPlugin.Initialize`. First xUnit test project
   (`plugin/Handoff.Plugin.Tests/`), now run in CI.
+- Plugin: `ChatModel`, an in-memory chat log and SELCAL alert list built from `IBroker`'s
+  `PrivateMessageReceived/RadioMessageReceived/BroadcastMessageReceived/SelcalAlertReceived`
+  events plus outgoing `SendPrivateMessage`/`SendRadioMessage` calls, wired up in
+  `HandoffPlugin.Initialize`.

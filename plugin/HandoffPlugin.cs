@@ -8,11 +8,13 @@ namespace Handoff.Plugin
 
         private IBroker _broker;
         private ControllerStateModel _controllerState;
+        private ChatModel _chatModel;
 
         public void Initialize(IBroker broker)
         {
             _broker = broker;
             _controllerState = new ControllerStateModel(_broker);
+            _chatModel = new ChatModel(_broker);
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }
     }
