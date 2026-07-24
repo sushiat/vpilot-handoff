@@ -12,7 +12,9 @@ Unlike push-notification relay plugins, Handoff runs a local server inside the v
 
 ## Status
 
-Early development. Not yet functional.
+Early development. Both `plugin/` and `android/` are scaffolded (buildable project
+skeletons — `plugin/` builds with `dotnet build`, `android/` is a plain Gradle/Kotlin
+project) but contain no application logic yet. Not yet functional.
 
 ## License
 
