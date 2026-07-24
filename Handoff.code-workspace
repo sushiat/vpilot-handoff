@@ -31,6 +31,18 @@
 				"problemMatcher": "$msCompile"
 			},
 			{
+				"label": "plugin: deploy",
+				"type": "shell",
+				"command": "Copy-Item -Path 'bin\\Debug\\net48\\Handoff.Plugin.dll' -Destination \"$env:VPILOT_PLUGINS_DIR\" -Force -Verbose",
+				"options": {
+					"cwd": "${workspaceFolder:plugin}"
+				},
+				"group": "build",
+				"dependsOn": "plugin: build",
+				"problemMatcher": [],
+				"detail": "Copies the built plugin DLL into the vPilot Plugins folder (dependencies are embedded via Costura.Fody, so this is the only file needed). Requires the VPILOT_PLUGINS_DIR env var; restart VS Code after setting it for the first time."
+			},
+			{
 				"label": "android: assembleDebug",
 				"type": "shell",
 				"command": "./gradlew assembleDebug",

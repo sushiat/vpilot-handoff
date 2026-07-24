@@ -25,7 +25,12 @@ once it has its first release.
   `PrivateMessageReceived/RadioMessageReceived/BroadcastMessageReceived/SelcalAlertReceived`
   events plus outgoing `SendPrivateMessage`/`SendRadioMessage` calls, wired up in
   `HandoffPlugin.Initialize`.
-- Plugin: `RadioStateModel`, a SimConnect-based connection for ownship radio state --
+- Plugin: `RadioStateModel`, a SimConnect-based connection for ownship radio state —
   COM1/COM2 tuned frequency (read and remote-settable) and Mode C transponder state
   (read-only), independent of `IBroker` since vPilot's plugin API has no ownship telemetry
   at all. Uses the `CTrue.FsConnect` NuGet package; plugin now builds `x64`-only.
+- Plugin: build now weaves all runtime dependencies (managed and the native
+  `simconnect.dll`) directly into `Handoff.Plugin.dll` via Costura.Fody, so deployment is a
+  single file — vPilot's Plugins folder has no dependency-resolution mechanism of its own.
+- VS Code: `plugin: deploy` task, copying the built plugin DLL to a `VPILOT_PLUGINS_DIR`-configured
+  Plugins folder (builds first via `dependsOn`).
