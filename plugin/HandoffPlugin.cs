@@ -1,3 +1,4 @@
+using System;
 using RossCarlson.Vatsim.Vpilot.Plugins;
 
 namespace Handoff.Plugin
@@ -24,6 +25,11 @@ namespace Handoff.Plugin
             _broker.NetworkConnected += (sender, e) => _radioState.Start();
             _broker.NetworkDisconnected += (sender, e) => _radioState.Stop();
             _broker.SessionEnded += (sender, e) => _radioState.Stop();
+
+            // Best-effort backstop for closing vPilot without disconnecting first -- not
+            // guaranteed on a hard kill/crash, but catches the common case ProcessExit does
+            // fire for.
+            AppDomain.CurrentDomain.ProcessExit += (sender, e) => _radioState.Stop();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }
