@@ -36,15 +36,17 @@ plugin DLL itself. This is a direct consequence of a real, confirmed constraint:
 
 So there is no way to talk to SimConnect via a modern, actively-maintained wrapper from
 *inside* vPilot's x86 process. `Handoff.RadioHost` is a small x64 console app that owns the
-`CTrue.FsConnect` connection instead; the plugin spawns it as a child process from
-`HandoffPlugin.Initialize()` (with a check-before-spawn against its well-known named pipe,
-so restarting vPilot doesn't stack up duplicate helper processes) and talks to it over a
-local named pipe (`RadioStateModel.cs` on the plugin side, `Program.cs` on the helper side;
-shared wire-format/pure-logic code lives in `plugin/Shared/`). vPilot itself has no unload
-hook for plugins, so the helper process isn't explicitly killed when vPilot exits — it just
-idles, retrying its own SimConnect connection, until the next time it's needed or the
-machine restarts. Full lifetime-binding (Windows Job Objects) would close that gap but isn't
-implemented yet.
+`CTrue.FsConnect` connection instead; the plugin talks to it over a local named pipe
+(`RadioStateModel.cs` on the plugin side, `Program.cs` on the helper side; shared
+wire-format/pure-logic code lives in `plugin/Shared/`).
+
+Its lifecycle is tied to the VATSIM connection, not the plugin's own load lifetime (`IPlugin`
+has no unload hook at all, so that's the only clean way to actually stop it): `HandoffPlugin`
+calls `RadioStateModel.Start()` on `IBroker.NetworkConnected`, which spawns
+`Handoff.RadioHost.exe` as a child process (with a check-before-spawn against its well-known
+named pipe, so reconnecting doesn't stack up duplicates), and `Stop()` on
+`NetworkDisconnected`/`SessionEnded`, which kills it by process name — matches the pattern
+vPilot-Pushover uses. Radio state isn't needed before you're connected anyway.
 
 ## Build
 
