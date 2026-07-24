@@ -9,6 +9,21 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- WebSocket server for the Android client. Raw TCP sockets, no http.sys involved,
+         unlike HttpListener, so binding to a LAN-reachable address needs no admin rights or
+         netsh URL-ACL setup. -->
+    <PackageReference Include="Fleck" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared/ (with Handoff.RadioHost, the wire format and pure conversion/validation
+         logic for the SimConnect IPC bridge, see plugin/README.md and RadioStateModel.cs) is
+         under this project's own directory, so the default SDK-style glob already includes
+         it; only Handoff.Plugin.Tests and Handoff.RadioHost (separate project directories)
+         need excluding/explicit linking. -->
+    <Compile Remove="Handoff.Plugin.Tests\**\*.cs" />
+    <Compile Remove="Handoff.RadioHost\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

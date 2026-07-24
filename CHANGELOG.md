@@ -17,3 +17,31 @@ once it has its first release.
 - CI: build workflow (`.github/workflows/build.yml`) verifying both projects still
   build on push/PR, using a hand-reconstructed public-API-only stub of the
   non-redistributable vPilot plugin DLL for the plugin build.
+- Plugin: `ControllerStateModel`, an in-memory live controller list built from
+  `IBroker`'s `ControllerAdded/Deleted/FrequencyChanged/LocationChanged` events, wired
+  up in `HandoffPlugin.Initialize`. First xUnit test project
+  (`plugin/Handoff.Plugin.Tests/`), now run in CI.
+- Plugin: `ChatModel`, an in-memory chat log and SELCAL alert list built from `IBroker`'s
+  `PrivateMessageReceived/RadioMessageReceived/BroadcastMessageReceived/SelcalAlertReceived`
+  events plus outgoing `SendPrivateMessage`/`SendRadioMessage` calls, wired up in
+  `HandoffPlugin.Initialize`.
+- Plugin: ownship radio state (COM1/COM2 tuned frequency, read and remote-settable; Mode C
+  transponder state, read-only), independent of `IBroker` since vPilot's plugin API has no
+  ownship telemetry at all. Split across two processes: `Handoff.RadioHost` (a new x64
+  console app owning the actual `CTrue.FsConnect`/SimConnect connection) and
+  `RadioStateModel` in the plugin itself (a named-pipe IPC client that spawns and talks to
+  it). Required because vPilot's own process is x86 (confirmed by direct inspection) while
+  every available modern SimConnect wrapper's native binary is x64-only — an in-process x64
+  SimConnect connection inside the plugin (briefly attempted, including bundling it into a
+  single file via Costura.Fody) cannot load into vPilot at all. Shared wire-format and pure
+  conversion/validation logic lives in `plugin/Shared/`.
+- VS Code: `plugin: deploy` task, copying the built plugin DLL and the `Handoff.RadioHost`
+  helper's output folder to a `VPILOT_PLUGINS_DIR`-configured Plugins folder (builds first
+  via `dependsOn`).
+- `docs/protocol.md`: the WebSocket contract (controllers, chat, radio state; remote chat
+  send and COM1/COM2 tuning), now filled in.
+- Plugin: `HandoffWebSocketServer`, serving `docs/protocol.md` over a Fleck-hosted WebSocket
+  (`ws://0.0.0.0:48765`) — raw TCP sockets rather than `HttpListener`, so binding to a
+  LAN-reachable address needs no admin rights or `netsh` URL-ACL setup. Started in
+  `HandoffPlugin.Initialize`, independent of the VATSIM connection. Message building/parsing
+  lives in `ProtocolMessages`, unit tested.

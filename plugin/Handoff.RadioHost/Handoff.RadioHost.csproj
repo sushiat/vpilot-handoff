@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>Handoff.RadioHost</RootNamespace>
+    <AssemblyName>Handoff.RadioHost</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <!-- CTrue.FsConnect's bundled native simconnect.dll is x64-only. Unlike the vPilot
+         plugin, this is a real standalone process, not loaded in-process into vPilot's own
+         x86 host, so it's free to be x64, which is the whole point of splitting it out. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="CTrue.FsConnect" Version="1.3.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\RadioFrequency.cs" Link="Shared\RadioFrequency.cs" />
+    <Compile Include="..\Shared\RadioState.cs" Link="Shared\RadioState.cs" />
+    <Compile Include="..\Shared\RadioIpcMessage.cs" Link="Shared\RadioIpcMessage.cs" />
+    <Compile Include="..\Shared\RadioIpcProtocol.cs" Link="Shared\RadioIpcProtocol.cs" />
+  </ItemGroup>
+
+</Project>
