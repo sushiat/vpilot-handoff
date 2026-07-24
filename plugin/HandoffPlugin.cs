@@ -16,7 +16,15 @@ namespace Handoff.Plugin
             _broker = broker;
             _controllerState = new ControllerStateModel(_broker);
             _chatModel = new ChatModel(_broker);
+
+            // RadioStateModel's helper process is tied to the VATSIM connection, not the
+            // plugin's own load lifetime -- radio state isn't needed before connecting, and
+            // IPlugin has no unload hook, so this is the only clean way to actually stop it.
             _radioState = new RadioStateModel(_broker.PostDebugMessage);
+            _broker.NetworkConnected += (sender, e) => _radioState.Start();
+            _broker.NetworkDisconnected += (sender, e) => _radioState.Stop();
+            _broker.SessionEnded += (sender, e) => _radioState.Stop();
+
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }
     }

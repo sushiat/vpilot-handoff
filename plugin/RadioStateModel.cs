@@ -19,10 +19,11 @@ namespace Handoff.Plugin
     /// SimConnect integration runs in its own x64 helper process, spawned here and talked to
     /// over IPC. See plugin/README.md for the full story.
     ///
-    /// Threading: owns a background thread that (re)connects to the named pipe, reads
-    /// newline-delimited JSON state updates, and forwards writes the other direction. No
-    /// clean shutdown path -- IPlugin has no unload hook, same accepted limitation as
-    /// elsewhere in this plugin.
+    /// Lifecycle: tied to the VATSIM connection (Start/Stop called from HandoffPlugin on
+    /// IBroker.NetworkConnected/NetworkDisconnected/SessionEnded, matching the pattern used
+    /// by vPilot-Pushover), not the plugin's own load lifetime -- radio state isn't needed
+    /// before connecting, and this also means the helper process actually exits, rather than
+    /// running forever with no way to stop it (IPlugin has no unload hook at all).
     /// </summary>
     public sealed class RadioStateModel
     {
@@ -30,9 +31,11 @@ namespace Handoff.Plugin
         private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
 
         private readonly object _gate = new object();
+        private readonly object _lifecycleGate = new object();
         private readonly Action<string> _logDebug;
         private RadioState _current = new RadioState(null, null, false, DateTimeOffset.Now);
         private StreamWriter _writer;
+        private volatile bool _running;
         private bool _loggedFirstState;
 
         public event EventHandler Changed;
@@ -46,15 +49,53 @@ namespace Handoff.Plugin
         public RadioStateModel(Action<string> logDebug = null)
         {
             _logDebug = logDebug;
-
-            EnsureRadioHostRunning();
-
-            new Thread(ReadFromRadioHost) { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
         }
 
         public RadioState Current
         {
             get { lock (_gate) { return _current; } }
+        }
+
+        public void Start()
+        {
+            lock (_lifecycleGate)
+            {
+                if (_running) return;
+                _running = true;
+
+                EnsureRadioHostRunning();
+                new Thread(ReadFromRadioHost) { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_lifecycleGate)
+            {
+                if (!_running) return;
+                _running = false;
+            }
+
+            foreach (var process in Process.GetProcessesByName("Handoff.RadioHost"))
+            {
+                try
+                {
+                    process.Kill();
+                    Log("Stopped Handoff.RadioHost (PID " + process.Id + ").");
+                }
+                catch (Exception ex)
+                {
+                    Log("Failed to stop Handoff.RadioHost (PID " + process.Id + "): " + ex.Message);
+                }
+            }
+
+            _loggedFirstState = false;
+            lock (_gate)
+            {
+                _writer = null;
+                _current = new RadioState(null, null, false, DateTimeOffset.Now);
+            }
+            Changed?.Invoke(this, EventArgs.Empty);
         }
 
         public void SetCom1Frequency(double megahertz)
@@ -97,12 +138,12 @@ namespace Handoff.Plugin
                 {
                     probe.Connect((int)ConnectTimeout.TotalMilliseconds);
                     Log("Handoff.RadioHost is already running, reusing it.");
-                    return; // Already running (a prior vPilot session's helper, or otherwise) -- reuse it.
+                    return; // Already running (e.g. didn't get cleanly stopped last time) -- reuse it.
                 }
             }
             catch (Exception)
             {
-                // Nothing listening -- expected on first launch. Fall through and spawn it.
+                // Nothing listening -- expected. Fall through and spawn it.
             }
 
             var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -133,7 +174,7 @@ namespace Handoff.Plugin
 
         private void ReadFromRadioHost()
         {
-            while (true)
+            while (_running)
             {
                 try
                 {
@@ -147,7 +188,7 @@ namespace Handoff.Plugin
                         lock (_gate) { _writer = writer; }
 
                         RadioIpcMessage message;
-                        while ((message = RadioIpcProtocol.ReadMessage(reader)) != null)
+                        while (_running && (message = RadioIpcProtocol.ReadMessage(reader)) != null)
                         {
                             if (message.Type == RadioIpcMessage.TypeRadioState)
                             {
@@ -164,19 +205,19 @@ namespace Handoff.Plugin
                             }
                         }
 
-                        Log("Handoff.RadioHost closed the pipe.");
+                        if (_running) Log("Handoff.RadioHost closed the pipe.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log("Handoff.RadioHost connection error: " + ex.Message);
+                    if (_running) Log("Handoff.RadioHost connection error: " + ex.Message);
                 }
                 finally
                 {
                     lock (_gate) { _writer = null; }
                 }
 
-                Thread.Sleep(ReconnectDelay);
+                if (_running) Thread.Sleep(ReconnectDelay);
             }
         }
 
