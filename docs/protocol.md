@@ -4,6 +4,18 @@ The WebSocket contract between the vPilot plugin (server) and any client (Androi
 ports). This is the source of truth for message shapes — client implementations should
 conform to this, not to whichever client's source happens to exist first.
 
+## Discovery
+
+The plugin's LAN IP isn't known in advance, so it also listens for a UDP broadcast discovery
+request on port `48766` — plain UDP, not mDNS/Bonjour, so no extra dependency is needed on
+either side. A client broadcasts the ASCII text `HANDOFF_DISCOVER` to `255.255.255.255:48766`;
+the plugin unicasts back `{"port":48765}` to the sender. This listener runs for the plugin's
+whole lifetime (not tied to the VATSIM connection), same as the WebSocket server below, so a
+client can discover it even before the pilot connects.
+
+Discovery isn't guaranteed to work on every network (some routers apply AP client isolation or
+block broadcast traffic), so clients should keep a manually-entered IP as a fallback.
+
 ## Connection
 
 The plugin listens on `ws://<pc-lan-ip>:48765/` (Fleck-based, plain TCP — no HTTP handshake

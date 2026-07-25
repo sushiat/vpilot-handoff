@@ -12,6 +12,7 @@ namespace Handoff.Plugin
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
         private HandoffWebSocketServer _webSocketServer;
+        private HandoffDiscoveryListener _discoveryListener;
 
         public void Initialize(IBroker broker)
         {
@@ -37,6 +38,9 @@ namespace Handoff.Plugin
             // even before the pilot connects.
             _webSocketServer = new HandoffWebSocketServer(_controllerState, _chatModel, _radioState, _broker.PostDebugMessage);
             _webSocketServer.Start();
+
+            _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);
+            _discoveryListener.Start();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }

@@ -18,6 +18,7 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class HandoffWebSocketServer
     {
+        public const int Port = 48765;
         private const string Address = "ws://0.0.0.0:48765";
 
         private readonly object _gate = new object();
