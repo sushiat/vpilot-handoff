@@ -90,6 +90,8 @@ namespace Handoff.Plugin
                 return;
             }
 
+            Log("Received client command: " + json);
+
             switch (command?.Type)
             {
                 case ClientCommand.TypeSendPrivateMessage:
@@ -103,6 +105,15 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeSetCom2Frequency:
                     if (command.Megahertz.HasValue) _radioState.SetCom2Frequency(command.Megahertz.Value);
+                    break;
+                case ClientCommand.TypeSetCom1StandbyFrequency:
+                    if (command.Megahertz.HasValue) _radioState.SetCom1StandbyFrequency(command.Megahertz.Value);
+                    break;
+                case ClientCommand.TypeSetCom2StandbyFrequency:
+                    if (command.Megahertz.HasValue) _radioState.SetCom2StandbyFrequency(command.Megahertz.Value);
+                    break;
+                case ClientCommand.TypeSetTransponderCode:
+                    if (command.TransponderCode.HasValue) _radioState.SetTransponderCode(command.TransponderCode.Value);
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);

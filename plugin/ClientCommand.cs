@@ -12,6 +12,9 @@ namespace Handoff.Plugin
         public const string TypeSendRadioMessage = "sendRadioMessage";
         public const string TypeSetCom1Frequency = "setCom1Frequency";
         public const string TypeSetCom2Frequency = "setCom2Frequency";
+        public const string TypeSetCom1StandbyFrequency = "setCom1StandbyFrequency";
+        public const string TypeSetCom2StandbyFrequency = "setCom2StandbyFrequency";
+        public const string TypeSetTransponderCode = "setTransponderCode";
 
         public string Type { get; set; }
 
@@ -21,8 +24,12 @@ namespace Handoff.Plugin
         // sendPrivateMessage / sendRadioMessage
         public string Message { get; set; }
 
-        // setCom1Frequency / setCom2Frequency -- plain MHz, not the compressed-integer format
-        // used everywhere else in the protocol (see docs/protocol.md for why).
+        // setCom1Frequency / setCom2Frequency / setCom1StandbyFrequency /
+        // setCom2StandbyFrequency -- plain MHz, not the compressed-integer format used
+        // everywhere else in the protocol (see docs/protocol.md for why).
         public double? Megahertz { get; set; }
+
+        // setTransponderCode -- plain decimal squawk (e.g. 1200), not BCD.
+        public int? TransponderCode { get; set; }
     }
 }

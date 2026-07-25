@@ -43,22 +43,28 @@ class MessagesTest {
 
     @Test
     fun decodesRadioStateMessageWithNullFrequencies() {
-        val json = """{"type":"radioState","com1Frequency":null,"com2Frequency":null,"modeCEnabled":false}"""
+        val json = """{"type":"radioState","com1Frequency":null,"com2Frequency":null,"com1StandbyFrequency":null,"com2StandbyFrequency":null,"modeCEnabled":false,"transponderCode":null}"""
 
         val message = decodeServerMessage(json) as RadioStateMessage
         assertNull(message.com1Frequency)
         assertNull(message.com2Frequency)
+        assertNull(message.com1StandbyFrequency)
+        assertNull(message.com2StandbyFrequency)
         assertEquals(false, message.modeCEnabled)
+        assertNull(message.transponderCode)
     }
 
     @Test
     fun decodesRadioStateMessageWithValues() {
-        val json = """{"type":"radioState","com1Frequency":23725,"com2Frequency":18000,"modeCEnabled":true}"""
+        val json = """{"type":"radioState","com1Frequency":23725,"com2Frequency":18000,"com1StandbyFrequency":21000,"com2StandbyFrequency":19000,"modeCEnabled":true,"transponderCode":1200}"""
 
         val message = decodeServerMessage(json) as RadioStateMessage
         assertEquals(23725, message.com1Frequency)
         assertEquals(18000, message.com2Frequency)
+        assertEquals(21000, message.com1StandbyFrequency)
+        assertEquals(19000, message.com2StandbyFrequency)
         assertEquals(true, message.modeCEnabled)
+        assertEquals(1200, message.transponderCode)
     }
 
     @Test
@@ -88,6 +94,24 @@ class MessagesTest {
     fun encodesSetCom2FrequencyCommand() {
         val json = SetCom2FrequencyCommand(megahertz = 118.3).encode()
         assertEquals("""{"type":"setCom2Frequency","megahertz":118.3}""", json)
+    }
+
+    @Test
+    fun encodesSetCom1StandbyFrequencyCommand() {
+        val json = SetCom1StandbyFrequencyCommand(megahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom1StandbyFrequency","megahertz":121.9}""", json)
+    }
+
+    @Test
+    fun encodesSetCom2StandbyFrequencyCommand() {
+        val json = SetCom2StandbyFrequencyCommand(megahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom2StandbyFrequency","megahertz":121.9}""", json)
+    }
+
+    @Test
+    fun encodesSetTransponderCodeCommand() {
+        val json = SetTransponderCodeCommand(transponderCode = 1200).encode()
+        assertEquals("""{"type":"setTransponderCode","transponderCode":1200}""", json)
     }
 
     @Test

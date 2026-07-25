@@ -53,7 +53,10 @@ data class RadioStateMessage(
     val type: String = "radioState",
     val com1Frequency: Int? = null,
     val com2Frequency: Int? = null,
-    val modeCEnabled: Boolean
+    val com1StandbyFrequency: Int? = null,
+    val com2StandbyFrequency: Int? = null,
+    val modeCEnabled: Boolean,
+    val transponderCode: Int? = null
 ) : ServerMessage
 
 private val json = Json {
@@ -109,4 +112,28 @@ data class SetCom2FrequencyCommand(
     val megahertz: Double
 ) : ClientCommand {
     override fun encode() = json.encodeToString(SetCom2FrequencyCommand.serializer(), this)
+}
+
+@Serializable
+data class SetCom1StandbyFrequencyCommand(
+    val type: String = "setCom1StandbyFrequency",
+    val megahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom1StandbyFrequencyCommand.serializer(), this)
+}
+
+@Serializable
+data class SetCom2StandbyFrequencyCommand(
+    val type: String = "setCom2StandbyFrequency",
+    val megahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom2StandbyFrequencyCommand.serializer(), this)
+}
+
+@Serializable
+data class SetTransponderCodeCommand(
+    val type: String = "setTransponderCode",
+    val transponderCode: Int
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetTransponderCodeCommand.serializer(), this)
 }

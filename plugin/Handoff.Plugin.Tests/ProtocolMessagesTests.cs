@@ -80,26 +80,32 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildRadioStateMessage_BeforeFirstRead_FrequenciesAreNull()
         {
-            var state = new RadioState(null, null, false, DateTimeOffset.UtcNow);
+            var state = new RadioState(null, null, null, null, false, null, DateTimeOffset.UtcNow);
 
             var json = JObject.Parse(ProtocolMessages.BuildRadioStateMessage(state));
 
             Assert.Equal("radioState", (string)json["type"]);
             Assert.Equal(JTokenType.Null, json["com1Frequency"].Type);
             Assert.Equal(JTokenType.Null, json["com2Frequency"].Type);
+            Assert.Equal(JTokenType.Null, json["com1StandbyFrequency"].Type);
+            Assert.Equal(JTokenType.Null, json["com2StandbyFrequency"].Type);
             Assert.False((bool)json["modeCEnabled"]);
+            Assert.Equal(JTokenType.Null, json["transponderCode"].Type);
         }
 
         [Fact]
         public void BuildRadioStateMessage_WithValues()
         {
-            var state = new RadioState(23725, 18000, true, DateTimeOffset.UtcNow);
+            var state = new RadioState(23725, 18000, 21000, 19000, true, 1200, DateTimeOffset.UtcNow);
 
             var json = JObject.Parse(ProtocolMessages.BuildRadioStateMessage(state));
 
             Assert.Equal(23725, (int)json["com1Frequency"]);
             Assert.Equal(18000, (int)json["com2Frequency"]);
+            Assert.Equal(21000, (int)json["com1StandbyFrequency"]);
+            Assert.Equal(19000, (int)json["com2StandbyFrequency"]);
             Assert.True((bool)json["modeCEnabled"]);
+            Assert.Equal(1200, (int)json["transponderCode"]);
         }
 
         [Fact]
@@ -137,6 +143,33 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal(ClientCommand.TypeSetCom2Frequency, command.Type);
             Assert.Equal(118.3, command.Megahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom1StandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom1StandbyFrequency\",\"megahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom1StandbyFrequency, command.Type);
+            Assert.Equal(121.9, command.Megahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom2StandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom2StandbyFrequency\",\"megahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom2StandbyFrequency, command.Type);
+            Assert.Equal(121.9, command.Megahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetTransponderCode()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setTransponderCode\",\"transponderCode\":1200}");
+
+            Assert.Equal(ClientCommand.TypeSetTransponderCode, command.Type);
+            Assert.Equal(1200, command.TransponderCode);
         }
 
         [Fact]

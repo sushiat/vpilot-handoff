@@ -1,5 +1,6 @@
 package at.sushi.handoff.network
 
+import android.util.Log
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ServerMessage
 import at.sushi.handoff.protocol.decodeServerMessage
@@ -43,7 +44,14 @@ class HandoffWebSocketClient(
     }
 
     fun send(command: ClientCommand) {
-        webSocket?.send(command.encode())
+        val json = command.encode()
+        val socket = webSocket
+        if (socket == null) {
+            Log.w("HandoffWS", "send() called with no active WebSocket: $json")
+            return
+        }
+        val enqueued = socket.send(json)
+        Log.d("HandoffWS", "send($json) enqueued=$enqueued")
     }
 
     fun close() {

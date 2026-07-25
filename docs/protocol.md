@@ -87,20 +87,25 @@ messages and SELCAL alerts, `null` otherwise.
 
 ### `radioState`
 
-Ownship COM1/COM2 tuned frequency and Mode C transponder state, resent whenever any of them
-change.
+Ownship COM1/COM2 active + standby tuned frequency, transponder code, and Mode C state, resent
+whenever any of them change.
 
 ```json
 {
   "type": "radioState",
   "com1Frequency": 23725,
   "com2Frequency": null,
-  "modeCEnabled": false
+  "com1StandbyFrequency": 21000,
+  "com2StandbyFrequency": null,
+  "modeCEnabled": false,
+  "transponderCode": 1200
 }
 ```
 
-`com1Frequency`/`com2Frequency` are `null` until the first SimConnect read completes (or if
-the SimConnect helper process isn't running/connected).
+All frequency fields are `null` until the first SimConnect read completes (or if the
+SimConnect helper process isn't running/connected). `transponderCode` is a plain decimal
+squawk (e.g. `1200`), not BCD -- that encoding is purely a SimConnect-boundary detail on the
+plugin side.
 
 ## Client → server messages
 
@@ -120,18 +125,36 @@ behavior).
 {"type": "sendRadioMessage", "message": "request pushback"}
 ```
 
-### `setCom1Frequency` / `setCom2Frequency`
+### `setCom1Frequency` / `setCom2Frequency` / `setCom1StandbyFrequency` / `setCom2StandbyFrequency`
 
-Remote-tune COM1/COM2. `megahertz` is a plain decimal MHz value (not the compressed-integer
-format used everywhere else in this protocol) since this is the one place the client
-constructs a frequency value itself, rather than echoing one already sent by the server, and
-plain MHz is what a frequency-entry UI naturally produces. Must be within the civil VHF
-airband (118.000–136.990); out-of-range values are rejected (dropped, no error response) by
-the plugin.
+Remote-tune COM1/COM2, active or standby. `megahertz` is a plain decimal MHz value (not the
+compressed-integer format used everywhere else in this protocol) since this is the one place
+the client constructs a frequency value itself, rather than echoing one already sent by the
+server, and plain MHz is what a frequency-entry UI naturally produces. Must be within the
+civil VHF airband (118.000–136.990); out-of-range values are rejected (dropped, no error
+response) by the plugin.
+
+Active-frequency writes go through MSFS's `COM_RADIO_SET_HZ`/`COM2_RADIO_SET_HZ` SimConnect
+client events on the plugin side, not a direct SimVar write — a raw write on
+`COM ACTIVE FREQUENCY` is silently ignored by most aircraft avionics, which continuously
+re-assert their own active frequency. Client events are treated the same as a physical
+knob turn and are honored.
 
 ```json
 {"type": "setCom1Frequency", "megahertz": 123.725}
 {"type": "setCom2Frequency", "megahertz": 118.3}
+{"type": "setCom1StandbyFrequency", "megahertz": 121.9}
+{"type": "setCom2StandbyFrequency", "megahertz": 121.9}
+```
+
+### `setTransponderCode`
+
+Sets the squawk code. `transponderCode` is a plain decimal 4-digit code, each digit 0-7 (the
+civil transponder code range); out-of-range values are rejected (dropped, no error response)
+by the plugin.
+
+```json
+{"type": "setTransponderCode", "transponderCode": 1200}
 ```
 
 ## Not yet in this protocol
