@@ -15,12 +15,27 @@ data class Controller(
     val callsign: String,
     val frequency: Int,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    // Enrichment from the public VATSIM data feed (not IBroker, which exposes none of this) --
+    // null until that feed's ~15s-lagged enrichment solidifies for this callsign.
+    val cid: Int? = null,
+    val name: String? = null,
+    val facility: Int? = null,
+    val rating: Int? = null,
+    // Priority-ranking flags -- see docs/protocol.md. Not yet used for anything beyond
+    // decoding: the list arrives pre-sorted by the plugin, so rendering it in order is all
+    // that's needed for now; colour-coding by these flags is a follow-up.
+    val requestsContactMe: Boolean = false,
+    val isCurrent: Boolean = false,
+    val isContactMe: Boolean = false,
+    val isLikelyNextCandidate: Boolean = false
 )
 
 @Serializable
 data class ControllersMessage(
     val type: String = "controllers",
+    // Pre-sorted by the plugin's priority ranking (docs/protocol.md) -- render in list order,
+    // don't re-sort client-side.
     val controllers: List<Controller>
 ) : ServerMessage
 

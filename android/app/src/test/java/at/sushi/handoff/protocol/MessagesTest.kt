@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 class MessagesTest {
 
     @Test
-    fun decodesControllersMessage() {
+    fun decodesControllersMessage_MinimalFields_EnrichmentAndFlagsDefault() {
         val json = """
             {"type":"controllers","controllers":[
               {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614}
@@ -20,6 +20,43 @@ class MessagesTest {
         assertEquals(23725, controller.frequency)
         assertEquals(51.4775, controller.latitude)
         assertEquals(-0.4614, controller.longitude)
+        assertNull(controller.cid)
+        assertNull(controller.name)
+        assertNull(controller.facility)
+        assertNull(controller.rating)
+        assertEquals(false, controller.requestsContactMe)
+        assertEquals(false, controller.isCurrent)
+        assertEquals(false, controller.isContactMe)
+        assertEquals(false, controller.isLikelyNextCandidate)
+    }
+
+    @Test
+    fun decodesControllersMessage_FullyEnriched_PreservesSortOrderAndFlags() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
+               "cid":1234567,"name":"John Smith","facility":4,"rating":5,
+               "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isLikelyNextCandidate":false},
+              {"callsign":"EGLL_APP","frequency":12900,"latitude":51.5,"longitude":-0.46,
+               "cid":null,"name":null,"facility":null,"rating":null,
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isLikelyNextCandidate":false}
+            ]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ControllersMessage
+        assertEquals(listOf("EGLL_TWR", "EGLL_APP"), message.controllers.map { it.callsign })
+
+        val current = message.controllers[0]
+        assertEquals(1234567, current.cid)
+        assertEquals("John Smith", current.name)
+        assertEquals(4, current.facility)
+        assertEquals(5, current.rating)
+        assertEquals(true, current.isCurrent)
+
+        val contactMe = message.controllers[1]
+        assertNull(contactMe.cid)
+        assertEquals(true, contactMe.requestsContactMe)
+        assertEquals(true, contactMe.isContactMe)
     }
 
     @Test
