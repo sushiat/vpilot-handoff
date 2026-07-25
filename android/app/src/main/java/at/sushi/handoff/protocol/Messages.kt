@@ -181,3 +181,21 @@ data class RefreshFlightPlanCommand(
 ) : ClientCommand {
     override fun encode() = json.encodeToString(RefreshFlightPlanCommand.serializer(), this)
 }
+
+/** Forces `callsign` to rank 0 / isCurrent in the next controllers message, overriding the
+ *  tuned-frequency heuristic, until cleared or the controller goes offline. */
+@Serializable
+data class PinControllerCommand(
+    val type: String = "pinController",
+    val callsign: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(PinControllerCommand.serializer(), this)
+}
+
+/** Carries no fields of its own. */
+@Serializable
+data class ClearPinnedControllerCommand(
+    val type: String = "clearPinnedController"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(ClearPinnedControllerCommand.serializer(), this)
+}

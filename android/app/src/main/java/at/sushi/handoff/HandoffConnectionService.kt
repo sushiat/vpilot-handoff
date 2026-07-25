@@ -31,6 +31,9 @@ class HandoffConnectionService : Service() {
         const val PrefKeyHost = "server_ip"
         const val PrefKeySimbriefUserId = "simbrief_user_id"
         const val PrefKeySimbriefUsername = "simbrief_username"
+        const val PrefKeyTheme = "theme_mode"
+        const val PrefKeyChannelSpacing = "default_channel_spacing"
+        const val PrefKeyKeypadBlockMode = "keypad_block_mode"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         private const val MinBackoffMillis = 2_000L
@@ -52,6 +55,7 @@ class HandoffConnectionService : Service() {
         instance = this
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
+        loadPersistedUiSettings()
         client = HandoffWebSocketClient(
             onMessage = { message ->
                 when (message) {
@@ -117,6 +121,22 @@ class HandoffConnectionService : Service() {
         val prefs = getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
         prefs.getString(PrefKeyHost, null)?.let { return it }
         return HandoffDiscoveryClient().discoverHost()
+    }
+
+    /** These are local-only UI settings (never pushed by the server) that SettingsDialog
+     *  persists -- loaded once here so HandoffState reflects the user's last choice from app
+     *  start, rather than resetting to defaults every launch. */
+    private fun loadPersistedUiSettings() {
+        val prefs = getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+        prefs.getString(PrefKeyTheme, null)?.let { name ->
+            runCatching { ThemeMode.valueOf(name) }.getOrNull()?.let(HandoffState::setTheme)
+        }
+        prefs.getString(PrefKeyChannelSpacing, null)?.let { name ->
+            runCatching { ChannelSpacing.valueOf(name) }.getOrNull()?.let(HandoffState::setDefaultChannelSpacing)
+        }
+        prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
+            runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
+        }
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {

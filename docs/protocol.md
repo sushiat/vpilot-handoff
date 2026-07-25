@@ -254,3 +254,27 @@ controller goes offline. `clearPinnedController` carries no fields of its own.
 Phase-of-flight is still open per `CLAUDE.md` — this protocol will grow a new message type for
 it once that piece of the plugin's state model exists. Don't design a client against fields that
 aren't listed above.
+
+The Android redesign in issue #13 anticipates several more fields that don't exist yet either.
+Each is noted here so a future contributor implementing the plugin side knows the exact shape to
+fill in and where the client already expects to consume it, rather than the gap being rediscovered
+from scratch:
+
+- **Station display name.** `controllers[].name` today is the *pilot's* VATSIM name (from the
+  data feed), not a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`). A
+  future field for this is expected to be VatSpy-sourced. Until it exists, the Android client
+  renders only the facility-suffix word parsed from the callsign (Tower/Ground/Delivery/etc.),
+  never a resolved airport/city name.
+- **Nearby aircraft.** The chat panel's "start chat with a nearby aircraft" dialog needs a new
+  server→client message (callsign/type/distance, refreshed periodically, likely derived from the
+  VATSIM data feed plus ownship position) that doesn't exist. Until it does, the Android client
+  shows the dialog's callsign-entry field (which works standalone) but a visibly empty,
+  "not available yet" aircraft list.
+- **Per-subsystem connection status.** The main screen's footer has an expandable drawer meant
+  to show RadioHost/SimConnect/VATSIM-data-feed/SimBrief-fetch health individually. Today the
+  client only knows the WebSocket's own connected/disconnected state (`connectionStatus`, client-
+  side only, not part of this wire protocol) — there's no message carrying the plugin's internal
+  subsystem health. Until one exists, the Android client shows these four rows as stubs.
+- **Plugin version.** The footer's detail line also shows a plugin version string; nothing in
+  the protocol carries this today. Until it does, the Android client omits it rather than
+  guessing.
