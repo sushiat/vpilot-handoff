@@ -37,7 +37,8 @@ namespace Handoff.Plugin
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
-                    isLikelyNextCandidate = c.IsLikelyNextCandidate
+                    isLikelyNextCandidate = c.IsLikelyNextCandidate,
+                    isApproaching = c.IsApproaching
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);

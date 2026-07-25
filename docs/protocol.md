@@ -60,7 +60,8 @@ VATSIM facility conventions).
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
-      "isLikelyNextCandidate": false
+      "isLikelyNextCandidate": false,
+      "isApproaching": false
     }
   ]
 }
@@ -77,6 +78,13 @@ the rest grouped by the standard top-down chain (DEL→GND→TWR→APP/DEP→CTR
 current tier, each tier internally sorted by flight-plan route match then distance to ownship.
 `isLikelyNextCandidate` is `true` on every controller in whichever tier is immediately next in
 the chain -- however many that is, not a fixed count.
+
+`isApproaching` is only ever `true` when nothing is currently tuned/pinned (i.e. flying
+uncontrolled) -- a "you're closing in on this station" signal for GND (on the ground, within
+10nm), TWR (airborne, within 20nm), and APP (airborne; within 40nm counts regardless of
+heading, 40-50nm only counts if ownship's heading is within 45° of the bearing to the
+station). Not computed for DEL (already well-served by route match) or CTR (a single lat/lon
+can't represent a FIR's real shape -- needs actual sector geometry, see issue #11).
 
 ### `chat`
 

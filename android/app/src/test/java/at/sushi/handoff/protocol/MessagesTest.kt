@@ -28,6 +28,7 @@ class MessagesTest {
         assertEquals(false, controller.isCurrent)
         assertEquals(false, controller.isContactMe)
         assertEquals(false, controller.isLikelyNextCandidate)
+        assertEquals(false, controller.isApproaching)
     }
 
     @Test
@@ -36,10 +37,10 @@ class MessagesTest {
             {"type":"controllers","controllers":[
               {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
                "cid":1234567,"name":"John Smith","facility":4,"rating":5,
-               "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isLikelyNextCandidate":false},
+               "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isLikelyNextCandidate":false,"isApproaching":false},
               {"callsign":"EGLL_APP","frequency":12900,"latitude":51.5,"longitude":-0.46,
                "cid":null,"name":null,"facility":null,"rating":null,
-               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isLikelyNextCandidate":false}
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isLikelyNextCandidate":false,"isApproaching":true}
             ]}
         """.trimIndent()
 
@@ -52,11 +53,13 @@ class MessagesTest {
         assertEquals(4, current.facility)
         assertEquals(5, current.rating)
         assertEquals(true, current.isCurrent)
+        assertEquals(false, current.isApproaching)
 
         val contactMe = message.controllers[1]
         assertNull(contactMe.cid)
         assertEquals(true, contactMe.requestsContactMe)
         assertEquals(true, contactMe.isContactMe)
+        assertEquals(true, contactMe.isApproaching)
     }
 
     @Test

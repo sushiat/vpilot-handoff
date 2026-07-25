@@ -28,7 +28,8 @@ data class Controller(
     val requestsContactMe: Boolean = false,
     val isCurrent: Boolean = false,
     val isContactMe: Boolean = false,
-    val isLikelyNextCandidate: Boolean = false
+    val isLikelyNextCandidate: Boolean = false,
+    val isApproaching: Boolean = false
 )
 
 @Serializable

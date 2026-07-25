@@ -23,7 +23,14 @@ namespace Handoff.Plugin
         public bool IsContactMe { get; }
         public bool IsLikelyNextCandidate { get; }
 
-        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate)
+        // Distance/heading-based "closing in on this station" signal, only ever set when
+        // nothing is currently tuned/pinned (see ControllerRankingModel.IsApproaching) --
+        // e.g. flying uncontrolled and about to enter a TWR/APP's range. Not computed for
+        // DEL (already well-served by route match) or CTR (needs real sector geometry,
+        // deferred to issue #11).
+        public bool IsApproaching { get; }
+
+        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -37,6 +44,7 @@ namespace Handoff.Plugin
             IsCurrent = isCurrent;
             IsContactMe = isContactMe;
             IsLikelyNextCandidate = isLikelyNextCandidate;
+            IsApproaching = isApproaching;
         }
     }
 }

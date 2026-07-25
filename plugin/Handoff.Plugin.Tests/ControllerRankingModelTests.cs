@@ -227,5 +227,124 @@ namespace Handoff.Plugin.Tests
 
             Assert.Empty(model.Current);
         }
+
+        [Theory]
+        [InlineData(5, true)]  // within 10nm
+        [InlineData(15, false)] // beyond 10nm
+        public void Approaching_Ground_OnlyWhileOnGroundAndWithinThreshold(double nauticalMiles, bool expected)
+        {
+            AddController("EGLL_GND", 21800, 0, nauticalMiles / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.Equal(expected, model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_Ground_FalseWhileAirborne()
+        {
+            AddController("EGLL_GND", 21800, 0, 5 / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 100, 2000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Theory]
+        [InlineData(15, true)]  // within 20nm
+        [InlineData(25, false)] // beyond 20nm
+        public void Approaching_Tower_OnlyWhileAirborneAndWithinThreshold(double nauticalMiles, bool expected)
+        {
+            AddController("EGLL_TWR", 23725, 0, nauticalMiles / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 100, 2000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.Equal(expected, model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_Tower_FalseWhileOnGround()
+        {
+            AddController("EGLL_TWR", 23725, 0, 15 / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_App_WithinOmniRadius_TrueRegardlessOfHeading()
+        {
+            AddController("EGLL_APP", 12900, 0, 35 / 60.0); // within 40nm
+            // Heading due west (270) while the station is due east -- opposite direction.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 270, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.True(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_App_BetweenOmniAndOuterRadius_TrueWhenHeadingConverges()
+        {
+            AddController("EGLL_APP", 12900, 0, 45 / 60.0); // between 40nm and 50nm
+            // Station is due east (bearing 90); heading straight toward it.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.True(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_App_BetweenOmniAndOuterRadius_FalseWhenHeadingDiverges()
+        {
+            AddController("EGLL_APP", 12900, 0, 45 / 60.0); // between 40nm and 50nm
+            // Station is due east (bearing 90); heading directly away from it.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 270, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_App_BeyondOuterRadius_FalseRegardlessOfHeading()
+        {
+            AddController("EGLL_APP", 12900, 0, 55 / 60.0); // beyond 50nm
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_Delivery_NeverFlagged()
+        {
+            AddController("EGLL_DEL", 12100, 0, 1 / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_Center_NeverFlaggedYet()
+        {
+            AddController("EGLL_CTR", 12345, 0, 1 / 60.0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single().IsApproaching);
+        }
+
+        [Fact]
+        public void Approaching_NeverFlaggedWhenAControllerIsAlreadyCurrent()
+        {
+            AddController("EGLL_TWR", 23725, 0, 5 / 60.0);
+            AddController("EGLL_APP", 12900, 0, 10 / 60.0);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 10000, 0, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.All(model.Current, c => Assert.False(c.IsApproaching));
+        }
     }
 }

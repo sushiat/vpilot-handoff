@@ -29,6 +29,17 @@ namespace Handoff.Plugin
     {
         private static readonly TimeSpan HysteresisWindow = TimeSpan.FromSeconds(12);
 
+        // "Approaching" distance/heading thresholds -- see IsApproaching. Only meaningful when
+        // nothing is currently tuned/pinned (e.g. flying uncontrolled and about to enter a
+        // station's range). DEL isn't covered (already well-served by route match); CTR isn't
+        // covered either (a single lat/lon can't represent a FIR's real shape -- needs actual
+        // sector geometry, deferred to issue #11).
+        private const double GroundApproachingNauticalMiles = 10;
+        private const double TowerApproachingNauticalMiles = 20;
+        private const double AppOmnidirectionalNauticalMiles = 40;
+        private const double AppOuterNauticalMiles = 50;
+        private const double AppHeadingToleranceDegrees = 45;
+
         private readonly object _gate = new object();
         private readonly ControllerStateModel _controllerState;
         private readonly IRadioStateModel _radioState;
@@ -138,13 +149,16 @@ namespace Handoff.Plugin
             finalOrder.AddRange(contactMeOrdered);
             finalOrder.AddRange(rest);
 
+            var hasCurrent = currentCallsign != null;
             var ranked = finalOrder.Select(c =>
             {
                 enrichment.TryGetValue(c.Callsign, out var info);
                 var isCurrent = string.Equals(c.Callsign, currentCallsign, StringComparison.OrdinalIgnoreCase);
                 var requestsContactMe = contactMeCallsigns.Contains(c.Callsign);
                 var isContactMe = !isCurrent && requestsContactMe;
-                var isNextCandidate = !isCurrent && nextTier.HasValue && c.Callsign.ParseControllerTier() == nextTier.Value;
+                var tier = c.Callsign.ParseControllerTier();
+                var isNextCandidate = !isCurrent && nextTier.HasValue && tier == nextTier.Value;
+                var isApproaching = !isCurrent && IsApproaching(c, tier, hasCurrent, telemetry);
 
                 return new RankedController(
                     callsign: c.Callsign,
@@ -158,7 +172,8 @@ namespace Handoff.Plugin
                     requestsContactMe: requestsContactMe,
                     isCurrent: isCurrent,
                     isContactMe: isContactMe,
-                    isLikelyNextCandidate: isNextCandidate);
+                    isLikelyNextCandidate: isNextCandidate,
+                    isApproaching: isApproaching);
             }).ToList();
 
             lock (_gate) { _current = ranked; }
@@ -197,6 +212,47 @@ namespace Handoff.Plugin
 
             return orderedMatched.Concat(orderedUnmatched).ToList();
         }
+
+        /// <summary>
+        /// Distance/heading heuristic for "closing in on this station," only meaningful when
+        /// nothing is currently tuned/pinned -- e.g. flying uncontrolled (UNICOM) and about to
+        /// enter a TWR/APP's range. GND only counts while on the ground; TWR/APP only while
+        /// airborne. APP additionally requires ownship's heading to be within
+        /// AppHeadingToleranceDegrees of the bearing to the station once past the
+        /// omnidirectional inner radius -- close in, any heading counts; farther out, only a
+        /// converging heading does.
+        /// </summary>
+        private static bool IsApproaching(Controller controller, ControllerTier tier, bool hasCurrent, OwnshipTelemetry telemetry)
+        {
+            if (hasCurrent) return false;
+            if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue || !telemetry.OnGround.HasValue) return false;
+
+            switch (tier)
+            {
+                case ControllerTier.Ground:
+                    return telemetry.OnGround.Value && DistanceNm(controller, telemetry) <= GroundApproachingNauticalMiles;
+
+                case ControllerTier.Tower:
+                    return !telemetry.OnGround.Value && DistanceNm(controller, telemetry) <= TowerApproachingNauticalMiles;
+
+                case ControllerTier.AppDep:
+                    if (telemetry.OnGround.Value) return false;
+                    var distance = DistanceNm(controller, telemetry);
+                    if (distance > AppOuterNauticalMiles) return false;
+                    if (distance <= AppOmnidirectionalNauticalMiles) return true;
+                    if (!telemetry.HeadingDegrees.HasValue) return false;
+                    var bearing = GeoDistance.InitialBearingDegrees(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
+                    return GeoDistance.AngularDifferenceDegrees(telemetry.HeadingDegrees.Value, bearing) <= AppHeadingToleranceDegrees;
+
+                default:
+                    // DEL: already well-served by route match. CTR/Other: needs real sector
+                    // geometry, deferred to issue #11.
+                    return false;
+            }
+        }
+
+        private static double DistanceNm(Controller controller, OwnshipTelemetry telemetry) =>
+            GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
 
         private List<Controller> ApplyDistanceHysteresis(ControllerTier tier, List<Controller> controllers, OwnshipTelemetry telemetry)
         {
