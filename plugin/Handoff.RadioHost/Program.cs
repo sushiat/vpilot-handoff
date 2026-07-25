@@ -48,7 +48,7 @@ namespace Handoff.RadioHost
             }
 
             Logger.Log("Handoff.RadioHost starting, listening on pipes " + RadioIpcProtocol.StatePipeName + " / " + RadioIpcProtocol.CommandPipeName);
-            var radio = new RadioSimConnectClient(OnRadioStateChanged);
+            var radio = new RadioSimConnectClient(OnRadioStateChanged, OnOwnshipTelemetryChanged);
 
             new Thread(() => ProcessCommandQueue(radio)) { Name = "Program.ProcessCommandQueue", IsBackground = true }.Start();
             new Thread(RunCommandServer) { Name = "Program.RunCommandServer", IsBackground = true }.Start();
@@ -180,6 +180,35 @@ namespace Handoff.RadioHost
                 catch (Exception ex)
                 {
                     Logger.Log("Failed writing to pipe client: " + ex);
+                    _currentWriter = null;
+                }
+            }
+        }
+
+        private static void OnOwnshipTelemetryChanged(OwnshipTelemetry telemetry)
+        {
+            lock (WriterGate)
+            {
+                if (_currentWriter == null) return;
+
+                try
+                {
+                    var message = new RadioIpcMessage
+                    {
+                        Type = RadioIpcMessage.TypeOwnshipTelemetry,
+                        OnGround = telemetry.OnGround,
+                        GroundSpeedKnots = telemetry.GroundSpeedKnots,
+                        AltitudeAboveGroundFeet = telemetry.AltitudeAboveGroundFeet,
+                        VerticalSpeedFpm = telemetry.VerticalSpeedFpm,
+                        HeadingDegrees = telemetry.HeadingDegrees,
+                        Latitude = telemetry.Latitude,
+                        Longitude = telemetry.Longitude
+                    };
+                    RadioIpcProtocol.WriteMessage(_currentWriter, message);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("Failed writing telemetry to pipe client: " + ex);
                     _currentWriter = null;
                 }
             }

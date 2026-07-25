@@ -68,3 +68,10 @@ once it has its first release.
 - Android: basic callsign/origin→destination display on the Controllers screen with a manual
   refresh button, plus SimBrief user ID/username fields on the Settings screen. Alternate
   airport is fetched/stored by the plugin but not yet surfaced in the app.
+- Plugin: raw ownship telemetry (on-ground, ground speed, AGL, vertical speed, heading,
+  latitude, longitude) gathered by `Handoff.RadioHost` via a second, independently-polled
+  SimConnect data definition (3s cadence, separate from the radio poll's 1s), reported to the
+  plugin over the existing IPC pipe as a new `ownshipTelemetry` message and exposed as
+  `RadioStateModel.Telemetry`. Telemetry plumbing only, toward future phase-of-flight and
+  controller-priority-ranking work (see #7, #8, #9) — no classification logic or protocol/
+  WebSocket changes yet.
