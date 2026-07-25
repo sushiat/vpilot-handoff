@@ -45,3 +45,16 @@ once it has its first release.
   LAN-reachable address needs no admin rights or `netsh` URL-ACL setup. Started in
   `HandoffPlugin.Initialize`, independent of the VATSIM connection. Message building/parsing
   lives in `ProtocolMessages`, unit tested.
+- Plugin: `HandoffDiscoveryListener`, a UDP responder (port `48766`) so the Android app can
+  find the plugin's LAN IP without it being typed in by hand — plain UDP, no mDNS/Bonjour
+  dependency. Documented in `docs/protocol.md`'s new "Discovery" section.
+- Android: foundation for the actual client app, replacing the placeholder `MainActivity`.
+  `HandoffWebSocketClient` (OkHttp) and `HandoffDiscoveryClient` (UDP broadcast, falling back
+  to a manually entered IP) talk to the plugin; `HandoffConnectionService`, a foreground
+  service, owns the connection so it survives the app losing foreground, with
+  reconnect-with-backoff and a persistent status notification. `HandoffState` exposes live
+  controllers/chat/radio state as `StateFlow`s to a Jetpack Compose UI (`Controllers`/`Chat`/
+  `Radio`/`Settings` tabs) letting the pilot see live state and send chat/set frequencies from
+  the app. Message (de)serialization via `kotlinx.serialization`, unit tested on the JVM.
+  Still missing: the `SYSTEM_ALERT_WINDOW` chat-heads overlay described in issue #1 — planned
+  as a follow-up.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Pipes;
 using System.Threading;
@@ -29,12 +30,28 @@ namespace Handoff.RadioHost
         private static StreamWriter _currentWriter;
         private static bool _loggedFirstWrite;
 
-        private static void Main()
+        // Commands are enqueued by the pipe-reading thread and processed one at a time on a
+        // separate dedicated thread -- SimConnect calls aren't safe to make concurrently from
+        // multiple threads, but a slow command (e.g. a tuning fallback that takes a while)
+        // must never block the pipe reader itself from draining newer incoming commands.
+        private static readonly BlockingCollection<RadioIpcMessage> CommandQueue = new BlockingCollection<RadioIpcMessage>();
+
+        private static void Main(string[] args)
         {
+            // A quick way to try a single SimConnect event/write/read against the live sim and
+            // exit, with no vPilot/plugin involved at all -- see SimConnectTestTool for usage.
+            // Much faster iteration than redeploying the whole thing to test one idea.
+            if (args.Length > 0)
+            {
+                SimConnectTestTool.Run(args);
+                return;
+            }
+
             Logger.Log("Handoff.RadioHost starting, listening on pipes " + RadioIpcProtocol.StatePipeName + " / " + RadioIpcProtocol.CommandPipeName);
             var radio = new RadioSimConnectClient(OnRadioStateChanged);
 
-            new Thread(() => RunCommandServer(radio)) { Name = "Program.RunCommandServer", IsBackground = true }.Start();
+            new Thread(() => ProcessCommandQueue(radio)) { Name = "Program.ProcessCommandQueue", IsBackground = true }.Start();
+            new Thread(RunCommandServer) { Name = "Program.RunCommandServer", IsBackground = true }.Start();
             RunStateServer();
         }
 
@@ -74,7 +91,7 @@ namespace Handoff.RadioHost
             }
         }
 
-        private static void RunCommandServer(RadioSimConnectClient radio)
+        private static void RunCommandServer()
         {
             while (true)
             {
@@ -89,15 +106,8 @@ namespace Handoff.RadioHost
                         RadioIpcMessage message;
                         while ((message = RadioIpcProtocol.ReadMessage(reader)) != null)
                         {
-                            switch (message.Type)
-                            {
-                                case RadioIpcMessage.TypeSetCom1Frequency:
-                                    if (message.Megahertz.HasValue) radio.SetCom1Frequency(message.Megahertz.Value);
-                                    break;
-                                case RadioIpcMessage.TypeSetCom2Frequency:
-                                    if (message.Megahertz.HasValue) radio.SetCom2Frequency(message.Megahertz.Value);
-                                    break;
-                            }
+                            Logger.Log("Received command from plugin: type=" + message.Type + ", megahertz=" + message.Megahertz);
+                            CommandQueue.Add(message);
                         }
                     }
                     catch (IOException ex)
@@ -106,6 +116,38 @@ namespace Handoff.RadioHost
                     }
 
                     Logger.Log("Plugin disconnected from command pipe.");
+                }
+            }
+        }
+
+        private static void ProcessCommandQueue(RadioSimConnectClient radio)
+        {
+            foreach (var message in CommandQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    switch (message.Type)
+                    {
+                        case RadioIpcMessage.TypeSetCom1Frequency:
+                            if (message.Megahertz.HasValue) radio.SetCom1Frequency(message.Megahertz.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetCom2Frequency:
+                            if (message.Megahertz.HasValue) radio.SetCom2Frequency(message.Megahertz.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetCom1StandbyFrequency:
+                            if (message.Megahertz.HasValue) radio.SetCom1StandbyFrequency(message.Megahertz.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetCom2StandbyFrequency:
+                            if (message.Megahertz.HasValue) radio.SetCom2StandbyFrequency(message.Megahertz.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetTransponderCode:
+                            if (message.TransponderCode.HasValue) radio.SetTransponderCode(message.TransponderCode.Value);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("Failed to apply command from plugin: " + ex);
                 }
             }
         }
@@ -123,7 +165,10 @@ namespace Handoff.RadioHost
                         Type = RadioIpcMessage.TypeRadioState,
                         Com1Frequency = state.Com1Frequency,
                         Com2Frequency = state.Com2Frequency,
-                        ModeCEnabled = state.ModeCEnabled
+                        Com1StandbyFrequency = state.Com1StandbyFrequency,
+                        Com2StandbyFrequency = state.Com2StandbyFrequency,
+                        ModeCEnabled = state.ModeCEnabled,
+                        TransponderCode = state.TransponderCode
                     };
                     RadioIpcProtocol.WriteMessage(_currentWriter, message);
                     if (!_loggedFirstWrite)

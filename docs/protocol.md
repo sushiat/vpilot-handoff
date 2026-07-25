@@ -4,6 +4,18 @@ The WebSocket contract between the vPilot plugin (server) and any client (Androi
 ports). This is the source of truth for message shapes — client implementations should
 conform to this, not to whichever client's source happens to exist first.
 
+## Discovery
+
+The plugin's LAN IP isn't known in advance, so it also listens for a UDP broadcast discovery
+request on port `48766` — plain UDP, not mDNS/Bonjour, so no extra dependency is needed on
+either side. A client broadcasts the ASCII text `HANDOFF_DISCOVER` to `255.255.255.255:48766`;
+the plugin unicasts back `{"port":48765}` to the sender. This listener runs for the plugin's
+whole lifetime (not tied to the VATSIM connection), same as the WebSocket server below, so a
+client can discover it even before the pilot connects.
+
+Discovery isn't guaranteed to work on every network (some routers apply AP client isolation or
+block broadcast traffic), so clients should keep a manually-entered IP as a fallback.
+
 ## Connection
 
 The plugin listens on `ws://<pc-lan-ip>:48765/` (Fleck-based, plain TCP — no HTTP handshake
@@ -75,20 +87,25 @@ messages and SELCAL alerts, `null` otherwise.
 
 ### `radioState`
 
-Ownship COM1/COM2 tuned frequency and Mode C transponder state, resent whenever any of them
-change.
+Ownship COM1/COM2 active + standby tuned frequency, transponder code, and Mode C state, resent
+whenever any of them change.
 
 ```json
 {
   "type": "radioState",
   "com1Frequency": 23725,
   "com2Frequency": null,
-  "modeCEnabled": false
+  "com1StandbyFrequency": 21000,
+  "com2StandbyFrequency": null,
+  "modeCEnabled": false,
+  "transponderCode": 1200
 }
 ```
 
-`com1Frequency`/`com2Frequency` are `null` until the first SimConnect read completes (or if
-the SimConnect helper process isn't running/connected).
+All frequency fields are `null` until the first SimConnect read completes (or if the
+SimConnect helper process isn't running/connected). `transponderCode` is a plain decimal
+squawk (e.g. `1200`), not BCD -- that encoding is purely a SimConnect-boundary detail on the
+plugin side.
 
 ## Client → server messages
 
@@ -108,18 +125,36 @@ behavior).
 {"type": "sendRadioMessage", "message": "request pushback"}
 ```
 
-### `setCom1Frequency` / `setCom2Frequency`
+### `setCom1Frequency` / `setCom2Frequency` / `setCom1StandbyFrequency` / `setCom2StandbyFrequency`
 
-Remote-tune COM1/COM2. `megahertz` is a plain decimal MHz value (not the compressed-integer
-format used everywhere else in this protocol) since this is the one place the client
-constructs a frequency value itself, rather than echoing one already sent by the server, and
-plain MHz is what a frequency-entry UI naturally produces. Must be within the civil VHF
-airband (118.000–136.990); out-of-range values are rejected (dropped, no error response) by
-the plugin.
+Remote-tune COM1/COM2, active or standby. `megahertz` is a plain decimal MHz value (not the
+compressed-integer format used everywhere else in this protocol) since this is the one place
+the client constructs a frequency value itself, rather than echoing one already sent by the
+server, and plain MHz is what a frequency-entry UI naturally produces. Must be within the
+civil VHF airband (118.000–136.990); out-of-range values are rejected (dropped, no error
+response) by the plugin.
+
+Active-frequency writes go through MSFS's `COM_RADIO_SET_HZ`/`COM2_RADIO_SET_HZ` SimConnect
+client events on the plugin side, not a direct SimVar write — a raw write on
+`COM ACTIVE FREQUENCY` is silently ignored by most aircraft avionics, which continuously
+re-assert their own active frequency. Client events are treated the same as a physical
+knob turn and are honored.
 
 ```json
 {"type": "setCom1Frequency", "megahertz": 123.725}
 {"type": "setCom2Frequency", "megahertz": 118.3}
+{"type": "setCom1StandbyFrequency", "megahertz": 121.9}
+{"type": "setCom2StandbyFrequency", "megahertz": 121.9}
+```
+
+### `setTransponderCode`
+
+Sets the squawk code. `transponderCode` is a plain decimal 4-digit code, each digit 0-7 (the
+civil transponder code range); out-of-range values are rejected (dropped, no error response)
+by the plugin.
+
+```json
+{"type": "setTransponderCode", "transponderCode": 1200}
 ```
 
 ## Not yet in this protocol

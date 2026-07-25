@@ -33,7 +33,7 @@ namespace Handoff.Plugin
         private readonly object _gate = new object();
         private readonly object _lifecycleGate = new object();
         private readonly Action<string> _logDebug;
-        private RadioState _current = new RadioState(null, null, false, DateTimeOffset.Now);
+        private RadioState _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
         private StreamWriter _writer;
         private volatile bool _running;
         private bool _loggedFirstState;
@@ -93,7 +93,7 @@ namespace Handoff.Plugin
             lock (_gate)
             {
                 _writer = null;
-                _current = new RadioState(null, null, false, DateTimeOffset.Now);
+                _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
             }
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -108,6 +108,24 @@ namespace Handoff.Plugin
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
             SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2Frequency, Megahertz = megahertz });
+        }
+
+        public void SetCom1StandbyFrequency(double megahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(megahertz);
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom1StandbyFrequency, Megahertz = megahertz });
+        }
+
+        public void SetCom2StandbyFrequency(double megahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(megahertz);
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2StandbyFrequency, Megahertz = megahertz });
+        }
+
+        public void SetTransponderCode(int squawk)
+        {
+            TransponderCode.ValidateSquawkRange(squawk);
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetTransponderCode, TransponderCode = squawk });
         }
 
         private void SendCommand(RadioIpcMessage message)
@@ -204,13 +222,13 @@ namespace Handoff.Plugin
 
                             if (message.Type == RadioIpcMessage.TypeRadioState)
                             {
-                                var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.ModeCEnabled ?? false, DateTimeOffset.Now);
+                                var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency, message.ModeCEnabled ?? false, message.TransponderCode, DateTimeOffset.Now);
                                 lock (_gate) { _current = next; }
 
                                 if (!_loggedFirstState)
                                 {
                                     _loggedFirstState = true;
-                                    Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, ModeC={next.ModeCEnabled}");
+                                    Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Standby={next.Com1StandbyFrequency}, Com2Standby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}");
                                 }
 
                                 Changed?.Invoke(this, EventArgs.Empty);

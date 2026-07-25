@@ -66,7 +66,10 @@ namespace Handoff.Plugin
                 type = "radioState",
                 com1Frequency = state.Com1Frequency,
                 com2Frequency = state.Com2Frequency,
-                modeCEnabled = state.ModeCEnabled
+                com1StandbyFrequency = state.Com1StandbyFrequency,
+                com2StandbyFrequency = state.Com2StandbyFrequency,
+                modeCEnabled = state.ModeCEnabled,
+                transponderCode = state.TransponderCode
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

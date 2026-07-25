@@ -14,7 +14,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-    <PackageReference Include="CTrue.FsConnect" Version="1.3.3" />
+    <!-- 1.3.3 bundles a MSFS-2020-era SimConnect (SDK ~0.20); 1.4.0 updated to SDK 0.24.3.0,
+         aligning with MSFS 2024's SimConnect. This dev's sim is MSFS 2024 (per the SPAD.neXt
+         AircraftAssignments_MSFS24.xml profile), a real, previously unexamined version mismatch
+         with the plugin's read/write behavior worth ruling out. -->
+    <PackageReference Include="CTrue.FsConnect" Version="1.4.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
@@ -23,6 +27,7 @@
     <Compile Include="..\Shared\RadioState.cs" Link="Shared\RadioState.cs" />
     <Compile Include="..\Shared\RadioIpcMessage.cs" Link="Shared\RadioIpcMessage.cs" />
     <Compile Include="..\Shared\RadioIpcProtocol.cs" Link="Shared\RadioIpcProtocol.cs" />
+    <Compile Include="..\Shared\TransponderCode.cs" Link="Shared\TransponderCode.cs" />
   </ItemGroup>
 
 </Project>

@@ -58,3 +58,7 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Test
+        working-directory: android
+        run: ./gradlew test --no-daemon
