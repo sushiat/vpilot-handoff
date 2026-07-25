@@ -8,8 +8,9 @@ using System.Threading;
 namespace Handoff.Plugin
 {
     /// <summary>
-    /// Client for ownship radio state (COM1/COM2 tuned frequency, Mode C transponder),
-    /// served by the separate Handoff.RadioHost process over a local named pipe.
+    /// Client for ownship radio state (COM1/COM2 tuned frequency, Mode C transponder) and
+    /// raw ownship telemetry (on-ground, speed, position -- see OwnshipTelemetry), both
+    /// served by the separate Handoff.RadioHost process over the same local named pipe.
     ///
     /// Why a separate process: CTrue.FsConnect's native simconnect.dll is x64-only, but
     /// vPilot's own process is x86 (confirmed by direct PE-header inspection against a real
@@ -34,6 +35,7 @@ namespace Handoff.Plugin
         private readonly object _lifecycleGate = new object();
         private readonly Action<string> _logDebug;
         private RadioState _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
+        private OwnshipTelemetry _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
         private StreamWriter _writer;
         private volatile bool _running;
         private bool _loggedFirstState;
@@ -54,6 +56,15 @@ namespace Handoff.Plugin
         public RadioState Current
         {
             get { lock (_gate) { return _current; } }
+        }
+
+        /// <summary>
+        /// Raw ownship telemetry, as last received -- no phase-of-flight interpretation
+        /// applied yet, see OwnshipTelemetry.
+        /// </summary>
+        public OwnshipTelemetry Telemetry
+        {
+            get { lock (_gate) { return _telemetry; } }
         }
 
         public void Start()
@@ -94,6 +105,7 @@ namespace Handoff.Plugin
             {
                 _writer = null;
                 _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
+                _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
             }
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -231,6 +243,12 @@ namespace Handoff.Plugin
                                     Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Standby={next.Com1StandbyFrequency}, Com2Standby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}");
                                 }
 
+                                Changed?.Invoke(this, EventArgs.Empty);
+                            }
+                            else if (message.Type == RadioIpcMessage.TypeOwnshipTelemetry)
+                            {
+                                var next = new OwnshipTelemetry(message.OnGround, message.GroundSpeedKnots, message.AltitudeAboveGroundFeet, message.VerticalSpeedFpm, message.HeadingDegrees, message.Latitude, message.Longitude, DateTimeOffset.Now);
+                                lock (_gate) { _telemetry = next; }
                                 Changed?.Invoke(this, EventArgs.Empty);
                             }
                         }

@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="..\Shared\RadioFrequency.cs" Link="Shared\RadioFrequency.cs" />
     <Compile Include="..\Shared\RadioState.cs" Link="Shared\RadioState.cs" />
+    <Compile Include="..\Shared\OwnshipTelemetry.cs" Link="Shared\OwnshipTelemetry.cs" />
     <Compile Include="..\Shared\RadioIpcMessage.cs" Link="Shared\RadioIpcMessage.cs" />
     <Compile Include="..\Shared\RadioIpcProtocol.cs" Link="Shared\RadioIpcProtocol.cs" />
     <Compile Include="..\Shared\TransponderCode.cs" Link="Shared\TransponderCode.cs" />

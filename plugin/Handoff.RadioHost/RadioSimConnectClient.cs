@@ -11,9 +11,12 @@ namespace Handoff.RadioHost
 {
     /// <summary>
     /// Live SimConnect connection for ownship radio state -- COM1/COM2 active + standby
-    /// frequency (read + write) and transponder code + Mode C state (read + write code). Runs
-    /// as its own x64 process (Handoff.RadioHost) since CTrue.FsConnect's native simconnect.dll
-    /// is x64-only and vPilot's own process is x86 -- see plugin/README.md for the full story.
+    /// frequency (read + write) and transponder code + Mode C state (read + write code) --
+    /// plus raw ownship telemetry (on-ground, ground speed, AGL, vertical speed, heading,
+    /// lat/lon) read-only, gathered on the same poll for the eventual phase-of-flight
+    /// classifier (see docs/protocol.md, CLAUDE.md). Runs as its own x64 process
+    /// (Handoff.RadioHost) since CTrue.FsConnect's native simconnect.dll is x64-only and
+    /// vPilot's own process is x86 -- see plugin/README.md for the full story.
     ///
     /// Writes go through absolute SimConnect client events -- COM_RADIO_SET_HZ / COM2_RADIO_SET_HZ
     /// (active), COM_STBY_RADIO_SET_HZ / COM2_STBY_RADIO_SET_HZ (standby), XPNDR_SET (BCD16,
@@ -40,6 +43,12 @@ namespace Handoff.RadioHost
     {
         private const int PollIntervalMs = 1000;
 
+        // Slower than the radio poll -- phase-of-flight/CTR-proximity logic downstream
+        // doesn't need sub-second updates the way "did the tuned frequency just change"
+        // does. Independent SimConnect data definition/request below, not baked into
+        // RadioSimVars, precisely so this cadence can move independently of the radio poll.
+        private const int TelemetryPollIntervalMs = 3000;
+
         // Exceeds PollIntervalMs so a fresh reading is available when verifying a write took
         // effect.
         private const int SettleWaitMs = 1100;
@@ -50,7 +59,8 @@ namespace Handoff.RadioHost
 
         private enum Requests
         {
-            RadioSimVars = IdBase
+            RadioSimVars = IdBase,
+            OwnshipTelemetrySimVars
         }
 
         // MapClientEventToSimEvent/TransmitClientEvent/SetNotificationGroupPriority overload
@@ -90,6 +100,23 @@ namespace Handoff.RadioHost
             public int TransponderCodeBcd;
         }
 
+        // Raw ownship telemetry -- own data definition/request (see Requests.OwnshipTelemetrySimVars)
+        // so it can be polled at its own cadence (TelemetryPollIntervalMs), independent of the
+        // radio poll. For the eventual phase-of-flight classifier, which also needs these
+        // combined with which controller is tuned -- see docs/protocol.md and CLAUDE.md; that
+        // combination is deliberately not implemented yet.
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct OwnshipTelemetrySimVars
+        {
+            public int OnGround;
+            public double GroundSpeedKnots;
+            public double AltitudeAboveGroundFeet;
+            public double VerticalSpeedFpm;
+            public double HeadingDegreesMagnetic;
+            public double Latitude;
+            public double Longitude;
+        }
+
         // TRANSPONDER STATE:1 enum value for altitude-reporting ("Alt"/Mode C) mode.
         private const int TransponderStateAlt = 4;
 
@@ -98,9 +125,11 @@ namespace Handoff.RadioHost
 
         private readonly FsConnect _fsConnect;
         private readonly Action<RadioState> _onStateChanged;
+        private readonly Action<OwnshipTelemetry> _onTelemetryChanged;
         private volatile bool _dataDefinitionsRegistered;
         private bool _loggedFirstState;
         private SimConnect _rawSimConnect;
+        private int _msSinceLastTelemetryPoll;
 
         // Live raw readings, updated on every SimConnect poll -- used to verify a write
         // actually took effect.
@@ -112,9 +141,10 @@ namespace Handoff.RadioHost
         private double _lastCom2StandbyFrequencyMhz;
         private int _lastTransponderCodeBcd;
 
-        public RadioSimConnectClient(Action<RadioState> onStateChanged)
+        public RadioSimConnectClient(Action<RadioState> onStateChanged, Action<OwnshipTelemetry> onTelemetryChanged)
         {
             _onStateChanged = onStateChanged ?? throw new ArgumentNullException(nameof(onStateChanged));
+            _onTelemetryChanged = onTelemetryChanged ?? throw new ArgumentNullException(nameof(onTelemetryChanged));
 
             _fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
             _fsConnect.FsDataReceived += OnFsDataReceived;
@@ -221,6 +251,18 @@ namespace Handoff.RadioHost
 
                     _onStateChanged(next);
                 }
+                else if (simConnectObject is OwnshipTelemetrySimVars telemetrySimVars)
+                {
+                    _onTelemetryChanged(new OwnshipTelemetry(
+                        telemetrySimVars.OnGround != 0,
+                        telemetrySimVars.GroundSpeedKnots,
+                        telemetrySimVars.AltitudeAboveGroundFeet,
+                        telemetrySimVars.VerticalSpeedFpm,
+                        telemetrySimVars.HeadingDegreesMagnetic,
+                        telemetrySimVars.Latitude,
+                        telemetrySimVars.Longitude,
+                        DateTimeOffset.Now));
+                }
             }
         }
 
@@ -257,6 +299,17 @@ namespace Handoff.RadioHost
                                 new SimVar("TRANSPONDER CODE:1", "BCO16", SIMCONNECT_DATATYPE.INT32)
                             });
 
+                            _fsConnect.RegisterDataDefinition<OwnshipTelemetrySimVars>(Requests.OwnshipTelemetrySimVars, new List<SimVar>
+                            {
+                                new SimVar("SIM ON GROUND", "Bool", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("GROUND VELOCITY", "Knots", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("PLANE ALT ABOVE GROUND", "Feet", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("VERTICAL SPEED", "Feet per minute", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("PLANE HEADING DEGREES MAGNETIC", "Degrees", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("PLANE LATITUDE", "Degrees", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("PLANE LONGITUDE", "Degrees", SIMCONNECT_DATATYPE.FLOAT64)
+                            });
+
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1FrequencyHz, "COM_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom2FrequencyHz, "COM2_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1StandbyFrequencyHz, "COM_STBY_RADIO_SET_HZ");
@@ -278,7 +331,21 @@ namespace Handoff.RadioHost
 
                     if (_fsConnect.Connected && _dataDefinitionsRegistered)
                     {
+                        // One thread, two independent cadences: tick at the shorter (radio)
+                        // interval and only re-request telemetry once enough ticks have
+                        // accumulated to reach TelemetryPollIntervalMs. Avoids a second thread
+                        // making concurrent SimConnect calls, which the class isn't designed
+                        // for (see TransmitPriorityEvent/OnRecvException handling above --
+                        // SimConnect calls here are assumed single-threaded).
                         _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
+
+                        _msSinceLastTelemetryPoll += PollIntervalMs;
+                        if (_msSinceLastTelemetryPoll >= TelemetryPollIntervalMs)
+                        {
+                            _fsConnect.RequestData(Requests.OwnshipTelemetrySimVars, Requests.OwnshipTelemetrySimVars);
+                            _msSinceLastTelemetryPoll = 0;
+                        }
+
                         Thread.Sleep(PollIntervalMs);
                     }
                     else
