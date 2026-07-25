@@ -12,6 +12,9 @@ namespace Handoff.Plugin
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
         private FlightPlanModel _flightPlanState;
+        private VatsimDataFeedModel _vatsimDataFeed;
+        private ContactMeModel _contactMe;
+        private ControllerRankingModel _controllerRanking;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
 
@@ -39,10 +42,20 @@ namespace Handoff.Plugin
             _flightPlanState = new FlightPlanModel(_broker.PostDebugMessage);
             _ = _flightPlanState.RefreshAsync();
 
+            // Public VATSIM data feed for cid/name/facility/rating enrichment -- tied to the
+            // VATSIM connection same as RadioStateModel, no point polling it when not flying.
+            _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage);
+            _broker.NetworkConnected += (sender, e) => _vatsimDataFeed.Start();
+            _broker.NetworkDisconnected += (sender, e) => _vatsimDataFeed.Stop();
+            _broker.SessionEnded += (sender, e) => _vatsimDataFeed.Stop();
+
+            _contactMe = new ContactMeModel(_chatModel, _controllerState);
+            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _broker.PostDebugMessage);
+
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerState, _chatModel, _radioState, _flightPlanState, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);
