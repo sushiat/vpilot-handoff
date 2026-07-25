@@ -2,6 +2,7 @@ package at.sushi.handoff
 
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,9 @@ object HandoffState {
     private val _radioState = MutableStateFlow(RadioStateMessage(modeCEnabled = false))
     val radioState: StateFlow<RadioStateMessage> = _radioState.asStateFlow()
 
+    private val _flightPlan = MutableStateFlow(FlightPlanMessage())
+    val flightPlan: StateFlow<FlightPlanMessage> = _flightPlan.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
     }
@@ -38,5 +42,9 @@ object HandoffState {
 
     fun update(message: RadioStateMessage) {
         _radioState.value = message
+    }
+
+    fun update(message: FlightPlanMessage) {
+        _flightPlan.value = message
     }
 }

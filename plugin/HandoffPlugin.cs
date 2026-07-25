@@ -11,6 +11,7 @@ namespace Handoff.Plugin
         private ControllerStateModel _controllerState;
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
+        private FlightPlanModel _flightPlanState;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
 
@@ -33,10 +34,15 @@ namespace Handoff.Plugin
             // fire for.
             AppDomain.CurrentDomain.ProcessExit += (sender, e) => _radioState.Stop();
 
+            // Fetches using whatever SimBrief credentials were persisted from a prior session
+            // (see FlightPlanModel) -- no-ops if the Android app has never sent any yet.
+            _flightPlanState = new FlightPlanModel(_broker.PostDebugMessage);
+            _ = _flightPlanState.RefreshAsync();
+
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerState, _chatModel, _radioState, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerState, _chatModel, _radioState, _flightPlanState, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);

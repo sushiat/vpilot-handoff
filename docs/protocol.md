@@ -107,6 +107,24 @@ SimConnect helper process isn't running/connected). `transponderCode` is a plain
 squawk (e.g. `1200`), not BCD -- that encoding is purely a SimConnect-boundary detail on the
 plugin side.
 
+### `flightPlan`
+
+The pilot's filed flight plan, fetched from the SimBrief API (`IBroker` has no flight-plan
+members at all -- see CLAUDE.md). Resent whenever a fetch (startup or triggered by
+`refreshFlightPlan`) succeeds. All fields are `null` until the first successful fetch.
+
+```json
+{
+  "type": "flightPlan",
+  "callsign": "BAW123",
+  "origin": "EGLL",
+  "destination": "KJFK",
+  "alternate": "KBOS"
+}
+```
+
+`alternate` is fetched and stored for future use but not yet surfaced in the Android app.
+
 ## Client → server messages
 
 ### `sendPrivateMessage`
@@ -157,8 +175,33 @@ by the plugin.
 {"type": "setTransponderCode", "transponderCode": 1200}
 ```
 
+### `setSimbriefCredentials`
+
+Persists the SimBrief user ID and/or username the plugin should fetch with -- a full
+overwrite of whatever was persisted before, including clearing a field by sending `null`.
+Doesn't trigger a fetch itself; send a `refreshFlightPlan` afterward for that (the Android
+Settings screen's "Save & refresh" button sends both, back to back). Persisting here (rather
+than only holding this in memory) is what lets the plugin re-fetch on its own next startup,
+before the Android app has necessarily connected.
+
+```json
+{"type": "setSimbriefCredentials", "simbriefUserId": "123456", "simbriefUsername": null}
+```
+
+### `refreshFlightPlan`
+
+Triggers a SimBrief fetch using whatever credentials are currently persisted (see
+`setSimbriefCredentials`) -- the user ID is tried first (SimBrief usernames have occasionally
+caused lookup issues), falling back to the username if the ID is blank or its fetch fails.
+Carries no fields of its own; a no-op (logged, not an error) if no credentials have ever been
+persisted.
+
+```json
+{"type": "refreshFlightPlan"}
+```
+
 ## Not yet in this protocol
 
-Flight plan, phase-of-flight, and controller priority ranking are all still open per
-`CLAUDE.md` — this protocol will grow new message types for them once those pieces of the
+Phase-of-flight and controller priority ranking are still open per `CLAUDE.md` — this protocol
+will grow new message types for them once those pieces of the
 plugin's state model exist. Don't design a client against fields that aren't listed above.

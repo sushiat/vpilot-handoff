@@ -59,6 +59,19 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
+        public static string BuildFlightPlanMessage(FlightPlan plan)
+        {
+            var payload = new
+            {
+                type = "flightPlan",
+                callsign = plan.Callsign,
+                origin = plan.Origin,
+                destination = plan.Destination,
+                alternate = plan.Alternate
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
         public static string BuildRadioStateMessage(RadioState state)
         {
             var payload = new

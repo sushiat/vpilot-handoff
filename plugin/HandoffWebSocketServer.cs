@@ -26,14 +26,16 @@ namespace Handoff.Plugin
         private readonly ControllerStateModel _controllerState;
         private readonly ChatModel _chatModel;
         private readonly RadioStateModel _radioState;
+        private readonly FlightPlanModel _flightPlanState;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
 
-        public HandoffWebSocketServer(ControllerStateModel controllerState, ChatModel chatModel, RadioStateModel radioState, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerStateModel controllerState, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, Action<string> logDebug = null)
         {
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
             _radioState = radioState ?? throw new ArgumentNullException(nameof(radioState));
+            _flightPlanState = flightPlanState ?? throw new ArgumentNullException(nameof(flightPlanState));
             _logDebug = logDebug;
         }
 
@@ -52,6 +54,7 @@ namespace Handoff.Plugin
                 _controllerState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerState.Controllers));
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
+                _flightPlanState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
 
                 Log("Listening on " + Address);
             }
@@ -69,6 +72,7 @@ namespace Handoff.Plugin
             socket.Send(ProtocolMessages.BuildControllersMessage(_controllerState.Controllers));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
+            socket.Send(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
         }
 
         private void OnClose(IWebSocketConnection socket)
@@ -114,6 +118,12 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeSetTransponderCode:
                     if (command.TransponderCode.HasValue) _radioState.SetTransponderCode(command.TransponderCode.Value);
+                    break;
+                case ClientCommand.TypeSetSimbriefCredentials:
+                    _flightPlanState.SetSimbriefCredentials(command.SimbriefUserId, command.SimbriefUsername);
+                    break;
+                case ClientCommand.TypeRefreshFlightPlan:
+                    _ = _flightPlanState.RefreshAsync();
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);

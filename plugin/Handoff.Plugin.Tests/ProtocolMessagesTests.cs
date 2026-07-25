@@ -109,6 +109,49 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildFlightPlanMessage_BeforeFirstFetch_FieldsAreNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty));
+
+            Assert.Equal("flightPlan", (string)json["type"]);
+            Assert.Equal(JTokenType.Null, json["callsign"].Type);
+            Assert.Equal(JTokenType.Null, json["origin"].Type);
+            Assert.Equal(JTokenType.Null, json["destination"].Type);
+            Assert.Equal(JTokenType.Null, json["alternate"].Type);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_WithValues()
+        {
+            var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
+
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan));
+
+            Assert.Equal("BAW123", (string)json["callsign"]);
+            Assert.Equal("EGLL", (string)json["origin"]);
+            Assert.Equal("KJFK", (string)json["destination"]);
+            Assert.Equal("KBOS", (string)json["alternate"]);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetSimbriefCredentials()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setSimbriefCredentials\",\"simbriefUserId\":\"12345\",\"simbriefUsername\":\"someuser\"}");
+
+            Assert.Equal(ClientCommand.TypeSetSimbriefCredentials, command.Type);
+            Assert.Equal("12345", command.SimbriefUserId);
+            Assert.Equal("someuser", command.SimbriefUsername);
+        }
+
+        [Fact]
+        public void ParseClientCommand_RefreshFlightPlan()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"refreshFlightPlan\"}");
+
+            Assert.Equal(ClientCommand.TypeRefreshFlightPlan, command.Type);
+        }
+
+        [Fact]
         public void ParseClientCommand_SendPrivateMessage()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"sendPrivateMessage\",\"to\":\"EGLL_TWR\",\"message\":\"wilco\"}");

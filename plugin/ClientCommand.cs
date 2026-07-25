@@ -15,6 +15,8 @@ namespace Handoff.Plugin
         public const string TypeSetCom1StandbyFrequency = "setCom1StandbyFrequency";
         public const string TypeSetCom2StandbyFrequency = "setCom2StandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
+        public const string TypeSetSimbriefCredentials = "setSimbriefCredentials";
+        public const string TypeRefreshFlightPlan = "refreshFlightPlan";
 
         public string Type { get; set; }
 
@@ -31,5 +33,14 @@ namespace Handoff.Plugin
 
         // setTransponderCode -- plain decimal squawk (e.g. 1200), not BCD.
         public int? TransponderCode { get; set; }
+
+        // setSimbriefCredentials -- SimBrief user ID and/or username, persisted by the plugin
+        // (overwriting whatever was persisted before) so future startups, and bare
+        // refreshFlightPlan triggers, can fetch without the Android app needing to resend
+        // them. ID takes priority over username at fetch time; username is a fallback if the
+        // ID is blank or its fetch fails. refreshFlightPlan itself carries no fields -- it
+        // just fetches with whatever is currently persisted.
+        public string SimbriefUserId { get; set; }
+        public string SimbriefUsername { get; set; }
     }
 }

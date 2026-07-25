@@ -49,6 +49,15 @@ data class ChatMessage(
 ) : ServerMessage
 
 @Serializable
+data class FlightPlanMessage(
+    val type: String = "flightPlan",
+    val callsign: String? = null,
+    val origin: String? = null,
+    val destination: String? = null,
+    val alternate: String? = null
+) : ServerMessage
+
+@Serializable
 data class RadioStateMessage(
     val type: String = "radioState",
     val com1Frequency: Int? = null,
@@ -73,6 +82,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "controllers" -> json.decodeFromJsonElement<ControllersMessage>(element)
         "chat" -> json.decodeFromJsonElement<ChatMessage>(element)
         "radioState" -> json.decodeFromJsonElement<RadioStateMessage>(element)
+        "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
         else -> null
     }
 }
@@ -136,4 +146,22 @@ data class SetTransponderCodeCommand(
     val transponderCode: Int
 ) : ClientCommand {
     override fun encode() = json.encodeToString(SetTransponderCodeCommand.serializer(), this)
+}
+
+@Serializable
+data class SetSimbriefCredentialsCommand(
+    val type: String = "setSimbriefCredentials",
+    val simbriefUserId: String? = null,
+    val simbriefUsername: String? = null
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetSimbriefCredentialsCommand.serializer(), this)
+}
+
+/** Carries no fields -- the plugin fetches using whatever credentials were last sent via
+ *  SetSimbriefCredentialsCommand (and persisted on its side). */
+@Serializable
+data class RefreshFlightPlanCommand(
+    val type: String = "refreshFlightPlan"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(RefreshFlightPlanCommand.serializer(), this)
 }

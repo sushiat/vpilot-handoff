@@ -68,6 +68,40 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesFlightPlanMessageWithValues() {
+        val json = """{"type":"flightPlan","callsign":"BAW123","origin":"EGLL","destination":"KJFK","alternate":"KBOS"}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals("BAW123", message.callsign)
+        assertEquals("EGLL", message.origin)
+        assertEquals("KJFK", message.destination)
+        assertEquals("KBOS", message.alternate)
+    }
+
+    @Test
+    fun decodesFlightPlanMessageBeforeFirstFetch() {
+        val json = """{"type":"flightPlan","callsign":null,"origin":null,"destination":null,"alternate":null}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertNull(message.callsign)
+        assertNull(message.origin)
+        assertNull(message.destination)
+        assertNull(message.alternate)
+    }
+
+    @Test
+    fun encodesSetSimbriefCredentialsCommand() {
+        val json = SetSimbriefCredentialsCommand(simbriefUserId = "123456", simbriefUsername = null).encode()
+        assertEquals("""{"type":"setSimbriefCredentials","simbriefUserId":"123456","simbriefUsername":null}""", json)
+    }
+
+    @Test
+    fun encodesRefreshFlightPlanCommand() {
+        val json = RefreshFlightPlanCommand().encode()
+        assertEquals("""{"type":"refreshFlightPlan"}""", json)
+    }
+
+    @Test
     fun returnsNullForUnrecognizedType() {
         assertNull(decodeServerMessage("""{"type":"somethingElse"}"""))
     }

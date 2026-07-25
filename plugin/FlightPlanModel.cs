@@ -1,0 +1,161 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+
+namespace Handoff.Plugin
+{
+    /// <summary>
+    /// Live flight-plan state, fetched from SimBrief (see SimBriefClient). Same shape as the
+    /// other models (RadioStateModel, ChatModel): a Current snapshot + a payload-free Changed
+    /// event.
+    ///
+    /// SimBrief credentials (user ID and/or username) are persisted locally so the plugin can
+    /// re-fetch on its own startup, before the Android app has necessarily connected -- see
+    /// docs/protocol.md and CLAUDE.md for why IBroker can't supply flight-plan data itself.
+    /// </summary>
+    public sealed class FlightPlanModel
+    {
+        private static readonly string Default_configPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "simbrief.json");
+
+        private readonly object _gate = new object();
+        private readonly Func<string, string, Task<FlightPlan>> _fetch;
+        private readonly Action<string> _logDebug;
+        private readonly string _configPath;
+        private FlightPlan _current = FlightPlan.Empty;
+        private string _userId;
+        private string _username;
+
+        public event EventHandler Changed;
+
+        /// <param name="configPath">
+        /// Overridable only for tests, so they don't read/write the real
+        /// %LOCALAPPDATA%\Handoff\simbrief.json on the dev machine.
+        /// </param>
+        public FlightPlanModel(Action<string> logDebug = null, Func<string, string, Task<FlightPlan>> fetch = null, string configPath = null)
+        {
+            _logDebug = logDebug;
+            _fetch = fetch ?? ((userId, username) => SimBriefClient.FetchAsync(userId, username, _logDebug));
+            _configPath = configPath ?? Default_configPath;
+            LoadCredentials();
+        }
+
+        public FlightPlan Current
+        {
+            get { lock (_gate) { return _current; } }
+        }
+
+        /// <summary>
+        /// Fetches using whatever credentials were last persisted (from a prior
+        /// SetSimbriefCredentialsAndRefreshAsync call, possibly in an earlier plugin session).
+        /// No-ops if neither a user ID nor a username has ever been set.
+        /// </summary>
+        public Task RefreshAsync()
+        {
+            string userId, username;
+            lock (_gate) { userId = _userId; username = _username; }
+
+            if (string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(username))
+            {
+                Log("No SimBrief credentials persisted yet -- skipping startup fetch.");
+                return Task.CompletedTask;
+            }
+
+            return FetchAndApplyAsync(userId, username);
+        }
+
+        /// <summary>
+        /// Persists the given credentials (full overwrite, whatever is given -- including
+        /// null/blank -- replaces what was there) for RefreshAsync to use, both on this
+        /// plugin's own next startup and for any bare refreshFlightPlan trigger. Does not
+        /// itself fetch -- callers that want an immediate fetch send a separate
+        /// refreshFlightPlan, same as the Android UI's "Save & refresh" does.
+        /// </summary>
+        public void SetSimbriefCredentials(string userId, string username)
+        {
+            lock (_gate)
+            {
+                _userId = userId;
+                _username = username;
+            }
+            SaveCredentials(userId, username);
+        }
+
+        private async Task FetchAndApplyAsync(string userId, string username)
+        {
+            FlightPlan plan;
+            try
+            {
+                plan = await _fetch(userId, username).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log("Flight plan fetch threw: " + ex.Message);
+                return;
+            }
+
+            if (plan == null)
+            {
+                Log("No flight plan available from SimBrief.");
+                return;
+            }
+
+            lock (_gate) { _current = plan; }
+            Log($"Flight plan updated: callsign={plan.Callsign}, origin={plan.Origin}, destination={plan.Destination}, alternate={plan.Alternate}");
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void LoadCredentials()
+        {
+            try
+            {
+                if (!File.Exists(_configPath)) return;
+
+                var json = File.ReadAllText(_configPath);
+                var config = JsonConvert.DeserializeObject<SimbriefCredentials>(json);
+                if (config == null) return;
+
+                lock (_gate)
+                {
+                    _userId = config.UserId;
+                    _username = config.Username;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to load persisted SimBrief credentials: " + ex.Message);
+            }
+        }
+
+        private void SaveCredentials(string userId, string username)
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_configPath);
+                if (directory != null) Directory.CreateDirectory(directory);
+
+                var json = JsonConvert.SerializeObject(new SimbriefCredentials { UserId = userId, Username = username });
+                File.WriteAllText(_configPath, json);
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to persist SimBrief credentials: " + ex.Message);
+            }
+        }
+
+        private void Log(string message)
+        {
+            var line = "FlightPlanModel: " + message;
+            Debug.WriteLine(line);
+            _logDebug?.Invoke(line);
+        }
+
+        private sealed class SimbriefCredentials
+        {
+            public string UserId { get; set; }
+            public string Username { get; set; }
+        }
+    }
+}
