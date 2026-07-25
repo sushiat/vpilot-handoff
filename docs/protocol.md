@@ -36,17 +36,55 @@ ISO 8601 UTC.
 
 ### `controllers`
 
-The full current controller list, resent whenever any controller is added, removed, or
-changes frequency/location.
+The full current controller list, pre-sorted by the plugin's priority ranking (see below) and
+resent whenever any controller is added/removed/changes frequency/location, the pilot's tuned
+COM frequency changes, the flight plan changes, a "contact me" request starts/expires, or the
+VATSIM data feed enrichment updates. Nothing is ever hidden -- every connected station appears
+exactly once, just reordered, with boolean flags for the Android app to colour-code by (full
+saturation on relevant entries, paler on the rest -- no text labels needed, pilots already read
+VATSIM facility conventions).
 
 ```json
 {
   "type": "controllers",
   "controllers": [
-    {"callsign": "EGLL_TWR", "frequency": 23725, "latitude": 51.4775, "longitude": -0.4614}
+    {
+      "callsign": "EGLL_TWR",
+      "frequency": 23725,
+      "latitude": 51.4775,
+      "longitude": -0.4614,
+      "cid": 1234567,
+      "name": "John Smith",
+      "facility": 4,
+      "rating": 5,
+      "requestsContactMe": false,
+      "isCurrent": true,
+      "isContactMe": false,
+      "isLikelyNextCandidate": false,
+      "isApproaching": false
+    }
   ]
 }
 ```
+
+`cid`/`name`/`facility`/`rating` come from the public VATSIM data feed (not `IBroker`, which
+doesn't expose them) and are `null` until that feed's ~15s-lagged enrichment solidifies for a
+given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP, 6=CTR`);
+`rating` is display-only, never used in ranking.
+
+Ranking order: the currently-tuned controller (or a manually pinned one, see
+`pinController` below) first, then any controller with an outstanding "contact me" request, then
+the rest grouped by the standard top-down chain (DEL→GND→TWR→APP/DEP→CTR) relative to the
+current tier, each tier internally sorted by flight-plan route match then distance to ownship.
+`isLikelyNextCandidate` is `true` on every controller in whichever tier is immediately next in
+the chain -- however many that is, not a fixed count.
+
+`isApproaching` is only ever `true` when nothing is currently tuned/pinned (i.e. flying
+uncontrolled) -- a "you're closing in on this station" signal for GND (on the ground, within
+10nm), TWR (airborne, within 20nm), and APP (airborne; within 40nm counts regardless of
+heading, 40-50nm only counts if ownship's heading is within 45° of the bearing to the
+station). Not computed for DEL (already well-served by route match) or CTR (a single lat/lon
+can't represent a FIR's real shape -- needs actual sector geometry, see issue #11).
 
 ### `chat`
 
@@ -200,8 +238,19 @@ persisted.
 {"type": "refreshFlightPlan"}
 ```
 
+### `pinController` / `clearPinnedController`
+
+Manual override: forces a specific controller to rank 0 / `isCurrent` in the `controllers`
+message, regardless of what the tuned-frequency heuristic would pick, until cleared or the
+controller goes offline. `clearPinnedController` carries no fields of its own.
+
+```json
+{"type": "pinController", "callsign": "EGLL_TWR"}
+{"type": "clearPinnedController"}
+```
+
 ## Not yet in this protocol
 
-Phase-of-flight and controller priority ranking are still open per `CLAUDE.md` — this protocol
-will grow new message types for them once those pieces of the
-plugin's state model exist. Don't design a client against fields that aren't listed above.
+Phase-of-flight is still open per `CLAUDE.md` — this protocol will grow a new message type for
+it once that piece of the plugin's state model exists. Don't design a client against fields that
+aren't listed above.

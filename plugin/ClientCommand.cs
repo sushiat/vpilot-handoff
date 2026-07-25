@@ -17,11 +17,18 @@ namespace Handoff.Plugin
         public const string TypeSetTransponderCode = "setTransponderCode";
         public const string TypeSetSimbriefCredentials = "setSimbriefCredentials";
         public const string TypeRefreshFlightPlan = "refreshFlightPlan";
+        public const string TypePinController = "pinController";
+        public const string TypeClearPinnedController = "clearPinnedController";
 
         public string Type { get; set; }
 
         // sendPrivateMessage
         public string To { get; set; }
+
+        // pinController -- forces this callsign to rank 0 / isCurrent regardless of tuned
+        // frequency, until clearPinnedController or the controller goes offline. Not used by
+        // clearPinnedController, which carries no fields of its own.
+        public string Callsign { get; set; }
 
         // sendPrivateMessage / sendRadioMessage
         public string Message { get; set; }

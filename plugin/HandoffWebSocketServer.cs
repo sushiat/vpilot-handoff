@@ -23,16 +23,16 @@ namespace Handoff.Plugin
 
         private readonly object _gate = new object();
         private readonly List<IWebSocketConnection> _sockets = new List<IWebSocketConnection>();
-        private readonly ControllerStateModel _controllerState;
+        private readonly ControllerRankingModel _controllerRanking;
         private readonly ChatModel _chatModel;
         private readonly RadioStateModel _radioState;
         private readonly FlightPlanModel _flightPlanState;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
 
-        public HandoffWebSocketServer(ControllerStateModel controllerState, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, Action<string> logDebug = null)
         {
-            _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
+            _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
             _radioState = radioState ?? throw new ArgumentNullException(nameof(radioState));
             _flightPlanState = flightPlanState ?? throw new ArgumentNullException(nameof(flightPlanState));
@@ -51,7 +51,7 @@ namespace Handoff.Plugin
                     socket.OnMessage = message => OnMessage(message);
                 });
 
-                _controllerState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerState.Controllers));
+                _controllerRanking.Changed += (s, e) => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
                 _flightPlanState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
@@ -69,7 +69,7 @@ namespace Handoff.Plugin
             lock (_gate) { _sockets.Add(socket); }
             Log("Client connected: " + socket.ConnectionInfo.ClientIpAddress);
 
-            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerState.Controllers));
+            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
             socket.Send(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
@@ -124,6 +124,12 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeRefreshFlightPlan:
                     _ = _flightPlanState.RefreshAsync();
+                    break;
+                case ClientCommand.TypePinController:
+                    _controllerRanking.SetPinnedController(command.Callsign);
+                    break;
+                case ClientCommand.TypeClearPinnedController:
+                    _controllerRanking.ClearPinnedController();
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);

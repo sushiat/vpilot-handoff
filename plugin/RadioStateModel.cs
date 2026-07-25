@@ -26,7 +26,7 @@ namespace Handoff.Plugin
     /// before connecting, and this also means the helper process actually exits, rather than
     /// running forever with no way to stop it (IPlugin has no unload hook at all).
     /// </summary>
-    public sealed class RadioStateModel
+    public sealed class RadioStateModel : IRadioStateModel
     {
         private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);

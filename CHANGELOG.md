@@ -75,3 +75,25 @@ once it has its first release.
   `RadioStateModel.Telemetry`. Telemetry plumbing only, toward future phase-of-flight and
   controller-priority-ranking work (see #7, #8, #9) — no classification logic or protocol/
   WebSocket changes yet.
+- Plugin: controller priority ranking (`ControllerRankingModel`), re-sorting the full
+  controller list `ControllerStateModel` already reports (nothing hidden) by: currently-tuned
+  frequency or a manual pin, an outstanding "contact me" private-message request
+  (`ContactMeModel`, 5-minute lazy expiry), the standard DEL→GND→TWR→APP/DEP→CTR chain tier
+  relative to the current one (`ControllerTier`), a flight-plan route match (origin
+  pre-departure, destination once airborne), and finally distance to ownship
+  (`Shared/GeoDistance`) as a last-resort tiebreak, with hysteresis on that distance tiebreak
+  to avoid flapping on momentary GPS noise. Cid/name/facility/rating enrichment comes from the
+  public VATSIM data feed (`VatsimDataFeedClient`/`VatsimDataFeedModel`), since `IBroker`
+  exposes none of it. The `controllers` WebSocket message gains `cid`/`name`/`facility`/
+  `rating`/`requestsContactMe`/`isCurrent`/`isContactMe`/`isLikelyNextCandidate`/
+  `isApproaching` fields, plus new `pinController`/`clearPinnedController` client commands for
+  the manual override, documented in `docs/protocol.md`. `isApproaching` is a distance/heading
+  "closing in on this station" signal (only set when nothing is currently tuned/pinned) for
+  GND/TWR/APP, using plain thresholds plus a heading-vs-bearing check for APP beyond its inner
+  radius (`GeoDistance.InitialBearingDegrees`/`AngularDifferenceDegrees`) — not computed for
+  DEL (already well-served by route match) or CTR (a single lat/lon can't represent a FIR's
+  real shape; needs actual sector geometry, see #11).
+- Android: `Controller` decodes the full enriched `controllers` message (issue #8) —
+  `cid`/`name`/`facility`/`rating`/`requestsContactMe`/`isCurrent`/`isContactMe`/
+  `isLikelyNextCandidate`/`isApproaching` — with no UI changes yet; the list already renders in
+  the server-sent (pre-sorted) order.

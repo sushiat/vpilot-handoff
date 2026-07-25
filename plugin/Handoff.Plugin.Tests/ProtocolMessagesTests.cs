@@ -10,7 +10,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildControllersMessage_EmptyList()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<Controller>()));
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<RankedController>()));
 
             Assert.Equal("controllers", (string)json["type"]);
             Assert.Empty((JArray)json["controllers"]);
@@ -19,7 +19,10 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildControllersMessage_OneController()
         {
-            var controllers = new List<Controller> { new Controller("EGLL_TWR", 23725, 51.4775, -0.4614) };
+            var controllers = new List<RankedController>
+            {
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false)
+            };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
             var controller = json["controllers"][0];
@@ -28,6 +31,32 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(23725, (int)controller["frequency"]);
             Assert.Equal(51.4775, (double)controller["latitude"]);
             Assert.Equal(-0.4614, (double)controller["longitude"]);
+            Assert.Equal(1234567, (int)controller["cid"]);
+            Assert.Equal("John Smith", (string)controller["name"]);
+            Assert.Equal(4, (int)controller["facility"]);
+            Assert.Equal(5, (int)controller["rating"]);
+            Assert.True((bool)controller["requestsContactMe"]);
+            Assert.True((bool)controller["isCurrent"]);
+            Assert.False((bool)controller["isContactMe"]);
+            Assert.True((bool)controller["isLikelyNextCandidate"]);
+            Assert.False((bool)controller["isApproaching"]);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_UnenrichedController_EnrichmentFieldsAreNull()
+        {
+            var controllers = new List<RankedController>
+            {
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false)
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+            var controller = json["controllers"][0];
+
+            Assert.Equal(JTokenType.Null, controller["cid"].Type);
+            Assert.Equal(JTokenType.Null, controller["name"].Type);
+            Assert.Equal(JTokenType.Null, controller["facility"].Type);
+            Assert.Equal(JTokenType.Null, controller["rating"].Type);
         }
 
         [Fact]
@@ -213,6 +242,23 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal(ClientCommand.TypeSetTransponderCode, command.Type);
             Assert.Equal(1200, command.TransponderCode);
+        }
+
+        [Fact]
+        public void ParseClientCommand_PinController()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"pinController\",\"callsign\":\"EGLL_TWR\"}");
+
+            Assert.Equal(ClientCommand.TypePinController, command.Type);
+            Assert.Equal("EGLL_TWR", command.Callsign);
+        }
+
+        [Fact]
+        public void ParseClientCommand_ClearPinnedController()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"clearPinnedController\"}");
+
+            Assert.Equal(ClientCommand.TypeClearPinnedController, command.Type);
         }
 
         [Fact]

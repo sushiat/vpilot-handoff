@@ -19,7 +19,7 @@ namespace Handoff.Plugin
             Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) }
         };
 
-        public static string BuildControllersMessage(IReadOnlyCollection<Controller> controllers)
+        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers)
         {
             var payload = new
             {
@@ -29,7 +29,16 @@ namespace Handoff.Plugin
                     callsign = c.Callsign,
                     frequency = c.Frequency,
                     latitude = c.Latitude,
-                    longitude = c.Longitude
+                    longitude = c.Longitude,
+                    cid = c.Cid,
+                    name = c.Name,
+                    facility = c.Facility,
+                    rating = c.Rating,
+                    requestsContactMe = c.RequestsContactMe,
+                    isCurrent = c.IsCurrent,
+                    isContactMe = c.IsContactMe,
+                    isLikelyNextCandidate = c.IsLikelyNextCandidate,
+                    isApproaching = c.IsApproaching
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
