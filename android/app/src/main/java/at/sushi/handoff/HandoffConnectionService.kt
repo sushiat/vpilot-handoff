@@ -13,6 +13,7 @@ import at.sushi.handoff.network.HandoffWebSocketClient
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -28,6 +29,8 @@ class HandoffConnectionService : Service() {
     companion object {
         const val PrefsName = "handoff_prefs"
         const val PrefKeyHost = "server_ip"
+        const val PrefKeySimbriefUserId = "simbrief_user_id"
+        const val PrefKeySimbriefUsername = "simbrief_username"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         private const val MinBackoffMillis = 2_000L
@@ -55,6 +58,7 @@ class HandoffConnectionService : Service() {
                     is ControllersMessage -> HandoffState.update(message)
                     is ChatMessage -> HandoffState.update(message)
                     is RadioStateMessage -> HandoffState.update(message)
+                    is FlightPlanMessage -> HandoffState.update(message)
                 }
             },
             onStateChanged = { connected -> onConnectionStateChanged(connected) }

@@ -58,3 +58,13 @@ once it has its first release.
   the app. Message (de)serialization via `kotlinx.serialization`, unit tested on the JVM.
   Still missing: the `SYSTEM_ALERT_WINDOW` chat-heads overlay described in issue #1 — planned
   as a follow-up.
+- Plugin: flight plan integration via the SimBrief API (`FlightPlan`/`FlightPlanModel`/
+  `SimBriefClient`) — `IBroker` has no flight-plan members at all, so this is the only source
+  for callsign/origin/destination/alternate. A SimBrief user ID is tried first (falling back
+  to username, which has occasionally caused lookup issues) and both are persisted locally so
+  the plugin can re-fetch on its own next startup without the Android app needing to reconnect
+  first. New `flightPlan` broadcast plus `setSimbriefCredentials`/`refreshFlightPlan` client
+  commands, documented in `docs/protocol.md`.
+- Android: basic callsign/origin→destination display on the Controllers screen with a manual
+  refresh button, plus SimBrief user ID/username fields on the Settings screen. Alternate
+  airport is fetched/stored by the plugin but not yet surfaced in the app.

@@ -21,6 +21,8 @@ import androidx.core.content.edit
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.network.HandoffDiscoveryClient
+import at.sushi.handoff.protocol.RefreshFlightPlanCommand
+import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import kotlinx.coroutines.launch
 
 @Composable
@@ -28,6 +30,8 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(HandoffConnectionService.PrefsName, android.content.Context.MODE_PRIVATE) }
     var host by remember { mutableStateOf(prefs.getString(HandoffConnectionService.PrefKeyHost, "") ?: "") }
+    var simbriefUserId by remember { mutableStateOf(prefs.getString(HandoffConnectionService.PrefKeySimbriefUserId, "") ?: "") }
+    var simbriefUsername by remember { mutableStateOf(prefs.getString(HandoffConnectionService.PrefKeySimbriefUsername, "") ?: "") }
     var status by remember { mutableStateOf("") }
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
     val scope = rememberCoroutineScope()
@@ -68,6 +72,39 @@ fun SettingsScreen() {
 
         if (status.isNotBlank()) {
             Text(status, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        Text("SimBrief", modifier = Modifier.padding(top = 24.dp))
+        Text("User ID takes priority; username is only used as a fallback.")
+
+        OutlinedTextField(
+            value = simbriefUserId,
+            onValueChange = { simbriefUserId = it },
+            label = { Text("SimBrief user ID") },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        )
+
+        OutlinedTextField(
+            value = simbriefUsername,
+            onValueChange = { simbriefUsername = it },
+            label = { Text("SimBrief username") },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        )
+
+        Button(onClick = {
+            prefs.edit {
+                putString(HandoffConnectionService.PrefKeySimbriefUserId, simbriefUserId.ifBlank { null })
+                putString(HandoffConnectionService.PrefKeySimbriefUsername, simbriefUsername.ifBlank { null })
+            }
+            HandoffConnectionService.instance?.sendCommand(
+                SetSimbriefCredentialsCommand(
+                    simbriefUserId = simbriefUserId.ifBlank { null },
+                    simbriefUsername = simbriefUsername.ifBlank { null }
+                )
+            )
+            HandoffConnectionService.instance?.sendCommand(RefreshFlightPlanCommand())
+        }) {
+            Text("Save & refresh flight plan")
         }
     }
 }

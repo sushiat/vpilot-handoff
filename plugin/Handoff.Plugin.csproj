@@ -31,6 +31,8 @@
       <HintPath>lib\RossCarlson.Vatsim.Vpilot.Plugins.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Used by SimBriefClient to fetch the flight plan from the SimBrief API. -->
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
