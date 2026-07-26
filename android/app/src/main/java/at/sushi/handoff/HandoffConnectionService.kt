@@ -4,8 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -42,7 +45,6 @@ class HandoffConnectionService : Service() {
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
-        const val PrefKeyKeepScreenAwake = "keep_screen_awake"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         private const val MinBackoffMillis = 2_000L
@@ -72,6 +74,17 @@ class HandoffConnectionService : Service() {
         override fun onStop(owner: LifecycleOwner) = HandoffState.setAppVisible(false)
     }
 
+    // The tablet is normally docked and wired into power for the whole flight, so "keep screen
+    // awake" should just track that rather than needing to be a persisted user choice: on
+    // battery it defaults off (don't drain a device that isn't charging), on a charger it
+    // defaults on, and plugging in later turns it on even if it had been off -- the user's own
+    // manual toggle in between is left alone otherwise (this never forces it back off).
+    private val powerConnectedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            HandoffState.setKeepScreenAwake(true)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -80,6 +93,8 @@ class HandoffConnectionService : Service() {
         createConnectionNotificationChannel()
         notifier.createChannels()
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
+        registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
+        HandoffState.setKeepScreenAwake(isCharging())
         loadPersistedUiSettings()
         client = HandoffWebSocketClient(
             onMessage = { message ->
@@ -111,8 +126,19 @@ class HandoffConnectionService : Service() {
         pingJob?.cancel()
         client.close()
         ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
+        unregisterReceiver(powerConnectedReceiver)
         instance = null
         super.onDestroy()
+    }
+
+    /** ACTION_BATTERY_CHANGED is a sticky broadcast -- registering for it with a null receiver
+     *  returns the current battery state synchronously instead of waiting for the next change,
+     *  which is what makes this usable as a one-shot "is it charging right now" check at
+     *  startup. EXTRA_PLUGGED is 0 when on battery, non-zero for AC/USB/wireless. */
+    private fun isCharging(): Boolean {
+        val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+        return plugged != 0
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -172,8 +198,6 @@ class HandoffConnectionService : Service() {
         prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
         }
-        // Defaults to true (HandoffState's own default) if never explicitly set.
-        HandoffState.setKeepScreenAwake(prefs.getBoolean(PrefKeyKeepScreenAwake, true))
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {

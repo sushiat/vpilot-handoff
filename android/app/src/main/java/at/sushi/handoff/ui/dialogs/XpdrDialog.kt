@@ -20,7 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -55,7 +55,7 @@ fun XpdrDialog(
             typed.padEnd(4, '_'),
             fontSize = 44.sp,
             fontWeight = FontWeight.Light,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = RobotoMono,
             letterSpacing = 0.1f.em,
             color = colors.text
         )
@@ -137,7 +137,7 @@ fun XpdrDialog(
                     Text(
                         code.toString().padStart(4, '0'),
                         fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = RobotoMono,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.text
                     )

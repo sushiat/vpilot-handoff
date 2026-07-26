@@ -5,12 +5,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,9 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import at.sushi.handoff.ui.theme.RobotoMono
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.Controller
@@ -119,6 +126,29 @@ fun ControllerList(
             color = colors.textMuted,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)
         )
+        // Shared across every row so the frequency column lines up regardless of individual
+        // callsign length -- matches the original JS reference's own formula exactly
+        // (`Math.max(90, longestCallsign * 8.5 + 10)`), just carried over from a static
+        // `widthIn(min = 90.dp)` that never actually read the list's real callsigns.
+        val callsignColWidth = remember(controllers) {
+            val longest = controllers.maxOfOrNull { it.callsign.length } ?: 0
+            maxOf(90f, longest * 8.5f + 10f).dp
+        }
+        // Measured once (the format is always exactly "DDD.DDD", per RadioFrequency.format --
+        // fixed shape regardless of which controller) rather than guessed at, so ControllerRow
+        // can precisely decide whether frequency actually fits inline instead of relying on a
+        // blanket row-width threshold that didn't account for how much the callsign column and
+        // icon group already consume -- that mismatch was clipping/hiding frequency entirely at
+        // exactly the widths it was supposed to still fit.
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val frequencyTextWidth = remember(textMeasurer) {
+            val widthPx = textMeasurer.measure(
+                text = "123.725",
+                style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = RobotoMono)
+            ).size.width
+            with(density) { widthPx.toDp() }
+        }
         // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;
         // gap:6px` -- rows are individually rounded cards with their own border/gap between
         // them, not a plain divided list (no HorizontalDivider in the reference at all).
@@ -131,6 +161,8 @@ fun ControllerList(
             items(controllers, key = { it.callsign }) { controller ->
                 ControllerRow(
                     controller = controller,
+                    callsignColWidth = callsignColWidth,
+                    frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
                     com2Active = com2Active,
                     isPinned = controller.callsign == pinnedCallsign,
@@ -148,9 +180,25 @@ fun ControllerList(
     }
 }
 
+// Fixed quantities of the row's non-frequency, non-callsign content, used to precisely compute
+// how much space is actually left over for the frequency text -- a blanket row-width threshold
+// turned out to badly mispredict this (it doesn't know how much callsignColWidth or the icon
+// group actually consume), which clipped/hid the frequency entirely at widths it was supposed to
+// still fit at.
+private val RowHorizontalPadding = 32.dp // 16dp each side
+private val RowItemGap = 10.dp // Arrangement.spacedBy on the outer Row
+private val IconsGroupWidth = 62.dp // pin + message, 30dp each + 2dp gap
+private val RatingBadgeWidth = 32.dp // ~30dp badge + 2dp gap to the icons group
+// Real name/CID + station suffix name have no fixed shape (unlike the frequency), so this is a
+// deliberately generous estimate for the purposes of deciding whether they'll fit -- overshooting
+// only means hiding them a little earlier than strictly necessary, never clipping the frequency.
+private val InfoColumnEstimatedWidth = 90.dp
+
 @Composable
 private fun ControllerRow(
     controller: Controller,
+    callsignColWidth: Dp,
+    frequencyTextWidth: Dp,
     com1Active: Int?,
     com2Active: Int?,
     isPinned: Boolean,
@@ -182,110 +230,202 @@ private fun ControllerRow(
     // Reference rowStyle is `border-radius:10px;background:...;border:1.5px solid ...` -- rows
     // are individually rounded cards, not a plain rectangular strip.
     val rowShape = RoundedCornerShape(10.dp)
+    val suffixName = controller.stationName ?: facilitySuffixName(controller.callsign)
+    val realNameOrCid = controller.name ?: controller.cid?.toString()
+    val ratingLabel = controller.rating?.let { ratingLabels[it] }
     Box {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(background, rowShape)
-                .border(1.5.dp, rowColors.border, rowShape)
-                .clickable { menuOpen = true }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Column(Modifier.widthIn(min = 90.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Step 1: with the info column dropped, does callsign + frequency + icons still fit
+            // inline? If not, frequency has to move to its own line regardless -- nothing else
+            // left to drop that would free up enough room.
+            val reservedMinimal = RowHorizontalPadding + callsignColWidth + IconsGroupWidth + RowItemGap * 2
+            val stackFrequency = (maxWidth - reservedMinimal) < frequencyTextWidth
+
+            // Step 2: given that placement, is there *also* room for the real name/CID + station
+            // name + rating info column? Checked precisely against actual remaining space rather
+            // than a blanket row-width guess, in both the inline and stacked cases.
+            val showInfo = if (stackFrequency) {
+                val reservedLine1WithInfo = RowHorizontalPadding + callsignColWidth + InfoColumnEstimatedWidth +
+                    IconsGroupWidth + RatingBadgeWidth + RowItemGap * 2
+                maxWidth >= reservedLine1WithInfo
+            } else {
+                val reservedInlineWithInfo = RowHorizontalPadding + callsignColWidth + InfoColumnEstimatedWidth +
+                    IconsGroupWidth + RatingBadgeWidth + RowItemGap * 3
+                (maxWidth - reservedInlineWithInfo) >= frequencyTextWidth
+            }
+
+            @Composable
+            fun FrequencyText(modifier: Modifier) {
+                // maxLines = 1 is load-bearing: without it, Text wraps character-by-character
+                // once its available width drops below the string's natural width instead of
+                // clipping -- a squawk/frequency value must never break across lines. Combined
+                // with stackFrequency below (a full line to itself once the row's too narrow to
+                // fit it inline at all), it should also never need to actually clip in practice.
                 Text(
-                    controller.callsign,
-                    fontSize = 15.sp,
+                    RadioFrequency.format(controller.frequency),
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    color = text
+                    fontFamily = RobotoMono,
+                    color = text.copy(alpha = 0.9f),
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = modifier
                 )
-                if (badges.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        badges.forEach { badge ->
-                            if (badge == ControllerBadge.SELCAL) {
-                                BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
-                            } else {
-                                BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
+            }
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(background, rowShape)
+                    .border(1.5.dp, rowColors.border, rowShape)
+                    .clickable { menuOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(Modifier.width(callsignColWidth)) {
+                        Text(
+                            controller.callsign,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = text,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip
+                        )
+                        if (badges.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                badges.forEach { badge ->
+                                    if (badge == ControllerBadge.SELCAL) {
+                                        BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
+                                    } else {
+                                        BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            Text(
-                RadioFrequency.format(controller.frequency),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = text.copy(alpha = 0.9f),
-                modifier = Modifier.weight(1f)
-            )
+                    // Centering (a spacer on both sides of frequency) is only safe when the info
+                    // column is hidden -- that column's own width varies per row (different real
+                    // names/CIDs), so once it's in the mix, splitting leftover space into two
+                    // equal spacers makes frequency's position depend on *this row's own*
+                    // info-text width, breaking alignment across rows. With info hidden there's
+                    // nothing row-dependent left (callsignColWidth/frequencyTextWidth are shared
+                    // across every row), so centering is safe there. With info shown, frequency
+                    // instead sits glued left right after callsign, and the single spacer below
+                    // (moved to sit *before* the info column rather than after it) pushes
+                    // info+rating+icons together as one clustered group on the right -- matching
+                    // how this looked before centering was added, rather than a lone floating gap
+                    // between frequency and a left-glued info column.
+                    if (!stackFrequency) {
+                        if (!showInfo) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                        FrequencyText(Modifier)
+                    }
 
-            // Reference gap between these two lines is 1px -- Compose Text's default line
-            // height reserves extra ascent/descent padding beyond the glyphs themselves (legacy
-            // Android "font padding"), which reads as a much bigger gap than 1dp of Arrangement
-            // spacing alone would suggest; disabling it via PlatformTextStyle is what actually
-            // closes the gap up to match.
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                val suffixName = controller.stationName ?: facilitySuffixName(controller.callsign)
-                if (suffixName != null) {
-                    Text(
-                        suffixName,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = text,
-                        style = androidx.compose.ui.text.TextStyle(
-                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
-                        )
-                    )
-                }
-                Text(
-                    controller.name ?: controller.cid?.toString() ?: "",
-                    fontSize = 10.sp,
-                    color = text.copy(alpha = 0.75f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = androidx.compose.ui.text.TextStyle(
-                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
-                    )
-                )
-            }
+                    // Always present regardless of which of the above are shown -- without a
+                    // dedicated flexible element, the info/rating/icons group just packs left
+                    // after whatever precedes it once frequency disappears/moves to its own line,
+                    // instead of staying anchored to the row's right edge.
+                    Spacer(Modifier.weight(1f))
 
-            // The rating badge sits with the same tight 2px gap as the icon buttons themselves,
-            // not the row's own 10dp inter-section spacing -- grouped into one Row so
-            // Arrangement.spacedBy(10dp) on the outer Row only applies *before* this group, not
-            // between the badge and the icons.
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                controller.rating?.let { rating ->
-                    ratingLabels[rating]?.let { label -> RatingBadge(label, text, badgeBackground) }
+                    // Real name/CID, station suffix name, and rating badge all disappear together
+                    // as one unit below HideInfoThreshold -- staggering them at separate
+                    // thresholds read as broken (an orphaned line, or the rating surviving until
+                    // the row was already unusably cramped) rather than intentional.
+                    if (showInfo) {
+                        // Reference gap between these two lines is 1px -- Compose Text's default
+                        // line height reserves extra ascent/descent padding beyond the glyphs
+                        // themselves (legacy Android "font padding"), which reads as a much bigger
+                        // gap than 1dp of Arrangement spacing alone would suggest; disabling it via
+                        // PlatformTextStyle is what actually closes the gap up to match.
+                        if (suffixName != null || realNameOrCid != null) {
+                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                if (suffixName != null) {
+                                    Text(
+                                        suffixName,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = text,
+                                        style = androidx.compose.ui.text.TextStyle(
+                                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                                        )
+                                    )
+                                }
+                                if (realNameOrCid != null) {
+                                    Text(
+                                        realNameOrCid,
+                                        fontSize = 10.sp,
+                                        color = text.copy(alpha = 0.75f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = androidx.compose.ui.text.TextStyle(
+                                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // The rating badge sits with the same tight 2px gap as the icon buttons
+                    // themselves, not the row's own 10dp inter-section spacing -- grouped into one
+                    // Row so Arrangement.spacedBy(10dp) on the outer Row only applies *before* this
+                    // group, not between the badge and the icons.
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (showInfo) {
+                            ratingLabel?.let { label -> RatingBadge(label, text, badgeBackground) }
+                        }
+
+                        // Reference uses tight 30x30 buttons with a 2px gap between them
+                        // (`display:flex;gap:2px` around pinBtnStyle/msgBtnStyle, both `width:30px;
+                        // height:30px;padding:0`) -- Material3's IconButton (48dp min touch target,
+                        // plus the row's own 10dp gap on top) was eating enough space that the
+                        // frequency didn't fit on one line.
+                        Box(
+                            Modifier.size(30.dp).clickable(onClick = onTogglePin),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text, modifier = Modifier.size(20.dp))
+                        }
+                        Box(
+                            Modifier.size(30.dp).clickable(onClick = onOpenChat),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = text, modifier = Modifier.size(20.dp))
+                        }
+                    }
                 }
 
-                // Reference uses tight 30x30 buttons with a 2px gap between them
-                // (`display:flex;gap:2px` around pinBtnStyle/msgBtnStyle, both `width:30px;
-                // height:30px;padding:0`) -- Material3's IconButton (48dp min touch target, plus
-                // the row's own 10dp gap on top) was eating enough space that the frequency
-                // didn't fit on one line.
-                Box(
-                    Modifier.size(30.dp).clickable(onClick = onTogglePin),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text, modifier = Modifier.size(20.dp))
-                }
-                Box(
-                    Modifier.size(30.dp).clickable(onClick = onOpenChat),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = text, modifier = Modifier.size(20.dp))
+                if (stackFrequency) {
+                    // The outer Row is always at least as tall as its tallest child (the 30dp
+                    // pin/message icon boxes), regardless of alignment -- when there's no badge
+                    // row, the callsign's own single line of text is shorter than that, so
+                    // whatever fixed top padding is added here stacks on top of that Row-height
+                    // slack too, reading as a gap roughly the size of a badge pill even though
+                    // there isn't one. Only add the padding when a badge row is actually present
+                    // (making the callsign column's own height closer to the row's height, so the
+                    // slack is much smaller to begin with).
+                    FrequencyText(Modifier.padding(top = if (badges.isEmpty()) 0.dp else 6.dp))
                 }
             }
         }
 
+        // Always shows full detail regardless of what the row itself had to hide for space --
+        // nothing is truly lost to the width-based overflow above, just relocated here.
         ControllerTuneMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
             callsign = controller.callsign,
             frequencyLabel = RadioFrequency.format(controller.frequency),
+            stationName = suffixName,
+            realNameOrCid = realNameOrCid,
+            ratingLabel = ratingLabel,
             showDismissSelcal = selcalActive,
             onTuneCom1Active = { menuOpen = false; onTuneCom1Active() },
             onTuneCom2Active = { menuOpen = false; onTuneCom2Active() },
@@ -343,6 +483,9 @@ private fun ControllerTuneMenu(
     onDismiss: () -> Unit,
     callsign: String,
     frequencyLabel: String,
+    stationName: String?,
+    realNameOrCid: String?,
+    ratingLabel: String?,
     showDismissSelcal: Boolean,
     onTuneCom1Active: () -> Unit,
     onTuneCom2Active: () -> Unit,
@@ -357,10 +500,21 @@ private fun ControllerTuneMenu(
                 "$callsign · $frequencyLabel",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.textMuted,
-                modifier = Modifier.padding(bottom = 8.dp)
+                color = colors.textMuted
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Always shown in full here regardless of what the row itself had to hide for width
+            // -- the popover isn't space-constrained the way the row is, so there's no need to
+            // mirror the row's own breakpoints.
+            val detailLine = listOfNotNull(stationName, realNameOrCid, ratingLabel).joinToString(" · ")
+            if (detailLine.isNotEmpty()) {
+                Text(
+                    detailLine,
+                    fontSize = 11.sp,
+                    color = colors.textMuted.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active)
                 TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active)
             }

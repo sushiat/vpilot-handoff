@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -22,7 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,7 +109,7 @@ fun FooterStatusBar(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Filled.Coffee,
+                        Icons.Filled.ScreenLockLandscape,
                         contentDescription = if (keepScreenAwake) "Keep screen awake: on" else "Keep screen awake: off",
                         tint = if (keepScreenAwake) colors.accent else colors.textMuted,
                         modifier = Modifier.size(20.dp)
@@ -169,7 +169,7 @@ fun FooterStatusBar(
                     // persisted host pref + client-measured ping/pong RTT).
                     "vPilot plugin $versionLabel · ${address?.let { "ws://$it:48765" } ?: "not connected"} · $latencyLabel",
                     fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = RobotoMono,
                     color = colors.textMuted
                 )
             }

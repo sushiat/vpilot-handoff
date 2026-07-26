@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
+import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -160,14 +160,14 @@ private fun EntryReadout(typed: String, completed: String?, showAsRed: Boolean) 
     Row(verticalAlignment = Alignment.Bottom) {
         shown.forEachIndexed { index, char ->
             if (index == 3) {
-                Text(".", fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace, color = colors.text)
+                Text(".", fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = RobotoMono, color = colors.text)
             }
             val color = when {
                 showAsRed -> outOfBandRed
                 index < typed.length -> colors.text
                 else -> colors.textMuted
             }
-            Text(char.toString(), fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace, color = color)
+            Text(char.toString(), fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = RobotoMono, color = color)
         }
     }
 }
@@ -198,7 +198,7 @@ private fun SpacingToggle(spacing: ChannelSpacing, modifier: Modifier = Modifier
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(spacingLabel(spacing), fontSize = 15.sp, fontFamily = FontFamily.Monospace, color = colors.text)
+        Text(spacingLabel(spacing), fontSize = 15.sp, fontFamily = RobotoMono, color = colors.text)
         Text(
             spacingLabel(other),
             fontSize = 9.sp,

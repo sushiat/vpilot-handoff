@@ -21,7 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
+import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -127,7 +127,7 @@ private fun AppHeaderRow() {
             "v$versionName",
             fontSize = 10.sp,
             fontWeight = FontWeight.Medium,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = RobotoMono,
             color = colors.textMuted.copy(alpha = 0.6f)
         )
     }
@@ -161,7 +161,7 @@ private fun RowScope.FrequencyButton(
             value,
             fontSize = if (large) 20.sp else 15.sp,
             fontWeight = if (large) FontWeight.Bold else FontWeight.Medium,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = RobotoMono,
             color = colors.text.copy(alpha = if (large) 1f else 0.75f)
         )
     }
@@ -195,7 +195,7 @@ private fun RowScope.XpdrButton(modifier: Modifier = Modifier, radioState: Radio
                 radioState.transponderCode?.toString()?.padStart(4, '0') ?: "----",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = RobotoMono,
                 color = colors.text
             )
         }

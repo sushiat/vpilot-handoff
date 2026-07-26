@@ -66,9 +66,11 @@ object HandoffState {
     private val _keypadBlockMode = MutableStateFlow(KeypadBlockMode.BLOCK_INVALID)
     val keypadBlockMode: StateFlow<KeypadBlockMode> = _keypadBlockMode.asStateFlow()
 
-    // Default on -- the primary use case is a tablet docked and wired into power in the cockpit
-    // for the whole flight, where Android's screen timeout is actively unwanted, not a battery
-    // concern. MainScreen applies this to the window via View.keepScreenOn.
+    // HandoffConnectionService sets this from the live charging state at startup (on battery:
+    // off, on a charger: on) and forces it on whenever a charger connects -- not a persisted user
+    // preference, see the service's powerConnectedReceiver. This placeholder default only matters
+    // for the brief window before that first check runs. MainScreen applies the result to the
+    // window via View.keepScreenOn.
     private val _keepScreenAwake = MutableStateFlow(true)
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
 

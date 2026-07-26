@@ -297,11 +297,10 @@ private fun MainScreenContent() {
                 onToggleExpanded = { footerExpanded = !footerExpanded },
                 onRefresh = { send(RefreshFlightPlanCommand()) },
                 onOpenSettings = { settingsDialogOpen = true },
-                onToggleKeepScreenAwake = {
-                    val newValue = !keepScreenAwake
-                    HandoffState.setKeepScreenAwake(newValue)
-                    prefs.edit { putBoolean(HandoffConnectionService.PrefKeyKeepScreenAwake, newValue) }
-                }
+                // Not persisted -- HandoffConnectionService re-derives this from the live
+                // charging state at startup and forces it on when a charger connects; a manual
+                // toggle here only holds until the next one of those triggers.
+                onToggleKeepScreenAwake = { HandoffState.setKeepScreenAwake(!keepScreenAwake) }
             )
             }
             if (layoutMode == LayoutMode.SPLIT && splitSide == at.sushi.handoff.SplitSide.LEFT) {
