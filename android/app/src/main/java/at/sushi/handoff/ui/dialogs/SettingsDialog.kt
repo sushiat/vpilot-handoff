@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +43,13 @@ import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.ui.theme.verticalScrollbar
 import kotlinx.coroutines.launch
+
+// Shared across every HandoffTextField in this dialog so they render at an identical height --
+// previously each one sized itself from HandoffTextField's own default padding/font, which read
+// as inconsistent since this dialog fixes an explicit height rather than letting it fall out of
+// content.
+private val SettingsFieldHeight = 46.dp
+private val SettingsFieldFontSize = 15.sp
 
 private data class CreditRow(val label: String, val pillText: String?, val name: String, val url: String)
 
@@ -99,7 +108,22 @@ fun SettingsDialog(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // No explicit Save button -- every close path (✕, back gesture, tap-outside, which
+    // onDismissRequest already covers uniformly) saves once on the way out instead. No
+    // debouncing needed since this only ever fires a single time, right at close.
+    val saveAndDismiss = {
+        onSave(
+            host.ifBlank { null },
+            simbriefUserId.ifBlank { null },
+            simbriefUsername.ifBlank { null },
+            theme,
+            channelSpacing,
+            keypadBlockMode
+        )
+        onDismiss()
+    }
+
+    Dialog(onDismissRequest = saveAndDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             // Reference: width:min(640px,90vw) -- clamps to whichever available window is
             // narrower, so this still degrades sensibly in split-screen's narrower app pane.
@@ -132,7 +156,7 @@ fun SettingsDialog(
                         "✕",
                         fontSize = 16.sp,
                         color = colors.text.copy(alpha = 0.5f),
-                        modifier = Modifier.clickable(onClick = onDismiss)
+                        modifier = Modifier.clickable(onClick = saveAndDismiss)
                     )
                 }
 
@@ -146,11 +170,11 @@ fun SettingsDialog(
                         Column(if (singleColumn) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
                             SectionLabel("SIMBRIEF", topPadding = 0.dp)
                             FieldLabel("SimBrief user ID")
-                            HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", modifier = Modifier.fillMaxWidth())
+                            HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
                             Box(Modifier.padding(top = 10.dp)) {
                                 FieldLabel("SimBrief username (fallback)")
                             }
-                            HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", modifier = Modifier.fillMaxWidth())
+                            HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
 
                             SectionLabel("APPEARANCE")
                             ToggleRow(
@@ -164,12 +188,18 @@ fun SettingsDialog(
 
                             SectionLabel("PLUGIN CONNECTION")
                             FieldLabel("Manual IP (if discovery fails)")
-                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42", modifier = Modifier.fillMaxWidth())
+                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
                             Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     "Status: $connectionStatus",
-                                    fontSize = 10.sp,
-                                    color = colors.textMuted,
+                                    fontSize = 12.sp,
+                                    // CONNECTING isn't named in either color -- it's neither a
+                                    // success nor a failure state, just leave it muted.
+                                    color = when (connectionStatus) {
+                                        ConnectionStatus.CONNECTED -> colors.ok
+                                        ConnectionStatus.DISCONNECTED -> outOfBandRed
+                                        ConnectionStatus.CONNECTING -> colors.textMuted
+                                    },
                                     modifier = Modifier.weight(1f)
                                 )
                                 // Not in the static design mock (it has no live network to
@@ -178,7 +208,7 @@ fun SettingsDialog(
                                 // IP field's fallback partner -- kept, not dropped.
                                 Text(
                                     "Auto-detect",
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.accent,
                                     modifier = Modifier.clickable {
@@ -231,20 +261,6 @@ fun SettingsDialog(
                             }
                         }
                     }
-
-                    Box(Modifier.padding(top = 18.dp)) {
-                        SaveButton {
-                            onSave(
-                                host.ifBlank { null },
-                                simbriefUserId.ifBlank { null },
-                                simbriefUsername.ifBlank { null },
-                                theme,
-                                channelSpacing,
-                                keypadBlockMode
-                            )
-                            onDismiss()
-                        }
-                    }
                 }
             }
         }
@@ -254,14 +270,19 @@ fun SettingsDialog(
 @Composable
 private fun SectionLabel(label: String, topPadding: androidx.compose.ui.unit.Dp = 14.dp) {
     val colors = LocalHandoffColors.current
-    Text(
-        label,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 0.06f.em,
-        color = colors.textMuted,
-        modifier = Modifier.padding(top = topPadding, bottom = 8.dp)
-    )
+    Column(Modifier.padding(top = topPadding)) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.06f.em,
+            color = colors.textMuted,
+            // Tight -- the divider right below now marks the section's start, so this no longer
+            // needs to carry the whole gap to the label text above it on its own.
+            modifier = Modifier.padding(bottom = 3.dp)
+        )
+        HorizontalDivider(color = colors.border, modifier = Modifier.padding(bottom = 8.dp))
+    }
 }
 
 @Composable
@@ -269,7 +290,7 @@ private fun FieldLabel(label: String) {
     val colors = LocalHandoffColors.current
     Text(
         label,
-        fontSize = 10.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.04f.em,
         color = colors.textMuted,
@@ -301,12 +322,15 @@ private fun <T> ToggleRow(options: List<ToggleOption<T>>, selected: T, onSelect:
                         .weight(1f)
                         .background(if (isSelected) colors.accent else colors.panelAlt, RoundedCornerShape(8.dp))
                         .clickable { onSelect(option.value) }
-                        .padding(vertical = 9.dp),
+                        // 12->14sp grew the label's own line height by ~2dp, so padding alone had
+                        // to drop by ~4dp (not 2dp) for the outer box to actually end up 2dp
+                        // shorter overall, not just unchanged.
+                        .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         label,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         color = if (isSelected) androidx.compose.ui.graphics.Color.White else colors.text
@@ -314,21 +338,6 @@ private fun <T> ToggleRow(options: List<ToggleOption<T>>, selected: T, onSelect:
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SaveButton(onClick: () -> Unit) {
-    val colors = LocalHandoffColors.current
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.accent, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 11.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White)
     }
 }
 
@@ -340,22 +349,25 @@ private fun SaveButton(onClick: () -> Unit) {
 private fun AboutRow(label: String, name: String, pillText: String?, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     Column(Modifier.fillMaxWidth().padding(top = 10.dp).clickable(onClick = onClick)) {
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = colors.textMuted)
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textMuted)
         Row(
-            Modifier.fillMaxWidth().padding(top = 4.dp),
+            // Tighter gap between the label ("Flightsim.to") and its name/link ("sushiat") below.
+            Modifier.fillMaxWidth().padding(top = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.text)
+            Text(name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.text)
             if (pillText != null) {
                 Box(
                     Modifier
                         .background(colors.border, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                        // 9->10sp grew the pill text's own line height by ~1dp, so padding needed
+                        // to drop by ~3dp (not 2dp) for the pill to actually end up shorter overall.
+                        .padding(horizontal = 9.dp, vertical = 2.5.dp)
                 ) {
                     Text(
                         pillText,
-                        fontSize = 9.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.03f.em,
                         color = colors.textMuted
