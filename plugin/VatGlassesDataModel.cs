@@ -21,8 +21,7 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class VatGlassesDataModel
     {
-        public const string SyncOperationId = "vatGlassesSync";
-
+        private const string OperationIdPrefix = "vatGlassesSync";
         private const string ShaFileName = "_commit.sha";
 
         private readonly object _gate = new object();
@@ -70,10 +69,16 @@ namespace Handoff.Plugin
         /// per-file loop even starts (SHA check, file listing) leaves whatever was already
         /// loaded untouched; a failure partway through the loop keeps every file that did
         /// succeed (both on disk and in Regions) rather than discarding the whole run.
+        /// Only ever invoked once per plugin load today, but still gets its own fresh
+        /// operationId (a GUID suffix, not a shared constant) rather than assuming that -- the
+        /// same convention FlightPlanModel's user-triggered refresh needs for real, so there's
+        /// one rule for operationIds across the whole OperationProgressModel mechanism instead
+        /// of a special case per caller.
         /// </summary>
         public async Task SyncAsync()
         {
-            _operationProgress.Report(SyncOperationId, "Checking for VatGlasses updates...");
+            var operationId = OperationIdPrefix + "-" + Guid.NewGuid().ToString("N");
+            _operationProgress.Report(operationId, "Checking for VatGlasses updates...");
 
             string latestSha;
             try
@@ -88,14 +93,14 @@ namespace Handoff.Plugin
 
             if (latestSha == null)
             {
-                _operationProgress.Finish(SyncOperationId, "VatGlasses update check failed -- using cached data.", success: false);
+                _operationProgress.Finish(operationId, "VatGlasses update check failed -- using cached data.", success: false);
                 return;
             }
 
             var cachedSha = ReadCachedSha();
             if (cachedSha != null && string.Equals(cachedSha, latestSha, StringComparison.Ordinal))
             {
-                _operationProgress.Finish(SyncOperationId, "VatGlasses data up to date");
+                _operationProgress.Finish(operationId, "VatGlasses data up to date");
                 return;
             }
 
@@ -112,7 +117,7 @@ namespace Handoff.Plugin
 
             if (files == null || files.Count == 0)
             {
-                _operationProgress.Finish(SyncOperationId, "VatGlasses file listing failed -- using cached data.", success: false);
+                _operationProgress.Finish(operationId, "VatGlasses file listing failed -- using cached data.", success: false);
                 return;
             }
 
@@ -128,7 +133,7 @@ namespace Handoff.Plugin
             for (var i = 0; i < files.Count; i++)
             {
                 var file = files[i];
-                _operationProgress.Report(SyncOperationId, $"Updating VatGlasses file {i + 1}/{files.Count}");
+                _operationProgress.Report(operationId, $"Updating VatGlasses file {i + 1}/{files.Count}");
 
                 string json;
                 try
@@ -175,11 +180,11 @@ namespace Handoff.Plugin
             if (succeededCount == files.Count)
             {
                 WriteShaMarker(latestSha);
-                _operationProgress.Finish(SyncOperationId, "VatGlasses data updated");
+                _operationProgress.Finish(operationId, "VatGlasses data updated");
             }
             else
             {
-                _operationProgress.Finish(SyncOperationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.", success: false);
+                _operationProgress.Finish(operationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.", success: false);
             }
         }
 

@@ -43,9 +43,15 @@ namespace Handoff.Plugin
             // fire for.
             AppDomain.CurrentDomain.ProcessExit += (sender, e) => _radioState.Stop();
 
+            // Not tied to the VATSIM connection -- needed pre-connection (FlightPlanModel's
+            // startup SimBrief fetch needs it immediately below) and generic enough (see issue
+            // #9) that other future operations can report through it too. Just in-memory state
+            // (no I/O), safe to construct directly here.
+            _operationProgress = new OperationProgressModel();
+
             // Fetches using whatever SimBrief credentials were persisted from a prior session
             // (see FlightPlanModel) -- no-ops if the Android app has never sent any yet.
-            _flightPlanState = new FlightPlanModel(_broker.PostDebugMessage);
+            _flightPlanState = new FlightPlanModel(_operationProgress, _broker.PostDebugMessage);
             _ = _flightPlanState.RefreshAsync();
 
             // Own callsign/CID for the current connection, straight from IBroker -- the
@@ -72,12 +78,6 @@ namespace Handoff.Plugin
             // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
             // won't raise them until connected.
             _nearbyAircraft = new NearbyAircraftModel(_broker, _radioState);
-
-            // Not tied to the VATSIM connection -- needed pre-connection the same way SimBrief
-            // is, and generic enough (see issue #9) that other future startup operations can
-            // report through it too. OperationProgressModel itself is just in-memory state (no
-            // I/O), safe to construct directly here.
-            _operationProgress = new OperationProgressModel();
 
             // VatGlassesDataModel's construction does synchronous disk-cache I/O, and SyncAsync
             // does network I/O -- both run on their own dedicated background thread (mirrors

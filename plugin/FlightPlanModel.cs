@@ -21,6 +21,7 @@ namespace Handoff.Plugin
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "simbrief.json");
 
         private readonly object _gate = new object();
+        private readonly OperationProgressModel _operationProgress;
         private readonly Func<string, string, Task<FlightPlan>> _fetch;
         private readonly Action<string> _logDebug;
         private readonly string _configPath;
@@ -34,8 +35,9 @@ namespace Handoff.Plugin
         /// Overridable only for tests, so they don't read/write the real
         /// %LOCALAPPDATA%\Handoff\simbrief.json on the dev machine.
         /// </param>
-        public FlightPlanModel(Action<string> logDebug = null, Func<string, string, Task<FlightPlan>> fetch = null, string configPath = null)
+        public FlightPlanModel(OperationProgressModel operationProgress, Action<string> logDebug = null, Func<string, string, Task<FlightPlan>> fetch = null, string configPath = null)
         {
+            _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
             _logDebug = logDebug;
             _fetch = fetch ?? ((userId, username) => SimBriefClient.FetchAsync(userId, username, _logDebug));
             _configPath = configPath ?? Default_configPath;
@@ -56,7 +58,15 @@ namespace Handoff.Plugin
         /// <summary>
         /// Fetches using whatever credentials were last persisted (from a prior
         /// SetSimbriefCredentialsAndRefreshAsync call, possibly in an earlier plugin session).
-        /// No-ops if neither a user ID nor a username has ever been set.
+        /// No-ops (and reports no operationProgress at all -- there's nothing being attempted)
+        /// if neither a user ID nor a username has ever been set; otherwise reports progress
+        /// through OperationProgressModel regardless of whether this call came from the Android
+        /// app's refresh button or the plugin's own startup fetch, both being equally worth
+        /// surfacing a result for. Each call gets its own fresh operationId (a GUID suffix, not
+        /// a shared constant) specifically so that clicking refresh repeatedly in quick
+        /// succession -- a real, expected user action, unlike VatGlassesDataModel's
+        /// once-per-plugin-load sync -- never has two overlapping fetches racing to finish the
+        /// same tracked operation.
         /// </summary>
         public Task RefreshAsync()
         {
@@ -65,11 +75,13 @@ namespace Handoff.Plugin
 
             if (string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(username))
             {
-                Log("No SimBrief credentials persisted yet -- skipping startup fetch.");
+                Log("No SimBrief credentials persisted yet -- skipping fetch.");
                 return Task.CompletedTask;
             }
 
-            return FetchAndApplyAsync(userId, username);
+            var operationId = "simbriefRefresh-" + Guid.NewGuid().ToString("N");
+            _operationProgress.Report(operationId, "Fetching SimBrief flight plan...");
+            return FetchAndApplyAsync(userId, username, operationId);
         }
 
         /// <summary>
@@ -89,7 +101,7 @@ namespace Handoff.Plugin
             SaveCredentials(userId, username);
         }
 
-        private async Task FetchAndApplyAsync(string userId, string username)
+        private async Task FetchAndApplyAsync(string userId, string username, string operationId)
         {
             FlightPlan plan;
             try
@@ -99,18 +111,25 @@ namespace Handoff.Plugin
             catch (Exception ex)
             {
                 Log("Flight plan fetch threw: " + ex.Message);
+                _operationProgress.Finish(operationId, "SimBrief fetch failed: " + ex.Message, success: false);
                 return;
             }
 
             if (plan == null)
             {
                 Log("No flight plan available from SimBrief.");
+                _operationProgress.Finish(operationId, "No SimBrief flight plan available", success: false);
                 return;
             }
 
             lock (_gate) { _current = plan; }
             Log($"Flight plan updated: callsign={plan.Callsign}, origin={plan.Origin}, destination={plan.Destination}, alternate={plan.Alternate}");
             Changed?.Invoke(this, EventArgs.Empty);
+            // Reports success (and the fetched route) even when it's identical to what was
+            // already loaded -- "the fetch succeeded" is the whole scope of this operation, not
+            // "the plan changed". A pilot re-fetching after adjusting fuel in SimBrief, with the
+            // route itself unchanged, still needs to know the refresh actually happened.
+            _operationProgress.Finish(operationId, $"SimBrief flight plan updated ({plan.Origin} → {plan.Destination})", success: true);
         }
 
         private void LoadCredentials()

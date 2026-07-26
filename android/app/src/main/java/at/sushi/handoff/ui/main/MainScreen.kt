@@ -80,33 +80,57 @@ private const val OperationInProgressTimeoutMs = 60_000L
 private const val OperationSuccessLingerMs = 10_000L
 private const val OperationFailureLingerMs = 30_000L
 
-/** True while [state] is non-null and still within its display window -- see the constants
- *  above. Ticks on a 1s loop rather than a single delayed check, since [state] itself keeps
- *  changing (a new receivedAtMillis on every step) while an operation is actually progressing
- *  normally, and the window itself changes the moment `finished` flips to true. */
+private fun operationTimeoutMs(state: at.sushi.handoff.OperationProgressState): Long = when {
+    !state.message.finished -> OperationInProgressTimeoutMs
+    state.message.success -> OperationSuccessLingerMs
+    else -> OperationFailureLingerMs
+}
+
+/** Every entry of [operations] still within its own display window -- see operationTimeoutMs.
+ *  Multiple operations (different operationIds, e.g. two SimBrief refreshes tapped in a row, or
+ *  VatGlasses syncing alongside a future VatSpy sync) can be visible at once, each on its own
+ *  independent clock. Ticks on a 1s loop rather than one-shot delayed checks per entry, since
+ *  [operations] itself keeps changing (a new receivedAtMillis on every step of each still-running
+ *  operation) while anything's actually in progress. Expired entries are dropped from
+ *  HandoffState entirely (not just this composable's return value) so the underlying map doesn't
+ *  grow unbounded across a long session. */
 @Composable
-private fun rememberOperationProgressDisplay(state: at.sushi.handoff.OperationProgressState?): Boolean {
-    var active by remember(state) { mutableStateOf(state != null) }
-    LaunchedEffect(state) {
-        if (state == null) {
-            active = false
-            return@LaunchedEffect
-        }
-        val timeoutMs = when {
-            !state.message.finished -> OperationInProgressTimeoutMs
-            state.message.success -> OperationSuccessLingerMs
-            else -> OperationFailureLingerMs
-        }
-        while (true) {
-            val elapsed = System.currentTimeMillis() - state.receivedAtMillis
-            if (elapsed >= timeoutMs) {
-                active = false
-                break
+private fun rememberVisibleOperations(operations: Map<String, at.sushi.handoff.OperationProgressState>): List<at.sushi.handoff.OperationProgressState> {
+    var visible by remember(operations) { mutableStateOf(operations.values.toList()) }
+    LaunchedEffect(operations) {
+        while (operations.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val stillVisible = mutableListOf<at.sushi.handoff.OperationProgressState>()
+            for (state in operations.values) {
+                if (now - state.receivedAtMillis < operationTimeoutMs(state)) {
+                    stillVisible.add(state)
+                } else {
+                    HandoffState.removeOperationProgress(state.message.operationId)
+                }
             }
+            visible = stillVisible
+            if (stillVisible.isEmpty()) break
             kotlinx.coroutines.delay(1000)
         }
     }
-    return active
+    return visible
+}
+
+/** Reduces every currently-visible operation to the one icon state the footer's collapsed row
+ *  has room for -- see [at.sushi.handoff.OperationIndicator]'s doc for what each value means.
+ *  Null when nothing's visible at all. */
+private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationProgressState>): at.sushi.handoff.OperationIndicator? {
+    if (visible.isEmpty()) return null
+    val anyRunning = visible.any { !it.message.finished }
+    val anyFailed = visible.any { it.message.finished && !it.message.success }
+    val anySucceeded = visible.any { it.message.finished && it.message.success }
+    return when {
+        anyRunning && anyFailed -> at.sushi.handoff.OperationIndicator.RUNNING_BAD
+        anyRunning && anySucceeded -> at.sushi.handoff.OperationIndicator.RUNNING_GOOD
+        anyRunning -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
+        anyFailed -> at.sushi.handoff.OperationIndicator.FAILURE
+        else -> at.sushi.handoff.OperationIndicator.SUCCESS
+    }
 }
 
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
@@ -171,10 +195,8 @@ private fun MainScreenContent() {
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
-    val operationProgressVisible = rememberOperationProgressDisplay(operationProgress)
-    val operationStatus = if (operationProgressVisible) operationProgress?.message?.status else null
-    val operationFinished = operationProgress?.message?.finished ?: false
-    val operationSuccess = operationProgress?.message?.success ?: true
+    val visibleOperations = rememberVisibleOperations(operationProgress)
+    val operationIndicator = combineOperationIndicator(visibleOperations)
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -388,9 +410,8 @@ private fun MainScreenContent() {
                 vatsimMissing = vatsimMissing,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
-                operationStatus = operationStatus,
-                operationFinished = operationFinished,
-                operationSuccess = operationSuccess,
+                operationIndicator = operationIndicator,
+                visibleOperations = visibleOperations,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
                 keepScreenAwake = keepScreenAwake,

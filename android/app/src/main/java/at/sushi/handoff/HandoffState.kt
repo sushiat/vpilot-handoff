@@ -27,13 +27,26 @@ enum class LayoutMode { SPLIT, FULLSCREEN }
 
 enum class SplitSide { LEFT, RIGHT }
 
-/** The latest operationProgress message plus the wall-clock time it was received, so the UI can
+/** One tracked operation's latest message plus the wall-clock time it was received, so the UI can
  *  apply its own display-duration timeout (docs/protocol.md): while `message.finished` is false,
  *  a ~60s "haven't heard from this operation in a while" backstop independent of a `finished`
  *  message ever arriving; once `message.finished` is true, a much shorter linger so the pilot
  *  actually gets to see the success/failure result before it's cleared. See MainScreen.kt's
- *  rememberOperationProgressDisplay and FooterStatusBar's use of it. */
+ *  rememberVisibleOperations and FooterStatusBar's use of it.
+ *
+ *  Multiple operations can be active/lingering at once (docs/protocol.md's operationId is
+ *  per-invocation, not per-operation-type -- e.g. tapping SimBrief refresh twice in a row is two
+ *  separate ids), so HandoffState.operationProgress is keyed by operationId rather than holding
+ *  a single value; see FooterStatusBar for how several are combined into the one collapsed-row
+ *  icon there's room for. */
 data class OperationProgressState(val message: OperationProgressMessage, val receivedAtMillis: Long)
+
+/** The one combined icon state the footer's collapsed row has room for, when several operations
+ *  are visible at once -- see MainScreen.kt's combineOperationIndicator for how a list of
+ *  [OperationProgressState] reduces to one of these. RUNNING_NEUTRAL/GOOD/BAD are all still a
+ *  spinner, just tinted differently depending on what's known about the operations still
+ *  in-flight alongside it; SUCCESS/FAILURE only apply once nothing's running anymore. */
+enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCCESS, FAILURE }
 
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
  *  (reader) -- no bindService/Messenger IPC needed since both run in the same process. */
@@ -70,11 +83,13 @@ object HandoffState {
     private val _subsystemStatus = MutableStateFlow(SubsystemStatusMessage())
     val subsystemStatus: StateFlow<SubsystemStatusMessage> = _subsystemStatus.asStateFlow()
 
-    // Null when no operation is active. Set on every non-finished operationProgress message,
-    // cleared immediately on a finished one -- the ~60s no-update timeout (a backstop for a
-    // dropped finished message) is applied by the UI reading receivedAtMillis, not here.
-    private val _operationProgress = MutableStateFlow<OperationProgressState?>(null)
-    val operationProgress: StateFlow<OperationProgressState?> = _operationProgress.asStateFlow()
+    // Keyed by operationId -- see OperationProgressState's doc for why this is a map, not a
+    // single value. Entries are never removed here purely on `finished`; the UI (which alone
+    // knows the current wall-clock time on every recomposition) is what decides an entry's
+    // fully expired and calls removeOperationProgress. Cleared wholesale on disconnect, same as
+    // every other plugin-pushed value.
+    private val _operationProgress = MutableStateFlow<Map<String, OperationProgressState>>(emptyMap())
+    val operationProgress: StateFlow<Map<String, OperationProgressState>> = _operationProgress.asStateFlow()
 
     // Round-trip time from the last ping/pong exchange (see HandoffConnectionService), null
     // until the first pong arrives or after a disconnect.
@@ -143,7 +158,7 @@ object HandoffState {
         _flightPlan.value = FlightPlanMessage()
         _nearbyAircraft.value = NearbyAircraftMessage(aircraft = emptyList())
         _subsystemStatus.value = SubsystemStatusMessage()
-        _operationProgress.value = null
+        _operationProgress.value = emptyMap()
         _latencyMs.value = null
     }
 
@@ -173,9 +188,16 @@ object HandoffState {
 
     fun update(message: OperationProgressMessage) {
         // Always stored, even when finished=true -- the UI decides how long to keep showing a
-        // finished result (success/failure linger, see rememberOperationProgressDisplay) rather
-        // than this being cleared the instant it arrives.
-        _operationProgress.value = OperationProgressState(message, System.currentTimeMillis())
+        // finished result (success/failure linger, see rememberVisibleOperations) rather than
+        // this being cleared the instant it arrives.
+        _operationProgress.value = _operationProgress.value + (message.operationId to OperationProgressState(message, System.currentTimeMillis()))
+    }
+
+    /** Called by the UI once an operation's display window has fully elapsed -- keeps this map
+     *  from growing forever across a long session as many short-lived operations (e.g. repeated
+     *  SimBrief refreshes) come and go. */
+    fun removeOperationProgress(operationId: String) {
+        _operationProgress.value = _operationProgress.value - operationId
     }
 
     fun setLatencyMs(millis: Long?) {

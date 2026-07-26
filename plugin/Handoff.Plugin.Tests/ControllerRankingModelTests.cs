@@ -38,12 +38,12 @@ namespace Handoff.Plugin.Tests
             new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, _pilotSession, now: now);
 
         private FlightPlanModel NoOpFlightPlan() =>
-            new FlightPlanModel(fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
+            new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
 
         private async Task<FlightPlanModel> CreateFlightPlanAsync(string origin, string destination)
         {
             var plan = new Plugin.FlightPlan("BAW123", origin, destination, null);
-            var model = new FlightPlanModel(fetch: (u, n) => Task.FromResult(plan), configPath: _configPath);
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(plan), configPath: _configPath);
             model.SetSimbriefCredentials("1", null);
             await model.RefreshAsync();
             return model;
