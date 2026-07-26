@@ -209,15 +209,16 @@ private fun MainScreenContent() {
         } else {
             RectangleShape
         }
-        // Only in split mode: a static 24dp dead strip on the edge touching the chat overlay, with
+        // Only in split mode: a static 8dp dead strip on the edge touching the chat overlay, with
         // no interactive content in it -- present whether chat is open or closed, so toggling chat
-        // never resizes/reflows the real controls (no "jump"). Samsung One UI renders rounded
-        // corners and a drag-handle margin on the main app's own task window in split-screen,
-        // independent of anything drawn here; the overlay sits flush against this window's edge
-        // (see ChatOverlayHost), so whatever gap that produces only ever reveals this blank strip,
-        // never a real button or control. An actual overlap-the-edge approach was tried first and
-        // reverted -- it covered live compose-bar/footer controls instead of dead space.
-        val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT) 24.dp else 0.dp
+        // never resizes/reflows the real controls (no "jump"). Samsung One UI's split-screen
+        // divider/rounded-corner rendering leaves a gap between the two apps' windows that sits
+        // *outside* this app's own reported window bounds -- sitting the overlay flush against
+        // those bounds still left it visible, so ChatOverlayHost's overlay window deliberately
+        // extends past its own edge into this exact margin width (see ChatOverlayOuterOverlap) to
+        // physically cover it. This margin is what makes that safe: guaranteed empty, so the
+        // overlap can never land on a real control.
+        val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT) 8.dp else 0.dp
         Row(
             Modifier
                 .fillMaxHeight()
@@ -390,38 +391,73 @@ private fun ChatOverlayHost(
             // not "fill whatever's left of the screen." That was solving a problem the design
             // never had: the panel is a constant width regardless of how large the neighbor app's
             // share of the screen is.
-            val panelWidthPx = with(density) { 360.dp.roundToPx() }
+            val basePanelWidthPx = with(density) { 360.dp.roundToPx() }
+            // The gap Samsung One UI's split-screen divider/rounded-corner rendering leaves
+            // between the two apps' windows turns out to live *outside* the main app's own
+            // reported window bounds (WindowManager.currentWindowMetrics) -- sitting flush against
+            // ownBounds (no overlap) still left a visible sliver, so the overlay does need to
+            // extend past that boundary to physically cover it. This is safe now specifically
+            // because MainScreen reserves a matching dead 24dp margin (touchingMarginDp) with no
+            // interactive content on the main panel's own touching edge -- the overlay overlapping
+            // into that guaranteed-empty zone can never cover a real control, unlike the first
+            // attempt at this (before that margin existed), which did.
+            val overlapPx = with(density) { ChatOverlayOuterOverlap.roundToPx() }
+            val panelWidthPx = basePanelWidthPx + overlapPx
             // Positioned immediately adjacent to this app's own window, using its actual absolute
             // on-screen bounds -- anchoring to the display's far edge (Gravity.END) put this
-            // panel *past* the split-screen neighbor app instead of next to this app. Sits flush
-            // against that edge -- the main panel itself reserves a dead 24dp margin there (see
-            // MainScreen's touchingMarginDp) so whatever rounded-corner/drag-handle rendering
-            // Samsung One UI applies to the main app's own task window only ever reveals that
-            // blank strip, not a real control (an earlier attempt had this overlay overlap the
-            // edge instead, which covered live compose-bar/footer buttons).
+            // panel *past* the split-screen neighbor app instead of next to this app.
             val ownBounds = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).currentWindowMetrics.bounds
             } else {
                 android.graphics.Rect(0, 0, 0, 0)
             }
             val xOffsetPx = if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
-                ownBounds.right
+                ownBounds.right - overlapPx
             } else {
-                ownBounds.left - panelWidthPx
+                ownBounds.left - basePanelWidthPx
             }
             overlay.show(panelWidthPx, xOffsetPx) {
                 // A WindowManager-attached ComposeView is its own separate composition root, so
                 // it does NOT inherit the CompositionLocals (including LocalHandoffColors) from
                 // MainScreen's composition -- without re-establishing HandoffTheme here, this
                 // content silently fell back to the CompositionLocal's default (always light).
+                // The overlap margin is filled with a plain panel-colored spacer before the real
+                // (bordered) chat content, so the visible chat width/border position looks exactly
+                // like a flush 360dp panel -- only the window's physical extent is wider.
                 at.sushi.handoff.ui.theme.HandoffTheme(currentThemeMode.value) {
-                    currentContent.value()
+                    ChatOverlayContent(splitSide, currentContent.value)
                 }
             }
         } else {
             overlay.hide()
         }
         onDispose { overlay.hide() }
+    }
+}
+
+/** How far the overlay window extends past the chat panel's own logical 360dp width, over the
+ *  main app's edge -- matches MainScreen's touchingMarginDp exactly, so the overlap is guaranteed
+ *  to land entirely within that dead, content-free strip rather than needing to be separately
+ *  tuned/guessed. */
+private val ChatOverlayOuterOverlap = 8.dp
+
+/** The overlay window's actual content: a plain panel-colored spacer filling the extra
+ *  [ChatOverlayOuterOverlap] margin on the side touching the main app, then the real chat content
+ *  at its normal 360dp width -- so the visible chat panel (border, width) looks exactly like it
+ *  did before the window was widened to mask the OS's own corner rendering. */
+@Composable
+private fun ChatOverlayContent(splitSide: at.sushi.handoff.SplitSide, content: @Composable () -> Unit) {
+    val colors = at.sushi.handoff.ui.theme.LocalHandoffColors.current
+    Row(Modifier.fillMaxSize()) {
+        if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
+            Box(Modifier.width(ChatOverlayOuterOverlap).fillMaxHeight().background(colors.panel))
+        }
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            content()
+        }
+        if (splitSide == at.sushi.handoff.SplitSide.RIGHT) {
+            Box(Modifier.width(ChatOverlayOuterOverlap).fillMaxHeight().background(colors.panel))
+        }
     }
 }
 
