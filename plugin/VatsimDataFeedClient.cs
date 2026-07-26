@@ -18,6 +18,11 @@ namespace Handoff.Plugin
         private const string Endpoint = "https://data.vatsim.net/v3/vatsim-data.json";
         private static readonly HttpClient Http = new HttpClient();
 
+        /// <summary>
+        /// Returns null on failure (HTTP error or any exception) rather than an empty list, so
+        /// callers (VatsimDataFeedModel) can distinguish "feed unreachable" from "feed returned
+        /// zero controllers" for the subsystemStatus connectivity signal -- see docs/protocol.md.
+        /// </summary>
         public static async Task<IReadOnlyList<VatsimControllerInfo>> FetchAsync(Action<string> logDebug = null)
         {
             try
@@ -27,7 +32,7 @@ namespace Handoff.Plugin
                     if (!response.IsSuccessStatusCode)
                     {
                         logDebug?.Invoke($"VatsimDataFeedClient: fetch failed, HTTP {(int)response.StatusCode}.");
-                        return Array.Empty<VatsimControllerInfo>();
+                        return null;
                     }
 
                     var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -37,7 +42,7 @@ namespace Handoff.Plugin
             catch (Exception ex)
             {
                 logDebug?.Invoke("VatsimDataFeedClient: fetch threw: " + ex.Message);
-                return Array.Empty<VatsimControllerInfo>();
+                return null;
             }
         }
 

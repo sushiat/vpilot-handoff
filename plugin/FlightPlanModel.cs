@@ -47,6 +47,12 @@ namespace Handoff.Plugin
             get { lock (_gate) { return _current; } }
         }
 
+        /// <summary>Whether a SimBrief fetch has ever succeeded this session.</summary>
+        public bool HasFetchedSuccessfully
+        {
+            get { lock (_gate) { return _current != FlightPlan.Empty; } }
+        }
+
         /// <summary>
         /// Fetches using whatever credentials were last persisted (from a prior
         /// SetSimbriefCredentialsAndRefreshAsync call, possibly in an earlier plugin session).

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -34,6 +35,7 @@ namespace Handoff.Plugin
                     name = c.Name,
                     facility = c.Facility,
                     rating = c.Rating,
+                    stationName = c.StationName,
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
@@ -92,6 +94,46 @@ namespace Handoff.Plugin
                 com2StandbyFrequency = state.Com2StandbyFrequency,
                 modeCEnabled = state.ModeCEnabled,
                 transponderCode = state.TransponderCode
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildNearbyAircraftMessage(IReadOnlyList<NearbyAircraft> aircraft)
+        {
+            var payload = new
+            {
+                type = "nearbyAircraft",
+                aircraft = aircraft.Select(a => new
+                {
+                    callsign = a.Callsign,
+                    aircraftType = a.AircraftType,
+                    distanceNm = a.DistanceNm
+                })
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion)
+        {
+            var payload = new
+            {
+                type = "subsystemStatus",
+                radioHostConnected,
+                simulatorConnected,
+                vatsimDataFeedConnected,
+                simbriefFetched,
+                pluginVersion
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildPongMessage(long? clientTimestamp)
+        {
+            var payload = new
+            {
+                type = "pong",
+                clientTimestamp,
+                serverTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

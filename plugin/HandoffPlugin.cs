@@ -15,6 +15,7 @@ namespace Handoff.Plugin
         private VatsimDataFeedModel _vatsimDataFeed;
         private ContactMeModel _contactMe;
         private ControllerRankingModel _controllerRanking;
+        private NearbyAircraftModel _nearbyAircraft;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
 
@@ -52,10 +53,15 @@ namespace Handoff.Plugin
             _contactMe = new ContactMeModel(_chatModel, _controllerState);
             _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _broker.PostDebugMessage);
 
+            // Nearby-aircraft events aren't tied to the VATSIM connection either (wiring is just
+            // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
+            // won't raise them until connected.
+            _nearbyAircraft = new NearbyAircraftModel(_broker, _radioState);
+
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);

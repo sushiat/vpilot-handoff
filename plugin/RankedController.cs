@@ -18,6 +18,12 @@ namespace Handoff.Plugin
         public int? Facility { get; }
         public int? Rating { get; }
 
+        // Facility/airport display name (e.g. "Heathrow Tower" for EGLL_TWR), expected to be
+        // VatSpy-sourced -- see docs/protocol.md "Not yet in this protocol". Always null until
+        // that enrichment source exists; the Android client falls back to parsing just the
+        // facility-suffix word from the callsign in the meantime.
+        public string StationName { get; }
+
         public bool RequestsContactMe { get; }
         public bool IsCurrent { get; }
         public bool IsContactMe { get; }
@@ -30,7 +36,7 @@ namespace Handoff.Plugin
         // deferred to issue #11).
         public bool IsApproaching { get; }
 
-        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching)
+        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching, string stationName = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -45,6 +51,7 @@ namespace Handoff.Plugin
             IsContactMe = isContactMe;
             IsLikelyNextCandidate = isLikelyNextCandidate;
             IsApproaching = isApproaching;
+            StationName = stationName;
         }
     }
 }

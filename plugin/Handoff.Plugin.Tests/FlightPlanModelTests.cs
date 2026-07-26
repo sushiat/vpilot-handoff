@@ -31,6 +31,15 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("EGLL", model.Current.Origin);
             Assert.Equal("KJFK", model.Current.Destination);
             Assert.Equal("KBOS", model.Current.Alternate);
+            Assert.True(model.HasFetchedSuccessfully);
+        }
+
+        [Fact]
+        public void HasFetchedSuccessfully_BeforeAnyFetch_IsFalse()
+        {
+            var model = new FlightPlanModel(configPath: _configPath);
+
+            Assert.False(model.HasFetchedSuccessfully);
         }
 
         [Fact]

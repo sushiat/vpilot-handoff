@@ -57,6 +57,7 @@ VATSIM facility conventions).
       "name": "John Smith",
       "facility": 4,
       "rating": 5,
+      "stationName": null,
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
@@ -71,6 +72,11 @@ VATSIM facility conventions).
 doesn't expose them) and are `null` until that feed's ~15s-lagged enrichment solidifies for a
 given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP, 6=CTR`);
 `rating` is display-only, never used in ranking.
+
+`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`),
+expected to be VatSpy-sourced -- see issue #13. Always `null` for now; no VatSpy integration
+exists yet. Until it's populated, clients should keep parsing just the facility-suffix word
+from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
 
 Ranking order: the currently-tuned controller (or a manually pinned one, see
 `pinController` below) first, then any controller with an outstanding "contact me" request, then
@@ -163,6 +169,51 @@ members at all -- see CLAUDE.md). Resent whenever a fetch (startup or triggered 
 
 `alternate` is fetched and stored for future use but not yet surfaced in the Android app.
 
+### `nearbyAircraft`
+
+Other traffic within 20nm of ownship, closest first -- feeds the chat panel's "start chat with
+a nearby aircraft" dialog (issue #13). Resent whenever the underlying aircraft list or ownship
+position changes.
+
+```json
+{
+  "type": "nearbyAircraft",
+  "aircraft": [
+    {"callsign": "BAW123", "aircraftType": "B738", "distanceNm": 6.2}
+  ]
+}
+```
+
+Built from `IBroker`'s `AircraftAdded`/`AircraftUpdated`/`AircraftDeleted` events (real-time,
+no feed lag), not the VATSIM data feed -- `IBroker` only ever reports *other* traffic, so no
+ownship self-filtering is needed. `distanceNm` is computed against ownship's own position from
+`RadioStateModel`'s telemetry (SimConnect via `Handoff.RadioHost`); the list is empty until
+that position is available. `aircraftType` is `IBroker`'s type code and may be `null`.
+
+### `subsystemStatus`
+
+Per-subsystem connection health plus the plugin version, for the footer's expandable status
+drawer (issue #13). Resent whenever any of the underlying signals change.
+
+```json
+{
+  "type": "subsystemStatus",
+  "radioHostConnected": true,
+  "simulatorConnected": true,
+  "vatsimDataFeedConnected": true,
+  "simbriefFetched": false,
+  "pluginVersion": "0.1.0"
+}
+```
+
+`radioHostConnected` is whether the plugin's IPC pipe to `Handoff.RadioHost` is currently up.
+`simulatorConnected` is whether `Handoff.RadioHost` has reported a SimConnect-sourced radio
+state this session -- an approximation (it can lag a real sim disconnect until the next
+`NetworkDisconnected`/`SessionEnded` reset), good enough for a status indicator, not meant as a
+hard guarantee. `vatsimDataFeedConnected` reflects the most recent VATSIM data feed poll.
+`simbriefFetched` is whether a SimBrief fetch has ever succeeded this session. `pluginVersion`
+is a static string for now (`"0.1.0"`) until the plugin has a real versioning scheme.
+
 ## Client → server messages
 
 ### `sendPrivateMessage`
@@ -249,32 +300,21 @@ controller goes offline. `clearPinnedController` carries no fields of its own.
 {"type": "clearPinnedController"}
 ```
 
-## Not yet in this protocol
+### `ping` / `pong`
 
-Phase-of-flight is still open per `CLAUDE.md` — this protocol will grow a new message type for
-it once that piece of the plugin's state model exists. Don't design a client against fields that
-aren't listed above.
+Client-initiated latency probe for the footer's detail line (issue #13) -- the server has no
+authoritative clock worth reporting, so this simply echoes back a client-supplied timestamp for
+the client to diff against its own send time, rather than the plugin computing latency itself.
 
-The Android redesign in issue #13 anticipates several more fields that don't exist yet either.
-Each is noted here so a future contributor implementing the plugin side knows the exact shape to
-fill in and where the client already expects to consume it, rather than the gap being rediscovered
-from scratch:
+```json
+{"type": "ping", "clientTimestamp": 1234567890}
+```
 
-- **Station display name.** `controllers[].name` today is the *pilot's* VATSIM name (from the
-  data feed), not a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`). A
-  future field for this is expected to be VatSpy-sourced. Until it exists, the Android client
-  renders only the facility-suffix word parsed from the callsign (Tower/Ground/Delivery/etc.),
-  never a resolved airport/city name.
-- **Nearby aircraft.** The chat panel's "start chat with a nearby aircraft" dialog needs a new
-  server→client message (callsign/type/distance, refreshed periodically, likely derived from the
-  VATSIM data feed plus ownship position) that doesn't exist. Until it does, the Android client
-  shows the dialog's callsign-entry field (which works standalone) but a visibly empty,
-  "not available yet" aircraft list.
-- **Per-subsystem connection status.** The main screen's footer has an expandable drawer meant
-  to show RadioHost/SimConnect/VATSIM-data-feed/SimBrief-fetch health individually. Today the
-  client only knows the WebSocket's own connected/disconnected state (`connectionStatus`, client-
-  side only, not part of this wire protocol) — there's no message carrying the plugin's internal
-  subsystem health. Until one exists, the Android client shows these four rows as stubs.
-- **Plugin version.** The footer's detail line also shows a plugin version string; nothing in
-  the protocol carries this today. Until it does, the Android client omits it rather than
-  guessing.
+The plugin replies directly to the sender only (not broadcast to other connected clients):
+
+```json
+{"type": "pong", "clientTimestamp": 1234567890, "serverTimestamp": 1234567891}
+```
+
+`clientTimestamp`/`serverTimestamp` are epoch milliseconds. `serverTimestamp` is informational
+only; latency is `(time pong received) - clientTimestamp`.

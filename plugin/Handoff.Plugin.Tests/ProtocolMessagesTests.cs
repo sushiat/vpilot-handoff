@@ -40,6 +40,7 @@ namespace Handoff.Plugin.Tests
             Assert.False((bool)controller["isContactMe"]);
             Assert.True((bool)controller["isLikelyNextCandidate"]);
             Assert.False((bool)controller["isApproaching"]);
+            Assert.Equal(JTokenType.Null, controller["stationName"].Type);
         }
 
         [Fact]
@@ -160,6 +161,60 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("EGLL", (string)json["origin"]);
             Assert.Equal("KJFK", (string)json["destination"]);
             Assert.Equal("KBOS", (string)json["alternate"]);
+        }
+
+        [Fact]
+        public void BuildNearbyAircraftMessage_EmptyList()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildNearbyAircraftMessage(new List<NearbyAircraft>()));
+
+            Assert.Equal("nearbyAircraft", (string)json["type"]);
+            Assert.Empty((JArray)json["aircraft"]);
+        }
+
+        [Fact]
+        public void BuildNearbyAircraftMessage_OneAircraft()
+        {
+            var aircraft = new List<NearbyAircraft> { new NearbyAircraft("BAW123", "B738", 6.2) };
+
+            var json = JObject.Parse(ProtocolMessages.BuildNearbyAircraftMessage(aircraft));
+            var entry = json["aircraft"][0];
+
+            Assert.Equal("BAW123", (string)entry["callsign"]);
+            Assert.Equal("B738", (string)entry["aircraftType"]);
+            Assert.Equal(6.2, (double)entry["distanceNm"]);
+        }
+
+        [Fact]
+        public void BuildSubsystemStatusMessage_IncludesAllFields()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0"));
+
+            Assert.Equal("subsystemStatus", (string)json["type"]);
+            Assert.True((bool)json["radioHostConnected"]);
+            Assert.False((bool)json["simulatorConnected"]);
+            Assert.True((bool)json["vatsimDataFeedConnected"]);
+            Assert.False((bool)json["simbriefFetched"]);
+            Assert.Equal("0.1.0", (string)json["pluginVersion"]);
+        }
+
+        [Fact]
+        public void BuildPongMessage_EchoesClientTimestamp()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildPongMessage(1234567890));
+
+            Assert.Equal("pong", (string)json["type"]);
+            Assert.Equal(1234567890, (long)json["clientTimestamp"]);
+            Assert.True((long)json["serverTimestamp"] > 0);
+        }
+
+        [Fact]
+        public void ParseClientCommand_Ping()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"ping\",\"clientTimestamp\":1234567890}");
+
+            Assert.Equal(ClientCommand.TypePing, command.Type);
+            Assert.Equal(1234567890, command.ClientTimestamp);
         }
 
         [Fact]

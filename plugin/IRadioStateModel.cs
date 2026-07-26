@@ -12,6 +12,13 @@ namespace Handoff.Plugin
     {
         RadioState Current { get; }
         OwnshipTelemetry Telemetry { get; }
+
+        /// <summary>Whether the plugin's IPC connection to the Handoff.RadioHost process is currently up.</summary>
+        bool IsRadioHostConnected { get; }
+
+        /// <summary>Whether Handoff.RadioHost has ever reported a SimConnect-sourced radio state this session (see RadioStateModel for the staleness caveat).</summary>
+        bool IsSimulatorConnected { get; }
+
         event EventHandler Changed;
     }
 }

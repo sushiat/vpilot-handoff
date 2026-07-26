@@ -173,7 +173,8 @@ namespace Handoff.Plugin
                     isCurrent: isCurrent,
                     isContactMe: isContactMe,
                     isLikelyNextCandidate: isNextCandidate,
-                    isApproaching: isApproaching);
+                    isApproaching: isApproaching,
+                    stationName: null);
             }).ToList();
 
             lock (_gate) { _current = ranked; }

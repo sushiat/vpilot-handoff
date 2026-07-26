@@ -28,6 +28,7 @@ namespace Handoff.Plugin
         private Dictionary<string, VatsimControllerInfo> _byCallsign =
             new Dictionary<string, VatsimControllerInfo>(StringComparer.OrdinalIgnoreCase);
         private volatile bool _running;
+        private volatile bool _connected;
 
         public event EventHandler Changed;
 
@@ -42,6 +43,9 @@ namespace Handoff.Plugin
         {
             get { lock (_gate) { return _byCallsign; } }
         }
+
+        /// <summary>Whether the most recent poll of the public VATSIM data feed succeeded.</summary>
+        public bool IsConnected => _connected;
 
         public void Start()
         {
@@ -62,6 +66,7 @@ namespace Handoff.Plugin
             }
 
             lock (_gate) { _byCallsign = new Dictionary<string, VatsimControllerInfo>(StringComparer.OrdinalIgnoreCase); }
+            _connected = false;
             Changed?.Invoke(this, EventArgs.Empty);
         }
 
@@ -72,15 +77,26 @@ namespace Handoff.Plugin
                 try
                 {
                     var controllers = _fetch().GetAwaiter().GetResult();
-                    lock (_gate)
+                    if (controllers != null)
                     {
-                        _byCallsign = controllers.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
+                        lock (_gate)
+                        {
+                            _byCallsign = controllers.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
+                        }
+                        _connected = true;
+                    }
+                    else
+                    {
+                        _connected = false;
+                        Log("Poll returned no data -- feed unreachable.");
                     }
                     Changed?.Invoke(this, EventArgs.Empty);
                 }
                 catch (Exception ex)
                 {
+                    _connected = false;
                     Log("Poll failed: " + ex.Message);
+                    Changed?.Invoke(this, EventArgs.Empty);
                 }
 
                 Thread.Sleep(PollInterval);

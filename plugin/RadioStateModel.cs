@@ -38,6 +38,8 @@ namespace Handoff.Plugin
         private OwnshipTelemetry _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
         private StreamWriter _writer;
         private volatile bool _running;
+        private volatile bool _radioHostConnected;
+        private volatile bool _simulatorConnected;
         private bool _loggedFirstState;
 
         public event EventHandler Changed;
@@ -66,6 +68,10 @@ namespace Handoff.Plugin
         {
             get { lock (_gate) { return _telemetry; } }
         }
+
+        public bool IsRadioHostConnected => _radioHostConnected;
+
+        public bool IsSimulatorConnected => _simulatorConnected;
 
         public void Start()
         {
@@ -101,6 +107,8 @@ namespace Handoff.Plugin
             }
 
             _loggedFirstState = false;
+            _radioHostConnected = false;
+            _simulatorConnected = false;
             lock (_gate)
             {
                 _writer = null;
@@ -219,6 +227,7 @@ namespace Handoff.Plugin
                         statePipe.Connect((int)ConnectTimeout.TotalMilliseconds);
                         commandPipe.Connect((int)ConnectTimeout.TotalMilliseconds);
                         Log("Connected to Handoff.RadioHost.");
+                        _radioHostConnected = true;
 
                         var writer = new StreamWriter(commandPipe) { AutoFlush = true };
                         var reader = new StreamReader(statePipe);
@@ -236,6 +245,7 @@ namespace Handoff.Plugin
                             {
                                 var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency, message.ModeCEnabled ?? false, message.TransponderCode, DateTimeOffset.Now);
                                 lock (_gate) { _current = next; }
+                                _simulatorConnected = true;
 
                                 if (!_loggedFirstState)
                                 {
@@ -263,6 +273,8 @@ namespace Handoff.Plugin
                 finally
                 {
                     lock (_gate) { _writer = null; }
+                    _radioHostConnected = false;
+                    _simulatorConnected = false;
                 }
 
                 if (_running) Thread.Sleep(ReconnectDelay);
