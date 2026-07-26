@@ -80,8 +80,19 @@ namespace Handoff.Plugin
                 if (_running) return;
                 _running = true;
 
-                EnsureRadioHostRunning();
-                new Thread(ReadFromRadioHost) { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
+                // EnsureRadioHostRunning's named-pipe probe blocks for up to ConnectTimeout (2s)
+                // waiting for a "nothing's listening" timeout on a cold start, plus a
+                // Process.Start call -- both now run on this same background thread rather than
+                // synchronously here. Start() is called directly from IBroker.NetworkConnected
+                // (see HandoffPlugin), so anything run inline here would block vPilot's own event
+                // dispatch for however long the probe/process-spawn takes, right at the moment
+                // the pilot connects to VATSIM.
+                new Thread(() =>
+                {
+                    EnsureRadioHostRunning();
+                    ReadFromRadioHost();
+                })
+                { Name = "RadioStateModel.ReadFromRadioHost", IsBackground = true }.Start();
             }
         }
 
@@ -93,18 +104,26 @@ namespace Handoff.Plugin
                 _running = false;
             }
 
-            foreach (var process in Process.GetProcessesByName("Handoff.RadioHost"))
+            // Process enumeration + Kill() is avoidable blocking work on whatever thread called
+            // Stop() -- IBroker.NetworkDisconnected/SessionEnded (see HandoffPlugin) -- so it
+            // runs on its own background thread rather than inline here, same reasoning as
+            // Start() above.
+            new Thread(() =>
             {
-                try
+                foreach (var process in Process.GetProcessesByName("Handoff.RadioHost"))
                 {
-                    process.Kill();
-                    Log("Stopped Handoff.RadioHost (PID " + process.Id + ").");
+                    try
+                    {
+                        process.Kill();
+                        Log("Stopped Handoff.RadioHost (PID " + process.Id + ").");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("Failed to stop Handoff.RadioHost (PID " + process.Id + "): " + ex.Message);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Log("Failed to stop Handoff.RadioHost (PID " + process.Id + "): " + ex.Message);
-                }
-            }
+            })
+            { Name = "RadioStateModel.StopRadioHost", IsBackground = true }.Start();
 
             _loggedFirstState = false;
             _radioHostConnected = false;
