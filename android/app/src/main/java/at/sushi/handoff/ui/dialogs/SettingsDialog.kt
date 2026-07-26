@@ -105,6 +105,14 @@ fun SettingsDialog(
             // narrower, so this still degrades sensibly in split-screen's narrower app pane.
             val panelWidth = minOf(maxWidth * 0.9f, 640.dp)
             val panelMaxHeight = maxHeight * 0.88f
+            // Below this the two-column layout has no room left to be worth it -- the right
+            // column (Credits/Contribute) is the least essential content here, so it's simplest
+            // to just drop it entirely rather than trying to squeeze both columns narrower. The
+            // Save button isn't part of this Row at all (see below), so it already stays
+            // full-width/single-column regardless of this split. Tuned on-device: 415.8dp (a
+            // 462dp-wide split-screen pane) was called out as the narrowest comfortable
+            // two-column width, so the cutoff sits just above that.
+            val singleColumn = panelWidth < 420.dp
 
             Column(
                 Modifier
@@ -135,7 +143,7 @@ fun SettingsDialog(
                         .verticalScrollbar(scrollState, colors.border)
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                        Column(Modifier.weight(1f)) {
+                        Column(if (singleColumn) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
                             SectionLabel("SIMBRIEF", topPadding = 0.dp)
                             FieldLabel("SimBrief user ID")
                             HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", modifier = Modifier.fillMaxWidth())
@@ -210,14 +218,16 @@ fun SettingsDialog(
                             ) { keypadBlockMode = it }
                         }
 
-                        Column(Modifier.weight(1f)) {
-                            SectionLabel("CREDITS", topPadding = 0.dp)
-                            credits.forEach { credit ->
-                                AboutRow(credit.label, credit.name, credit.pillText) { uriHandler.openUri(credit.url) }
-                            }
-                            SectionLabel("CONTRIBUTE")
-                            contributeRows.forEach { row ->
-                                AboutRow(row.label, row.name, row.pillText) { uriHandler.openUri(row.url) }
+                        if (!singleColumn) {
+                            Column(Modifier.weight(1f)) {
+                                SectionLabel("CREDITS", topPadding = 0.dp)
+                                credits.forEach { credit ->
+                                    AboutRow(credit.label, credit.name, credit.pillText) { uriHandler.openUri(credit.url) }
+                                }
+                                SectionLabel("CONTRIBUTE")
+                                contributeRows.forEach { row ->
+                                    AboutRow(row.label, row.name, row.pillText) { uriHandler.openUri(row.url) }
+                                }
                             }
                         }
                     }

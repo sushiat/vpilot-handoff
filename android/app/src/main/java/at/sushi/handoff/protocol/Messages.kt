@@ -237,6 +237,19 @@ data class ClearPinnedControllerCommand(
     override fun encode() = json.encodeToString(ClearPinnedControllerCommand.serializer(), this)
 }
 
+/** Clears `callsign`'s active SELCAL alert plugin-side, dropping it out of the ranking priority
+ *  it gets while active (docs/protocol.md). There's no tune-match auto-clear on the plugin side --
+ *  real SELCAL requires the pilot to already be tuned to the alerting frequency (volume down) for
+ *  the pulse to arrive at all, so this explicit command is the only way to clear it short of its
+ *  own expiry. */
+@Serializable
+data class DismissSelcalCommand(
+    val type: String = "dismissSelcal",
+    val callsign: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(DismissSelcalCommand.serializer(), this)
+}
+
 /** Latency probe for the footer's detail line -- the plugin echoes clientTimestamp back in a
  *  PongMessage; latency is (time pong received) - clientTimestamp, computed client-side. */
 @Serializable

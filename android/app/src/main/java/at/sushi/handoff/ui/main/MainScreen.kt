@@ -282,7 +282,10 @@ private fun MainScreenContent() {
                 onTuneCom2Active = { freq -> send(SetCom2FrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(freq))) },
                 onTuneCom1Standby = { freq -> send(SetCom1StandbyFrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(freq))) },
                 onTuneCom2Standby = { freq -> send(SetCom2StandbyFrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(freq))) },
-                onDismissSelcal = { selcalDismissedTimestamp = latestSelcalAlert?.timestamp }
+                onDismissSelcal = { callsign ->
+                    selcalDismissedTimestamp = latestSelcalAlert?.timestamp
+                    send(at.sushi.handoff.protocol.DismissSelcalCommand(callsign = callsign))
+                }
             )
 
             FooterStatusBar(

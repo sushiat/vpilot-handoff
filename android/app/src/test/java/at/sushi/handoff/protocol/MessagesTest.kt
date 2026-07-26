@@ -189,6 +189,12 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesDismissSelcalCommand() {
+        val json = DismissSelcalCommand(callsign = "EGLL_CTR").encode()
+        assertEquals("""{"type":"dismissSelcal","callsign":"EGLL_CTR"}""", json)
+    }
+
+    @Test
     fun formatsCompressedFrequency() {
         assertEquals("123.725", RadioFrequency.format(23725))
         assertEquals("118.000", RadioFrequency.format(18000))

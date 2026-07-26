@@ -152,7 +152,10 @@ fun TopBar(
     }
 }
 
-private val NarrowTopBarThreshold = 375.dp
+// internal, not private: FooterStatusBar reuses this same width to decide when to drop its own
+// "Connected"/"Disconnected" label, so both bars agree on what counts as "narrow" instead of
+// each carrying its own independently-tuned (and therefore possibly inconsistent) threshold.
+internal val NarrowTopBarThreshold = 375.dp
 
 @Composable
 private fun AppHeaderRow() {

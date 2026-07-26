@@ -43,8 +43,6 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
  *  screen 1's footer, the sub-connection rows / plugin version / address now come from the
  *  plugin's `subsystemStatus` message and the persisted host pref; latency is measured
  *  client-side from the ping/pong exchange (see HandoffConnectionService) -- see docs/protocol.md. */
-private val DropStatusLabelThreshold = 260.dp
-
 @Composable
 fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
@@ -71,16 +69,23 @@ fun FooterStatusBar(
         // compose bar -- this row's height used to fall out implicitly from IconButton's 48dp
         // touch target + this padding (48+2*8=64dp); switching to tight 30dp icon boxes dropped
         // that to 46dp and threw the drawer/compose-bar border alignment off again.
+        // contentAlignment is required here -- unlike the plain Box used elsewhere in this file,
+        // BoxWithConstraints doesn't center its content by default, so without this the Row (only
+        // as tall as its own icon boxes, shorter than the fixed 64dp) sat pinned to the top of
+        // this box instead of vertically centered in it.
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .clickable(onClick = onToggleExpanded)
+                .clickable(onClick = onToggleExpanded),
+            contentAlignment = Alignment.Center
         ) {
         // Below this width the "Connected"/"Disconnected" label drops, leaving just the route --
         // if that still doesn't fully fit, it's fine for it to ellipsize (the route itself is
-        // still legible), it just must never wrap onto a second line.
-        val showStatusLabel = maxWidth >= DropStatusLabelThreshold
+        // still legible), it just must never wrap onto a second line. Reuses TopBar's own narrow
+        // threshold rather than a separately-tuned value, so both bars agree on what "narrow"
+        // means instead of drifting out of sync with each other.
+        val showStatusLabel = maxWidth >= NarrowTopBarThreshold
         Row(
             Modifier
                 .fillMaxWidth()
