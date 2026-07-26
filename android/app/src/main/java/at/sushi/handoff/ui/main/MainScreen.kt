@@ -1,10 +1,15 @@
 package at.sushi.handoff.ui.main
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +46,7 @@ import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
-import at.sushi.handoff.ui.dialogs.NearbyAircraftDialog
+import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.SettingsDialog
 import at.sushi.handoff.ui.dialogs.XpdrDialog
 import at.sushi.handoff.ui.theme.HandoffTheme
@@ -103,39 +108,60 @@ private fun MainScreenContent() {
         chatOpen = true
     }
 
+    // The nearby-aircraft dialog is folded in here (rendered as plain inline content layered
+    // over the chat panel, not a system Dialog) rather than as a standalone top-level dialog --
+    // it's only ever reached via this panel's own airplane icon, and this panel is sometimes
+    // hosted inside the split-screen overlay's separate window, where a real Dialog would be
+    // confined to this app's own narrow window slice and sit behind the overlay in z-order (see
+    // NearbyAircraftDialog.kt). Rendering it here means it always ends up in the same window as
+    // whatever triggered it, in both fullscreen and split-screen.
     val chatContent: @Composable () -> Unit = {
-        ChatPanelContent(
-            chat = chat,
-            controllers = controllers.controllers,
-            openTabs = openChatTabs,
-            activeTab = activeChatTab,
-            unreadByTab = unreadByTab,
-            selcalActive = selcalActive,
-            onSelectTab = { activeChatTab = it },
-            onCloseTab = { peer ->
-                openChatTabs = openChatTabs - peer
-                if (activeChatTab == peer) activeChatTab = null
-            },
-            onOpenNearbyDialog = { nearbyDialogOpen = true },
-            onCollapse = if (layoutMode == LayoutMode.SPLIT) {
-                { chatOpen = false }
-            } else null,
-            onSend = { text ->
-                val tab = activeChatTab
-                if (tab == null) {
-                    send(SendRadioMessageCommand(message = text))
-                } else {
-                    send(SendPrivateMessageCommand(to = tab, message = text))
+        Box(Modifier.fillMaxSize()) {
+            ChatPanelContent(
+                chat = chat,
+                controllers = controllers.controllers,
+                openTabs = openChatTabs,
+                activeTab = activeChatTab,
+                unreadByTab = unreadByTab,
+                selcalActive = selcalActive,
+                onSelectTab = { activeChatTab = it },
+                onCloseTab = { peer ->
+                    openChatTabs = openChatTabs - peer
+                    if (activeChatTab == peer) activeChatTab = null
+                },
+                onOpenNearbyDialog = { nearbyDialogOpen = true },
+                onCollapse = if (layoutMode == LayoutMode.SPLIT) {
+                    { chatOpen = false }
+                } else null,
+                onSend = { text ->
+                    val tab = activeChatTab
+                    if (tab == null) {
+                        send(SendRadioMessageCommand(message = text))
+                    } else {
+                        send(SendPrivateMessageCommand(to = tab, message = text))
+                    }
                 }
+            )
+            if (nearbyDialogOpen) {
+                InlineNearbyAircraftDialog(
+                    onDismiss = { nearbyDialogOpen = false },
+                    onOpenChatWith = { callsign -> openChatWith(callsign) }
+                )
             }
-        )
+        }
     }
 
     if (layoutMode == LayoutMode.SPLIT) {
-        ChatOverlayHost(visible = chatOpen, splitSide = splitSide, content = chatContent)
+        ChatOverlayHost(visible = chatOpen, splitSide = splitSide, themeMode = theme, content = chatContent)
     }
 
-    Row(Modifier.fillMaxSize()) {
+    val colors = at.sushi.handoff.ui.theme.LocalHandoffColors.current
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(colors.bg)
+            .windowInsetsPadding(WindowInsets.systemBars)
+    ) {
         Column(Modifier.fillMaxHeight().let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }) {
             TopBar(
                 radioState = radioState,
@@ -156,10 +182,17 @@ private fun MainScreenContent() {
                 onOpenCom1Dialog = { comDialogOpen = 1 },
                 onOpenCom2Dialog = { comDialogOpen = 2 },
                 onOpenXpdrDialog = { xpdrDialogOpen = true },
-                onToggleChat = { if (layoutMode == LayoutMode.SPLIT) chatOpen = !chatOpen }
+                // Unconditional: chatOpen is simply unused/harmless in fullscreen mode (the
+                // overlay host below is only ever invoked while layoutMode == SPLIT), so there's
+                // no need to gate the toggle itself on layoutMode -- doing so previously meant a
+                // tap that landed while the (heuristic, possibly momentarily unstable)
+                // layoutMode read something other than SPLIT would silently no-op instead of
+                // toggling.
+                onToggleChat = { chatOpen = !chatOpen }
             )
 
             ControllerList(
+                modifier = Modifier.weight(1f),
                 controllers = controllers.controllers,
                 com1Active = radioState.com1Frequency,
                 com2Active = radioState.com2Frequency,
@@ -252,33 +285,53 @@ private fun MainScreenContent() {
         )
     }
 
-    if (nearbyDialogOpen) {
-        NearbyAircraftDialog(
-            onDismiss = { nearbyDialogOpen = false },
-            onOpenChatWith = { callsign -> openChatWith(callsign) }
-        )
-    }
 }
 
 /** Shows/hides the [ChatOverlayWindow] as a side effect of [visible] -- the overlay is a real
  *  WindowManager window, not part of this composable's own layout, so it's managed imperatively
  *  rather than declaratively positioned like everything else in this file. */
 @Composable
-private fun ChatOverlayHost(visible: Boolean, splitSide: at.sushi.handoff.SplitSide, content: @Composable () -> Unit) {
+private fun ChatOverlayHost(
+    visible: Boolean,
+    splitSide: at.sushi.handoff.SplitSide,
+    themeMode: at.sushi.handoff.ThemeMode,
+    content: @Composable () -> Unit
+) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
     val overlay = remember { ChatOverlayWindow(context) }
     val currentContent = rememberUpdatedState(content)
+    val currentThemeMode = rememberUpdatedState(themeMode)
 
     DisposableEffect(visible, splitSide) {
         if (visible) {
-            // Own-window width in split-screen already reflects this app's current share of the
-            // display (Configuration.screenWidthDp updates live in multi-window); mirroring that
-            // width for the overlay approximates a symmetric split without needing the
-            // androidx.window WindowMetrics API for exact neighbor bounds.
-            val panelWidthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
-            overlay.show(panelWidthPx, splitSide) { currentContent.value() }
+            // Fixed 360dp, per the reference's own `chatPanelStyle` ("width:360px" when split) --
+            // not "fill whatever's left of the screen." That was solving a problem the design
+            // never had: the panel is a constant width regardless of how large the neighbor app's
+            // share of the screen is.
+            val panelWidthPx = with(density) { 360.dp.roundToPx() }
+            // Positioned immediately adjacent to this app's own window, using its actual absolute
+            // on-screen bounds -- anchoring to the display's far edge (Gravity.END) put this
+            // panel *past* the split-screen neighbor app instead of next to this app.
+            val ownBounds = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).currentWindowMetrics.bounds
+            } else {
+                android.graphics.Rect(0, 0, 0, 0)
+            }
+            val xOffsetPx = if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
+                ownBounds.right
+            } else {
+                ownBounds.left - panelWidthPx
+            }
+            overlay.show(panelWidthPx, xOffsetPx) {
+                // A WindowManager-attached ComposeView is its own separate composition root, so
+                // it does NOT inherit the CompositionLocals (including LocalHandoffColors) from
+                // MainScreen's composition -- without re-establishing HandoffTheme here, this
+                // content silently fell back to the CompositionLocal's default (always light).
+                at.sushi.handoff.ui.theme.HandoffTheme(currentThemeMode.value) {
+                    currentContent.value()
+                }
+            }
         } else {
             overlay.hide()
         }
@@ -286,17 +339,31 @@ private fun ChatOverlayHost(visible: Boolean, splitSide: at.sushi.handoff.SplitS
     }
 }
 
-/** Heuristic split-screen detection: compares this Activity's current window width (which
- *  Configuration.screenWidthDp already reflects live in multi-window mode) against the physical
- *  display's full width. No androidx.window dependency needed for this approximation -- exact
- *  neighbor-window bounds aren't actually used anywhere (see ChatOverlayHost's own comment), so
- *  the simpler deprecated Display API is enough here. */
-@Suppress("DEPRECATION")
-private fun isSplitScreen(context: Context, configuration: Configuration): Boolean {
+/** Full-physical-display width vs. this Activity's own current window width, in real pixels.
+ *  Uses `WindowManager.maximumWindowMetrics`/`currentWindowMetrics` (API 30+) -- NOT the legacy
+ *  `defaultDisplay.getRealMetrics`, which turned out to be a real bug here: on this test device
+ *  (Samsung, multi-window) it reported a "full display width" of 1906px against an actual 1800px
+ *  display, so the derived overlay width was wider than the entire screen and physically covered
+ *  the app's own MSG button -- the toggle button "worked" (correctly flipped state) but the tap
+ *  meant to close it never reached the Activity at all, since the oversized invisible overlay
+ *  intercepted it first. `maximumWindowMetrics`/`currentWindowMetrics` are the officially correct,
+ *  non-deprecated way to get these bounds and don't have this failure mode. */
+private fun displayAndOwnWidthPx(context: Context, configuration: Configuration): Pair<Int, Int> {
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    val displayMetrics = DisplayMetrics()
-    windowManager.defaultDisplay.getRealMetrics(displayMetrics)
-    val fullWidthPx = displayMetrics.widthPixels
-    val ownWidthPx = configuration.screenWidthDp * displayMetrics.densityDpi / 160
+    return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val fullWidthPx = windowManager.maximumWindowMetrics.bounds.width()
+        val ownWidthPx = windowManager.currentWindowMetrics.bounds.width()
+        fullWidthPx to ownWidthPx
+    } else {
+        @Suppress("DEPRECATION")
+        val displayMetrics = DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
+        val fullWidthPx = displayMetrics.widthPixels
+        val ownWidthPx = configuration.screenWidthDp * displayMetrics.densityDpi / 160
+        fullWidthPx to ownWidthPx
+    }
+}
+
+private fun isSplitScreen(context: Context, configuration: Configuration): Boolean {
+    val (fullWidthPx, ownWidthPx) = displayAndOwnWidthPx(context, configuration)
     return ownWidthPx < fullWidthPx * 0.95f
 }

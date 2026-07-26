@@ -1,6 +1,7 @@
 package at.sushi.handoff.ui.main
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,12 +23,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,10 +39,36 @@ import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.ui.theme.ControllerBadge
+import at.sushi.handoff.ui.theme.FacilityColors
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.facilitySuffixName
+import at.sushi.handoff.ui.theme.oklch
+import kotlinx.coroutines.delay
+
+/** A row with an active, unresolved "contact me" (or the SELCAL badge) alternates between two
+ *  colors every 500ms, hard-cut (not eased) -- matches the reference's own
+ *  `@keyframes contactFlash{0%,49%{a} 50%,99%{b}}` over a 1s cycle exactly. */
+@Composable
+private fun rememberFlashPhaseA(isFlashing: Boolean): Boolean {
+    var phaseA by remember { mutableStateOf(true) }
+    LaunchedEffect(isFlashing) {
+        if (!isFlashing) {
+            phaseA = true
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(500)
+            phaseA = !phaseA
+        }
+    }
+    return phaseA
+}
+
+/** The reference's fixed "phase B" text color for a flashing row/badge (`--flash-text-b:#111`),
+ *  distinct from the near-black `rgba(0,0,0,.82)` used elsewhere. */
+private val flashPhaseBText = Color(0xFF111111)
 
 /** Ratings VATSIM defines, per issue #13's "Color & badge logic" table -- display-only, never
  *  used in ranking. */
@@ -70,16 +99,21 @@ fun ControllerList(
     onTuneCom2Active: (Int) -> Unit,
     onTuneCom1Standby: (Int) -> Unit,
     onTuneCom2Standby: (Int) -> Unit,
-    onDismissSelcal: (String) -> Unit
+    onDismissSelcal: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalHandoffColors.current
-    Column(Modifier.fillMaxWidth()) {
+    // `modifier` must carry the caller's Modifier.weight(1f) (Column scope) -- otherwise this
+    // Column has no bounded height of its own, and the LazyColumn below's weight(1f) measures
+    // against the wrong (much larger) constraint, crowding whatever comes after this composable
+    // in the parent Column off the bottom of the screen.
+    Column(modifier.fillMaxWidth().background(colors.bg)) {
         Text(
             "CONTROLLERS · ${controllers.size}",
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textMuted,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)
         )
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             // Rendered in exactly the order the server sent it -- never re-sorted client-side.
@@ -124,11 +158,23 @@ private fun ControllerRow(
     val badges = controllerBadges(controller, com1Active, com2Active, isPinned, selcalActive)
     var menuOpen by remember { mutableStateOf(false) }
 
+    val rowPhaseA = rememberFlashPhaseA(rowColors.isFlashing)
+    val background = if (rowColors.isFlashing && !rowPhaseA) FacilityColors.hazardYellow else rowColors.background
+    val text = if (rowColors.isFlashing && !rowPhaseA) flashPhaseBText else rowColors.text
+    val badgeBackground = if (rowColors.isFlashing && !rowPhaseA) Color.Black.copy(alpha = 0.1f) else rowColors.badgeBackground
+
+    // SELCAL flashes independently of the row (hazard-yellow <-> a fixed dark red, always #111
+    // text) -- it only ever appears on the isCurrent row, which never has isFlashing itself, so
+    // there's no conflict between the two animations.
+    val selcalPhaseA = rememberFlashPhaseA(ControllerBadge.SELCAL in badges)
+    val selcalBackground = if (selcalPhaseA) FacilityColors.hazardYellow else oklch(0.58f, 0.16f, 10f)
+
     Box {
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(rowColors.background)
+                .background(background)
+                .border(1.5.dp, rowColors.border)
                 .clickable { menuOpen = true }
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -139,12 +185,16 @@ private fun ControllerRow(
                     controller.callsign,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    color = rowColors.text
+                    color = text
                 )
                 if (badges.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         badges.forEach { badge ->
-                            BadgePill(badgeLabels.getValue(badge), rowColors.text)
+                            if (badge == ControllerBadge.SELCAL) {
+                                BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
+                            } else {
+                                BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
+                            }
                         }
                     }
                 }
@@ -155,33 +205,33 @@ private fun ControllerRow(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
-                color = rowColors.text.copy(alpha = 0.9f),
+                color = text.copy(alpha = 0.9f),
                 modifier = Modifier.weight(1f)
             )
 
             Column(horizontalAlignment = Alignment.End) {
                 val suffixName = facilitySuffixName(controller.callsign)
                 if (suffixName != null) {
-                    Text(suffixName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = rowColors.text)
+                    Text(suffixName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = text)
                 }
                 Text(
                     controller.name ?: controller.cid?.toString() ?: "",
                     fontSize = 10.sp,
-                    color = rowColors.text.copy(alpha = 0.75f),
+                    color = text.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
             controller.rating?.let { rating ->
-                ratingLabels[rating]?.let { label -> RatingBadge(label, rowColors.text) }
+                ratingLabels[rating]?.let { label -> RatingBadge(label, text, badgeBackground) }
             }
 
             IconButton(onClick = onTogglePin) {
-                Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = rowColors.text)
+                Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text)
             }
             IconButton(onClick = onOpenChat) {
-                Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = rowColors.text)
+                Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = text)
             }
         }
 
@@ -201,26 +251,26 @@ private fun ControllerRow(
 }
 
 @Composable
-private fun BadgePill(label: String, contentColor: androidx.compose.ui.graphics.Color) {
+private fun BadgePill(label: String, contentColor: Color, background: Color) {
     Box(
         Modifier
-            .background(contentColor.copy(alpha = 0.16f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp)
+            .background(background, RoundedCornerShape(5.dp))
+            .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
-        Text(label, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = contentColor)
+        Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = contentColor)
     }
 }
 
 @Composable
-private fun RatingBadge(label: String, rowTextColor: androidx.compose.ui.graphics.Color) {
+private fun RatingBadge(label: String, contentColor: Color, background: Color) {
     Box(
         Modifier
             .widthIn(min = 30.dp)
-            .background(rowTextColor.copy(alpha = 0.13f), RoundedCornerShape(5.dp))
+            .background(background, RoundedCornerShape(5.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = rowTextColor)
+        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = contentColor)
     }
 }
 

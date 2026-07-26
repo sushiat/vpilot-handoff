@@ -34,13 +34,17 @@ import at.sushi.handoff.KeypadBlockMode
 import at.sushi.handoff.R
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.util.ChannelGrid
-
-private val outOfBandRed = androidx.compose.ui.graphics.Color(0xFFCC4A33) // oklch(65% 0.18 25) approx
+import kotlin.math.abs
 
 /** COM1/COM2 tuning dialog -- see issue #13 screen 2. Just the ENTRY field (no current-value
  *  rows -- the main screen's own COM buttons stay visible above this dialog, so repeating them
  *  was redundant). Digits live-disable per [ChannelGrid.isValidPrefix] unless the user has
- *  "Allow all" selected in Settings, in which case grid/band validation only gates Set/flip. */
+ *  "Allow all" selected in Settings, in which case grid/band validation only gates Set/flip.
+ *
+ *  The completed-value/red-flagging logic here mirrors the design reference's own
+ *  `completeBuffer()` precisely (see issue #13's attached JS source): a live preview only
+ *  appears once the whole-MHz digits are typed *and* at least one decimal digit has been entered
+ *  (`typed.length >= 4`) -- before that, empty positions show a plain "_", not a snapped guess. */
 @Composable
 fun ComTuningDialog(
     comNumber: Int,
@@ -52,10 +56,22 @@ fun ComTuningDialog(
 ) {
     var typed by remember { mutableStateOf("") }
     var spacing by remember { mutableStateOf(defaultSpacing) }
-    val colors = LocalHandoffColors.current
 
-    val padded = paddedValue(typed)
-    val inBand = ChannelGrid.isInBand(padded)
+    // The live "what would actually be set" preview -- decimal snapped to the nearest
+    // spacing-valid grid point, deliberately *not* clamped into the civil band, so a genuinely
+    // out-of-range value shows red rather than being silently coerced.
+    val completed: String? = if (typed.length >= 4) {
+        val intPart = typed.take(3)
+        val typedDec = typed.substring(3)
+        val baseline = (typedDec + "000").take(3).toInt()
+        val decNum = ChannelGrid.validDecimalValues(spacing).minByOrNull { abs(it - baseline) } ?: baseline
+        intPart + decNum.toString().padStart(3, '0')
+    } else null
+
+    val completedMhz = completed?.toInt()?.div(1000.0)
+    val showAsRed = completed != null && (completedMhz == null || completedMhz < 118.0 || completedMhz > 136.990)
+    val canCommit = completed != null && !showAsRed
+    val iconTint = if (canCommit) Color.White else Color.White.copy(alpha = 0.35f)
 
     KeypadDialogPanel(title = "COM$comNumber TUNE", onDismiss = onDismiss) {
         Text(
@@ -63,16 +79,17 @@ fun ComTuningDialog(
             fontSize = 8.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.14f.em,
-            color = colors.textMuted,
+            color = LocalHandoffColors.current.textMuted,
             modifier = Modifier.padding(top = 16.dp)
         )
-        EntryReadout(typed, inBand)
-        if (!inBand) {
+        EntryReadout(typed, completed, showAsRed)
+        if (showAsRed) {
             Text(
                 "outside 118.000–136.990 civil airband",
-                fontSize = 10.sp,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = outOfBandRed,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 6.dp)
             )
         }
 
@@ -88,8 +105,8 @@ fun ComTuningDialog(
             item {
                 KeypadKey(
                     "CLR",
-                    background = colors.attentionBg,
-                    contentColor = colors.attention,
+                    background = clrKeyBackground,
+                    contentColor = clrKeyText,
                     fontSize = 12.sp
                 ) { typed = "" }
             }
@@ -106,62 +123,51 @@ fun ComTuningDialog(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SpacingToggle(spacing, Modifier.weight(1f)) { spacing = it }
-            val commitValue = ChannelGrid.nearestValid(padded, spacing)
+            // Only reachable when canCommit is true (Set is disabled otherwise), so this
+            // (defensively) coerced value is never actually used out-of-band.
+            val commitValue = completed?.toInt()?.let { ChannelGrid.nearestValid(it, spacing) }
             SetButton(
                 Modifier.weight(1f),
-                enabled = inBand,
+                enabled = canCommit,
                 background = androidx.compose.ui.graphics.Color(0xFF3E8E5C),
-                onClick = { onSetActive(ChannelGrid.toMegahertz(commitValue)); onDismiss() }
+                onClick = { commitValue?.let { onSetActive(ChannelGrid.toMegahertz(it)) }; onDismiss() }
             ) {
                 Icon(
                     painterResource(R.drawable.ic_handover_mark),
                     contentDescription = "Set active",
-                    tint = Color.White
+                    tint = iconTint
                 )
             }
             SetButton(
                 Modifier.weight(1f),
-                enabled = inBand,
+                enabled = canCommit,
                 background = androidx.compose.ui.graphics.Color(0xFF3E8E5C),
-                onClick = { onSetStandby(ChannelGrid.toMegahertz(commitValue)); onDismiss() }
+                onClick = { commitValue?.let { onSetStandby(ChannelGrid.toMegahertz(it)) }; onDismiss() }
             ) {
-                Text("✓", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("✓", color = iconTint, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
-/** [typed] zero-padded to 3 whole-MHz + 3 decimal digits, parsed as thousandths of a MHz --
- *  the value that's actually validated/snapped/sent, per the doc's "zero-padded on unset
- *  trailing digits" commit rule. */
-private fun paddedValue(typed: String): Int {
-    val whole = typed.take(3).padEnd(3, '0')
-    val decimal = if (typed.length > 3) typed.substring(3).padEnd(3, '0') else "000"
-    return whole.toInt() * 1000 + decimal.toInt()
-}
-
 @Composable
-private fun EntryReadout(typed: String, inBand: Boolean) {
+private fun EntryReadout(typed: String, completed: String?, showAsRed: Boolean) {
     val colors = LocalHandoffColors.current
-    val padded = paddedValue(typed).toString().padStart(6, '0')
+    // Once `completed` exists, every position shows its (possibly snapped) digit; until then,
+    // untyped positions show a plain underscore -- matches the reference's own buf/completed
+    // branching exactly.
+    val shown = completed ?: typed.padEnd(6, '_')
     Row(verticalAlignment = Alignment.Bottom) {
-        padded.forEachIndexed { index, char ->
+        shown.forEachIndexed { index, char ->
             if (index == 3) {
                 Text(".", fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace, color = colors.text)
             }
-            val isTyped = index < typed.length
             val color = when {
-                !inBand -> outOfBandRed
-                isTyped -> colors.text
+                showAsRed -> outOfBandRed
+                index < typed.length -> colors.text
                 else -> colors.textMuted
             }
-            Text(
-                char.toString(),
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Light,
-                fontFamily = FontFamily.Monospace,
-                color = color
-            )
+            Text(char.toString(), fontSize = 44.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace, color = color)
         }
     }
 }
@@ -186,10 +192,11 @@ private fun SpacingToggle(spacing: ChannelSpacing, modifier: Modifier = Modifier
     val other = if (spacing == ChannelSpacing.KHZ_25) ChannelSpacing.KHZ_8_33 else ChannelSpacing.KHZ_25
     Column(
         modifier
+            .aspectRatio(1.6f) // matches KeypadKey/SetButton height so the bottom row lines up
             .background(colors.panelAlt, RoundedCornerShape(14.dp))
-            .clickable { onChange(other) }
-            .padding(vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .clickable { onChange(other) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Text(spacingLabel(spacing), fontSize = 15.sp, fontFamily = FontFamily.Monospace, color = colors.text)
         Text(

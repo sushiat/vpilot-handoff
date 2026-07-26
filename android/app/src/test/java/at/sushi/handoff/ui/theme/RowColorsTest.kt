@@ -43,49 +43,63 @@ class RowColorsTest {
     }
 
     @Test
-    fun controllerRowColors_isCurrentAlwaysWinsOverEverythingElse() {
+    fun controllerRowColors_isCurrentAlwaysWinsOverEverythingElseForColor() {
+        // isCurrent and an unresolved contact-me can't really co-occur in real server data
+        // (a truly-tuned frequency is by definition already resolved), but the reference
+        // computes contactMeActive/its flash independently of isCurrent, so this (admittedly
+        // synthetic) combination still flashes -- isCurrent only wins the base color.
         val c = controller(isCurrent = true, isContactMe = true, isApproaching = true, facility = 4)
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        assertEquals(FacilityColors.current, result.background)
+        assertEquals(FacilityColors.fullColor(FacilityColors.TUNED_HUE).bg, result.background)
     }
 
     @Test
-    fun controllerRowColors_unresolvedContactMeUsesFullSaturationFacilityColor() {
+    fun controllerRowColors_unresolvedContactMeUsesFullSaturationFacilityColorAndFlashes() {
         val c = controller(facility = 3, isContactMe = true) // GND
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        assertEquals(FacilityColors.gnd, result.background)
+        assertEquals(FacilityColors.fullColor(FacilityColors.GND_HUE).bg, result.background)
+        assertTrue(result.isFlashing)
     }
 
     @Test
-    fun controllerRowColors_resolvedContactMeFallsBackToDesaturated() {
+    fun controllerRowColors_resolvedContactMeFallsBackToDesaturatedAndStopsFlashing() {
         val c = controller(facility = 3, frequency = 23725, isContactMe = true)
         val tunedAway = controllerRowColors(c, com1Active = 23725, com2Active = null, colors = LightHandoffColors)
         val unresolved = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        assertEquals(FacilityColors.gnd, unresolved.background)
-        assertTrue(tunedAway.background != FacilityColors.gnd)
+        assertEquals(FacilityColors.fullColor(FacilityColors.GND_HUE).bg, unresolved.background)
+        assertTrue(tunedAway.background != FacilityColors.fullColor(FacilityColors.GND_HUE).bg)
+        assertFalse(tunedAway.isFlashing)
     }
 
     @Test
-    fun controllerRowColors_unrelatedRowIsDesaturatedNotFullSaturation() {
+    fun controllerRowColors_unrelatedRowIsDesaturatedNotFullSaturationAndHasNoBorder() {
         val c = controller(facility = 4) // plain TWR, no flags set
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        assertTrue(result.background != FacilityColors.twr)
+        assertTrue(result.background != FacilityColors.fullColor(FacilityColors.TWR_HUE, 48f, 0.22f).bg)
+        assertEquals(androidx.compose.ui.graphics.Color.Transparent, result.border)
+    }
+
+    @Test
+    fun controllerRowColors_flaggedRowHasAVisibleBorder() {
+        val c = controller(facility = 3, isContactMe = true)
+        val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
+        assertTrue(result.border != androidx.compose.ui.graphics.Color.Transparent)
     }
 
     @Test
     fun controllerRowColors_textFlipsToWhiteOnDarkBackground() {
         val current = controller(isCurrent = true)
         val result = controllerRowColors(current, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        // FacilityColors.current is oklch(0.55, ...), below the ~62 threshold -> white text.
+        // Tuned/current uses the default L58% -- below the 62 threshold -> white text.
         assertEquals(androidx.compose.ui.graphics.Color.White, result.text)
     }
 
     @Test
-    fun controllerRowColors_textFlipsToBlackOnLightDesaturatedBackground() {
+    fun controllerRowColors_textFlipsToNearBlackOnLightDesaturatedBackground() {
         val plain = controller(facility = 4)
         val result = controllerRowColors(plain, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        // Light theme's desaturated background (L92) is well above the threshold -> black text.
-        assertEquals(androidx.compose.ui.graphics.Color.Black, result.text)
+        // Light theme's desaturated background (L92) is well above the threshold -> near-black text.
+        assertEquals(nearBlackText, result.text)
     }
 
     @Test

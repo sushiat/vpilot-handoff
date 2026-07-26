@@ -4,14 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -22,80 +21,108 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
-/** "Private chat to callsign" dialog -- issue #13 screen 6. The nearby-aircraft list below the
- *  callsign field has no data source yet: the protocol has no message for it (needs a new
- *  server->client message with callsign/type/distance, likely VATSIM-data-feed + own-position
- *  derived -- see docs/protocol.md). The callsign field + confirm button work today; the list is
- *  a visible "not available yet" stub. */
+/** "Private chat to callsign" dialog -- issue #13 screen 6, matching the reference's
+ *  `nearbyDialog` object (340dp panel, a rounded-*square* confirm button -- not a circle). The
+ *  nearby-aircraft list below the callsign field has no data source yet: the protocol has no
+ *  message for it (needs a new server->client message with callsign/type/distance, likely
+ *  VATSIM-data-feed + own-position derived -- see docs/protocol.md). The callsign field +
+ *  confirm button work today; the list is a visible "not available yet" stub.
+ *
+ *  [NearbyAircraftDialog] (a real system Dialog) is only safe to use when definitely hosted in
+ *  the main Activity's own window (fullscreen mode). It's reachable from the chat panel's
+ *  airplane icon, which is *also* rendered inside the split-screen chat overlay's own
+ *  `TYPE_APPLICATION_OVERLAY` window -- a Dialog opened from there would be confined to this
+ *  app's own narrow window slice in multi-window mode and sit behind the overlay in z-order,
+ *  effectively unreachable. [NearbyAircraftContent] + [InlineModalScrim] is the version used from
+ *  within the chat overlay, rendered as plain content in whichever window already hosts it. */
 @Composable
 fun NearbyAircraftDialog(
     onDismiss: () -> Unit,
     onOpenChatWith: (String) -> Unit
 ) {
+    SimpleDialogPanel(title = "Private chat to callsign", width = 340.dp, onDismiss = onDismiss) {
+        NearbyAircraftContent(onOpenChatWith = { onOpenChatWith(it); onDismiss() })
+    }
+}
+
+@Composable
+fun InlineNearbyAircraftDialog(
+    onDismiss: () -> Unit,
+    onOpenChatWith: (String) -> Unit
+) {
+    InlineModalScrim(onDismiss = onDismiss) {
+        SimpleDialogPanelChrome(title = "Private chat to callsign", width = 340.dp, onDismiss = onDismiss) {
+            NearbyAircraftContent(onOpenChatWith = { onOpenChatWith(it); onDismiss() })
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.NearbyAircraftContent(onOpenChatWith: (String) -> Unit) {
     var callsign by remember { mutableStateOf("") }
     val colors = LocalHandoffColors.current
 
-    KeypadDialogPanel(title = "PRIVATE CHAT TO CALLSIGN", onDismiss = onDismiss) {
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = callsign,
-                onValueChange = { callsign = it.uppercase() },
-                label = { Text("Callsign") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            val enabled = callsign.isNotBlank()
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .background(
-                        if (enabled) androidx.compose.ui.graphics.Color(0xFF3E8E5C) else colors.panelAlt.copy(alpha = 0.45f),
-                        CircleShape
-                    )
-                    .then(
-                        if (enabled) Modifier.clickable { onOpenChatWith(callsign); onDismiss() } else Modifier
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.Check, contentDescription = "Open chat", tint = androidx.compose.ui.graphics.Color.White)
-            }
-        }
-
-        Text(
-            "AIRCRAFT WITHIN 20NM · CLOSEST FIRST",
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.08f.em,
-            color = colors.textMuted,
-            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        HandoffTextField(
+            value = callsign,
+            onValueChange = { callsign = it.uppercase() },
+            placeholder = "Callsign",
+            modifier = Modifier.weight(1f)
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("CALLSIGN", fontSize = 9.sp, color = colors.textMuted)
-            Text("TYPE", fontSize = 9.sp, color = colors.textMuted)
-            Text("DIST", fontSize = 9.sp, color = colors.textMuted)
-        }
+        val enabled = callsign.isNotBlank()
         Box(
             Modifier
-                .fillMaxWidth()
-                .background(colors.panelAlt, RoundedCornerShape(10.dp))
-                .padding(vertical = 20.dp),
+                .size(40.dp)
+                .background(
+                    if (enabled) Color(0xFF3E8E5C) else colors.panelAlt,
+                    RoundedCornerShape(8.dp)
+                )
+                .then(
+                    if (enabled) Modifier.clickable { onOpenChatWith(callsign) } else Modifier
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "Not available yet -- needs a new protocol message from the plugin",
-                fontSize = 11.sp,
-                color = colors.textMuted
-            )
+            Icon(Icons.Filled.Check, contentDescription = "Open chat", tint = Color.White)
         }
+    }
+
+    Text(
+        "AIRCRAFT WITHIN 20NM · CLOSEST FIRST",
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.06f.em,
+        color = colors.textMuted,
+        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("CALLSIGN", fontSize = 9.sp, color = colors.textMuted)
+        Text("TYPE", fontSize = 9.sp, color = colors.textMuted)
+        Text("DIST", fontSize = 9.sp, color = colors.textMuted)
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.panelAlt, RoundedCornerShape(10.dp))
+            .padding(vertical = 20.dp)
+            .padding(top = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "Not available yet -- needs a new protocol message from the plugin",
+            fontSize = 11.sp,
+            color = colors.textMuted
+        )
     }
 }

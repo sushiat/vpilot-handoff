@@ -29,6 +29,15 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.ui.theme.oklch
+
+/** Shared "destructive"/out-of-range reds across the keypad dialogs, matching the design
+ *  reference's JS source exactly (`oklch(65% 0.18 25)` for out-of-band entry text; CLR uses a
+ *  distinct pair, `oklch(58% 0.19 25 / .14)` background + `oklch(52% 0.2 25)` text) -- genuine
+ *  reds, distinct from the theme's orange-ish `attention` token. */
+val outOfBandRed = oklch(0.65f, 0.18f, 25f)
+val clrKeyBackground = oklch(0.58f, 0.19f, 25f, alpha = 0.14f)
+val clrKeyText = oklch(0.52f, 0.20f, 25f)
 
 /** Shared chrome for the COM/XPDR/Settings dialogs: 336dp panel, app light/dark theme surfaces,
  *  24px radius, 20dp padding, 1px border -- per issue #13's COM tuning dialog spec, reused as-is
@@ -89,10 +98,16 @@ fun KeypadKey(
     onClick: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
+    // Multiplying (rather than overwriting) the base color's own alpha when disabled preserves
+    // an already-translucent custom `background` (e.g. CLR's tinted red) instead of forcing it
+    // fully opaque -- overwriting to a flat 1f/0.25f here was a real bug: it silently discarded
+    // CLR's intended translucency and made its text unreadable against its own background.
+    val baseBackground = background ?: colors.panelAlt
+    val resolvedBackground = if (enabled) baseBackground else baseBackground.copy(alpha = baseBackground.alpha * 0.25f)
     Box(
         modifier
             .aspectRatio(1.6f)
-            .background((background ?: colors.panelAlt).copy(alpha = if (enabled) 1f else 0.25f), RoundedCornerShape(14.dp))
+            .background(resolvedBackground, RoundedCornerShape(14.dp))
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) {
@@ -101,7 +116,7 @@ fun KeypadKey(
             fontSize = fontSize,
             fontWeight = FontWeight.SemiBold,
             fontFamily = FontFamily.Monospace,
-            color = (contentColor ?: colors.text).copy(alpha = if (enabled) 1f else 1f)
+            color = (contentColor ?: colors.text).copy(alpha = if (enabled) 1f else 0.3f)
         )
     }
 }

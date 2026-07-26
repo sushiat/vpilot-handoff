@@ -29,10 +29,11 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 private val quickSetCodes = listOf(2000, 1000, 7000, 1200)
 
-/** Transponder dialog -- issue #13 screen 3. Same construction/theming as the COM dialog. Every
- *  digit 0-7 is legal at every position (no prefix validation like COM frequencies need), and
- *  Mode C isn't editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR
- *  button badge). */
+/** Transponder dialog -- issue #13 screen 3, matching the design reference's JS exactly. Same
+ *  construction/theming as the COM dialog. Unlike COM entry, every digit 0-7 is legal at every
+ *  position (no prefix validation), so the reference never colors the entry red or mutes
+ *  untyped positions -- the whole readout is one uniform color, underscore-padded. Mode C isn't
+ *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge). */
 @Composable
 fun XpdrDialog(
     onDismiss: () -> Unit,
@@ -50,42 +51,43 @@ fun XpdrDialog(
             color = colors.textMuted,
             modifier = Modifier.padding(top = 16.dp)
         )
-        Row {
-            val padded = typed.padEnd(4, '-')
-            padded.forEachIndexed { index, char ->
-                Text(
-                    if (char == '-') "-" else char.toString(),
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.Light,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.1f.em,
-                    color = if (index < typed.length) colors.text else colors.textMuted
-                )
-            }
-        }
+        Text(
+            typed.padEnd(4, '_'),
+            fontSize = 44.sp,
+            fontWeight = FontWeight.Light,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 0.1f.em,
+            color = colors.text
+        )
 
+        // Reference order (digitKeys(4, [1,2,3,4,5,6,7,0]) + CLR + backspace, then a hidden
+        // spacer + the confirm key): 1 2 3 / 4 5 6 / 7 0 CLR / backspace (spacer) confirm.
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items((1..7).toList()) { digit ->
                 KeypadKey(digit.toString(), enabled = typed.length < 4) { typed += digit }
             }
             item {
+                KeypadKey("0", enabled = typed.length < 4) { typed += "0" }
+            }
+            item {
                 KeypadKey(
                     "CLR",
-                    background = colors.attentionBg,
-                    contentColor = colors.attention,
+                    background = clrKeyBackground,
+                    contentColor = clrKeyText,
                     fontSize = 12.sp
                 ) { typed = "" }
             }
             item {
-                KeypadKey("0", enabled = typed.length < 4) { typed += "0" }
+                KeypadKey("⌫", enabled = typed.isNotEmpty()) { typed = typed.dropLast(1) }
             }
             item {
-                KeypadKey("⌫", enabled = typed.isNotEmpty()) { typed = typed.dropLast(1) }
+                // Hidden spacer, matching the reference's invisible placeholder in this slot.
+                Box(Modifier)
             }
             item {
                 val enabled = typed.length == 4
@@ -106,7 +108,12 @@ fun XpdrDialog(
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("✓", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "✓",
+                        color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
