@@ -146,6 +146,24 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesOperationProgressMessage_InProgress() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"Updating VatGlasses file 12/24","finished":false}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals("vatGlassesSync", message.operationId)
+        assertEquals("Updating VatGlasses file 12/24", message.status)
+        assertEquals(false, message.finished)
+    }
+
+    @Test
+    fun decodesOperationProgressMessage_Finished() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"VatGlasses data up to date","finished":true}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals(true, message.finished)
+    }
+
+    @Test
     fun encodesSetSimbriefCredentialsCommand() {
         val json = SetSimbriefCredentialsCommand(simbriefUserId = "123456", simbriefUsername = null).encode()
         assertEquals("""{"type":"setSimbriefCredentials","simbriefUserId":"123456","simbriefUsername":null}""", json)

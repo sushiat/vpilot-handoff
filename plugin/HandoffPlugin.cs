@@ -18,6 +18,8 @@ namespace Handoff.Plugin
         private PilotSessionModel _pilotSession;
         private ControllerRankingModel _controllerRanking;
         private NearbyAircraftModel _nearbyAircraft;
+        private OperationProgressModel _operationProgress;
+        private VatGlassesDataModel _vatGlassesData;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
 
@@ -70,10 +72,17 @@ namespace Handoff.Plugin
             // won't raise them until connected.
             _nearbyAircraft = new NearbyAircraftModel(_broker, _radioState);
 
+            // Not tied to the VATSIM connection -- needed pre-connection the same way SimBrief
+            // is, and generic enough (see issue #9) that other future startup operations can
+            // report through it too.
+            _operationProgress = new OperationProgressModel();
+            _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
+            _ = _vatGlassesData.SyncAsync();
+
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _selcalActive, _pilotSession, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _selcalActive, _pilotSession, _operationProgress, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);

@@ -255,6 +255,37 @@ hard guarantee. `vatsimDataFeedConnected` reflects the most recent VATSIM data f
 `simbriefFetched` is whether a SimBrief fetch has ever succeeded this session. `pluginVersion`
 is a static string for now (`"0.1.0"`) until the plugin has a real versioning scheme.
 
+### `operationProgress`
+
+Step-by-step status for an in-progress background plugin operation (e.g. the VatGlasses
+sector-data sync, see issue #9) -- for a status line the Android footer's expandable
+drawer can show while the plugin is busy with something slow enough to be worth
+surfacing. Unlike every message above, this is **not** resendable full state -- each
+message is one step of a specific operation, closer in spirit to `pong` than to
+`controllers`/`radioState`/etc. It's sent only while an operation is actually running (or
+its very last step), not resent on every unrelated state change.
+
+```json
+{"type": "operationProgress", "operationId": "vatGlassesSync", "status": "Updating VatGlasses file 12/24", "finished": false}
+```
+
+`operationId` is a short stable string identifying which operation this is -- deliberately
+generic, not specific to any one feature, so future long-running plugin operations can
+reuse this same message instead of each growing their own. `status` is a
+human-readable string for direct display -- the server owns the exact wording, no
+client-side formatting/pluralization needed. `finished` is `true` on an operation's last
+message ("end of update" -- the client should clear its indicator for that `operationId`).
+
+If a client connects while an operation is already in progress, the plugin immediately
+sends its current status so the client doesn't have to wait for the next step to know
+something's happening.
+
+**Clients should apply their own 60-second timeout**: if no further `operationProgress`
+for an `operationId` a client still considers active arrives within 60s of the last one,
+treat the operation as abandoned and clear the indicator locally -- a backstop for a
+dropped `finished` message (e.g. a disconnect mid-sync), not something the plugin
+guarantees.
+
 ## Client → server messages
 
 ### `sendPrivateMessage`

@@ -141,6 +141,18 @@ once it has its first release.
   "worth rendering full color" signal, currently set only for an airborne/in-range CTR station
   and a route-matched ATIS, both tiers that `isLikelyNextCandidate`/`isApproaching` otherwise
   never touch.
+- `docs/protocol.md`: new `operationProgress` message — a generic, reusable event stream (not
+  resendable full state like every other message) for the plugin to report step-by-step status
+  on a slow background operation, plus a client-side ~60s no-update timeout as a backstop for a
+  dropped `finished` signal.
+- Plugin: `OperationProgressModel`, broadcasting `operationProgress` over the WebSocket
+  (`HandoffWebSocketServer`), and `VatGlassesDataModel`/`VatGlassesDataClient`, syncing the
+  VATGlasses sector/boundary dataset (`github.com/lennycolton/vatglasses-data`) to a local disk
+  cache at startup, reporting per-file sync progress through it — phase 1 of issue #9 (data
+  acquisition only; point-in-polygon geometry and ranking integration are a follow-up).
+- Android: a spinning progress indicator driven by `operationProgress`, reusing the footer's
+  flight-plan-warning icon slot when collapsed and moving to its own status line in the
+  expanded drawer (e.g. "Updating VatGlasses file 12/24") when open.
 
 ### Changed
 

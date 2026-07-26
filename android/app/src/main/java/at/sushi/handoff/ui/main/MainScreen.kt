@@ -73,6 +73,32 @@ private fun rememberSustained(condition: Boolean, delayMs: Long): Boolean {
     return sustained
 }
 
+/** True while [state] is non-null and its receivedAtMillis is within [timeoutMs] -- a
+ *  client-side backstop clearing an operation's indicator even if the plugin's `finished`
+ *  message for it is dropped (e.g. a disconnect mid-sync), see docs/protocol.md's
+ *  operationProgress message. Ticks on a 1s loop rather than a single delayed check, since
+ *  [state] itself keeps changing (a new receivedAtMillis on every step) while an operation is
+ *  actually progressing normally. */
+@Composable
+private fun rememberOperationProgressActive(state: at.sushi.handoff.OperationProgressState?, timeoutMs: Long = 60_000): Boolean {
+    var active by remember(state) { mutableStateOf(state != null) }
+    LaunchedEffect(state) {
+        if (state == null) {
+            active = false
+            return@LaunchedEffect
+        }
+        while (true) {
+            val elapsed = System.currentTimeMillis() - state.receivedAtMillis
+            if (elapsed >= timeoutMs) {
+                active = false
+                break
+            }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    return active
+}
+
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
@@ -133,6 +159,9 @@ private fun MainScreenContent() {
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
+    val operationProgress by HandoffState.operationProgress.collectAsState()
+    val operationProgressActive = rememberOperationProgressActive(operationProgress)
+    val operationStatus = if (operationProgressActive) operationProgress?.message?.status else null
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -346,6 +375,7 @@ private fun MainScreenContent() {
                 vatsimMissing = vatsimMissing,
                 address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
                 subsystemStatus = subsystemStatus,
+                operationStatus = operationStatus,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
                 keepScreenAwake = keepScreenAwake,

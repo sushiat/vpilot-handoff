@@ -4,6 +4,7 @@ import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
+import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,11 @@ enum class KeypadBlockMode { BLOCK_INVALID, ALLOW_ALL }
 enum class LayoutMode { SPLIT, FULLSCREEN }
 
 enum class SplitSide { LEFT, RIGHT }
+
+/** An in-progress operationProgress message plus the wall-clock time it was received, so the UI
+ *  can apply its own ~60s "haven't heard from this operation in a while" timeout independent of
+ *  a `finished` message ever arriving (docs/protocol.md) -- see FooterStatusBar's use of this. */
+data class OperationProgressState(val message: OperationProgressMessage, val receivedAtMillis: Long)
 
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
  *  (reader) -- no bindService/Messenger IPC needed since both run in the same process. */
@@ -49,6 +55,12 @@ object HandoffState {
 
     private val _subsystemStatus = MutableStateFlow(SubsystemStatusMessage())
     val subsystemStatus: StateFlow<SubsystemStatusMessage> = _subsystemStatus.asStateFlow()
+
+    // Null when no operation is active. Set on every non-finished operationProgress message,
+    // cleared immediately on a finished one -- the ~60s no-update timeout (a backstop for a
+    // dropped finished message) is applied by the UI reading receivedAtMillis, not here.
+    private val _operationProgress = MutableStateFlow<OperationProgressState?>(null)
+    val operationProgress: StateFlow<OperationProgressState?> = _operationProgress.asStateFlow()
 
     // Round-trip time from the last ping/pong exchange (see HandoffConnectionService), null
     // until the first pong arrives or after a disconnect.
@@ -119,6 +131,10 @@ object HandoffState {
 
     fun update(message: SubsystemStatusMessage) {
         _subsystemStatus.value = message
+    }
+
+    fun update(message: OperationProgressMessage) {
+        _operationProgress.value = if (message.finished) null else OperationProgressState(message, System.currentTimeMillis())
     }
 
     fun setLatencyMs(millis: Long?) {

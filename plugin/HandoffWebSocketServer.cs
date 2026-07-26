@@ -34,10 +34,11 @@ namespace Handoff.Plugin
         private readonly NearbyAircraftModel _nearbyAircraft;
         private readonly SelcalActiveModel _selcalActive;
         private readonly PilotSessionModel _pilotSession;
+        private readonly OperationProgressModel _operationProgress;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, OperationProgressModel operationProgress, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -47,6 +48,7 @@ namespace Handoff.Plugin
             _nearbyAircraft = nearbyAircraft ?? throw new ArgumentNullException(nameof(nearbyAircraft));
             _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
+            _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
             _logDebug = logDebug;
         }
 
@@ -81,6 +83,10 @@ namespace Handoff.Plugin
                 _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
                 _flightPlanState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
 
+                // A stream, not a snapshot -- broadcast just the one operation that changed, not
+                // the whole set of currently-active operations (see OperationProgressModel).
+                _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished));
+
                 Log("Listening on " + Address);
             }
             catch (Exception ex)
@@ -100,6 +106,13 @@ namespace Handoff.Plugin
             socket.Send(BuildFlightPlanMessage());
             socket.Send(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
             socket.Send(BuildSubsystemStatusMessage());
+
+            // Catch up a client connecting mid-operation -- otherwise it'd see nothing until the
+            // next step happens to fire.
+            foreach (var operation in _operationProgress.ActiveOperations)
+            {
+                socket.Send(ProtocolMessages.BuildOperationProgressMessage(operation.Key, operation.Value, finished: false));
+            }
         }
 
         private string BuildFlightPlanMessage()

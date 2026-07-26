@@ -22,6 +22,7 @@ import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
+import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
@@ -105,6 +106,7 @@ class HandoffConnectionService : Service() {
                     is FlightPlanMessage -> HandoffState.update(message)
                     is NearbyAircraftMessage -> HandoffState.update(message)
                     is SubsystemStatusMessage -> HandoffState.update(message)
+                    is OperationProgressMessage -> HandoffState.update(message)
                     is PongMessage -> HandoffState.setLatencyMs(System.currentTimeMillis() - message.clientTimestamp)
                 }
             },

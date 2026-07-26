@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -73,6 +74,13 @@ fun FooterStatusBar(
     vatsimMissing: Boolean,
     address: String?,
     subsystemStatus: SubsystemStatusMessage,
+    // Human-readable status text for an in-progress background plugin operation (e.g. the
+    // VatGlasses sector-data sync, docs/protocol.md's operationProgress message), or null when
+    // none is active/it's timed out -- see MainScreen.kt's rememberOperationProgressActive.
+    // Drives a spinning indicator: next to the status text when collapsed (same slot
+    // flightPlanWarning's triangle uses), moved down to sit next to its own row in the drawer
+    // once expanded.
+    operationStatus: String?,
     latencyMs: Long?,
     expanded: Boolean,
     keepScreenAwake: Boolean,
@@ -170,6 +178,17 @@ fun FooterStatusBar(
                         tint = colors.attention,
                         modifier = Modifier.padding(start = 4.dp).size(14.dp)
                     )
+                } else if (operationStatus != null && !expanded) {
+                    // Same slot as the warning triangle above -- the two are mutually exclusive
+                    // attention icons; if a mismatch were ever flagged mid-sync, the triangle
+                    // wins since it's the more actionable one. Hidden while expanded: the
+                    // drawer's own status row (below) shows the spinner there instead, so it
+                    // isn't shown in both places at once.
+                    CircularProgressIndicator(
+                        color = colors.textMuted,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                    )
                 }
             }
             // Tight boxes with a 2px gap, same pattern as ControllerList's pin/message icons --
@@ -221,6 +240,9 @@ fun FooterStatusBar(
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (operationStatus != null) {
+                    OperationProgressRow(operationStatus)
+                }
                 SubsystemStatusRow("Connected to Handoff vPilot plugin", connectionStatus == ConnectionStatus.CONNECTED)
                 SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
                 SubsystemStatusRow("Connected to Simulator", subsystemStatus.simulatorConnected)
@@ -300,6 +322,19 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
             fontFamily = RobotoMono,
             color = if (warning) colors.attention else colors.textMuted
         )
+    }
+}
+
+/** Mirrors SubsystemStatusRow's layout, but with a spinning indicator instead of a static dot --
+ *  this is the "same spinner, now sitting next to the status line" effect from the collapsed
+ *  row's version (see the face row's operationStatus branch above), both driven off the same
+ *  underlying state. */
+@Composable
+private fun OperationProgressRow(status: String) {
+    val colors = LocalHandoffColors.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CircularProgressIndicator(color = colors.textMuted, strokeWidth = 1.5.dp, modifier = Modifier.size(10.dp))
+        Text(status, fontSize = 13.5.sp, color = colors.textMuted)
     }
 }
 
