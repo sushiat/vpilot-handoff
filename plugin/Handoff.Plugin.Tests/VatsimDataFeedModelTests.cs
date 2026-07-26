@@ -11,7 +11,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void IsConnected_BeforeAnyPoll_IsFalse()
         {
-            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<IReadOnlyList<VatsimControllerInfo>>(new List<VatsimControllerInfo>()));
+            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
 
             Assert.False(model.IsConnected);
         }
@@ -19,7 +19,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void SuccessfulPoll_SetsIsConnectedTrue()
         {
-            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<IReadOnlyList<VatsimControllerInfo>>(new List<VatsimControllerInfo>()));
+            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
 
             var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();
@@ -34,7 +34,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void FailedPoll_SetsIsConnectedFalse()
         {
-            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<IReadOnlyList<VatsimControllerInfo>>(null));
+            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<VatsimDataFeedSnapshot>(null));
 
             var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();
@@ -49,7 +49,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void Stop_SetsIsConnectedFalse()
         {
-            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<IReadOnlyList<VatsimControllerInfo>>(new List<VatsimControllerInfo>()));
+            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
 
             var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();

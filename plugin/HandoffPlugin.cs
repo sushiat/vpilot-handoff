@@ -15,6 +15,7 @@ namespace Handoff.Plugin
         private VatsimDataFeedModel _vatsimDataFeed;
         private ContactMeModel _contactMe;
         private SelcalActiveModel _selcalActive;
+        private PilotSessionModel _pilotSession;
         private ControllerRankingModel _controllerRanking;
         private NearbyAircraftModel _nearbyAircraft;
         private HandoffWebSocketServer _webSocketServer;
@@ -44,6 +45,15 @@ namespace Handoff.Plugin
             _flightPlanState = new FlightPlanModel(_broker.PostDebugMessage);
             _ = _flightPlanState.RefreshAsync();
 
+            // Own callsign/CID for the current connection, straight from IBroker -- the
+            // authoritative live value, distinct from FlightPlanModel's SimBrief-derived one
+            // (see PilotSessionModel). Cleared on disconnect, not just stopped, since a stale
+            // callsign from a prior session would be actively misleading, not just unused.
+            _pilotSession = new PilotSessionModel();
+            _broker.NetworkConnected += (sender, e) => _pilotSession.OnNetworkConnected(e.Callsign, e.Cid);
+            _broker.NetworkDisconnected += (sender, e) => _pilotSession.OnDisconnected();
+            _broker.SessionEnded += (sender, e) => _pilotSession.OnDisconnected();
+
             // Public VATSIM data feed for cid/name/facility/rating enrichment -- tied to the
             // VATSIM connection same as RadioStateModel, no point polling it when not flying.
             _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage);
@@ -53,7 +63,7 @@ namespace Handoff.Plugin
 
             _contactMe = new ContactMeModel(_chatModel, _controllerState);
             _selcalActive = new SelcalActiveModel(_chatModel, _controllerState);
-            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _selcalActive, _broker.PostDebugMessage);
+            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _selcalActive, _pilotSession, _broker.PostDebugMessage);
 
             // Nearby-aircraft events aren't tied to the VATSIM connection either (wiring is just
             // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
@@ -63,7 +73,7 @@ namespace Handoff.Plugin
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _selcalActive, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _selcalActive, _pilotSession, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);

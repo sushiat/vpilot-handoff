@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using RossCarlson.Vatsim.Vpilot.Plugins.Events;
 using Xunit;
@@ -17,6 +19,7 @@ namespace Handoff.Plugin.Tests
         private readonly ChatModel _chat;
         private readonly ContactMeModel _contactMe;
         private readonly SelcalActiveModel _selcalActive;
+        private readonly PilotSessionModel _pilotSession = new PilotSessionModel();
 
         public ControllerRankingModelTests()
         {
@@ -32,7 +35,7 @@ namespace Handoff.Plugin.Tests
         }
 
         private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null) =>
-            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, now: now);
+            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, _pilotSession, now: now);
 
         private FlightPlanModel NoOpFlightPlan() =>
             new FlightPlanModel(fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
@@ -362,6 +365,69 @@ namespace Handoff.Plugin.Tests
             var ranked = model.Current;
             Assert.True(ranked.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
             Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsLikelyNextCandidate);
+        }
+
+        /// <summary>Starts a real VatsimDataFeedModel with a canned single-poll snapshot containing
+        /// one filed pilot, waiting for that poll to land before returning -- mirrors
+        /// VatsimDataFeedModelTests' own Start()+wait pattern, since Pilots is only ever populated
+        /// via the background poll loop.</summary>
+        private VatsimDataFeedModel CreateVatsimFeedWithPilot(string callsign, string departure, string arrival)
+        {
+            var snapshot = new VatsimDataFeedSnapshot(
+                new List<VatsimControllerInfo>(),
+                new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
+            var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
+            var raised = new ManualResetEventSlim();
+            feed.Changed += (s, e) => raised.Set();
+            feed.Start();
+            raised.Wait(TimeSpan.FromSeconds(5));
+            return feed;
+        }
+
+        [Fact]
+        public async Task RouteMatch_PrefersVatsimFiledPlanOverSimbrief_WhenAvailable()
+        {
+            // SimBrief says LOWW-LZIB, but the pilot actually filed LOWW-EDDF on the network --
+            // the VATSIM-filed plan is the more authoritative source once it exists, and route
+            // match should follow it, not the (now-stale) SimBrief OFP.
+            var simbriefPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "EDDF");
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+            AddController("EDDF_CTR", 12100);
+            AddController("LZIB_CTR", 12200);
+
+            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 90, 48.5, 16.9, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            var ctrTier = model.Current.Where(c => c.Callsign.EndsWith("_CTR")).ToList();
+            Assert.Equal("EDDF_CTR", ctrTier[0].Callsign);
+
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public async Task RouteMatch_FallsBackToSimbrief_WhenConnectedButNothingFiledOnVatsimYet()
+        {
+            // Connected (own callsign known) but the data feed's pilots[] has no entry for it yet
+            // (not filed on the network, or the ~15s poll just hasn't caught up) -- SimBrief
+            // should still drive route match rather than route match going dark.
+            var simbriefPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
+            var vatsimFeed = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
+            var raised = new ManualResetEventSlim();
+            vatsimFeed.Changed += (s, e) => raised.Set();
+            vatsimFeed.Start();
+            raised.Wait(TimeSpan.FromSeconds(5));
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+            AddController("LOWW_DEL", 12100);
+            AddController("LZIB_DEL", 12200);
+
+            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession);
+
+            var delTier = model.Current.Where(c => c.Callsign.EndsWith("_DEL")).ToList();
+            Assert.Equal("LOWW_DEL", delTier[0].Callsign);
+
+            vatsimFeed.Stop();
         }
 
         [Fact]

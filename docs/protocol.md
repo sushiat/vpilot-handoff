@@ -154,21 +154,48 @@ plugin side.
 
 ### `flightPlan`
 
-The pilot's filed flight plan, fetched from the SimBrief API (`IBroker` has no flight-plan
-members at all -- see CLAUDE.md). Resent whenever a fetch (startup or triggered by
-`refreshFlightPlan`) succeeds. All fields are `null` until the first successful fetch.
+Two independent views of the flight plan, both surfaced so the client can flag a mismatch
+instead of silently trusting one:
+
+- `simbrief*`: fetched from the SimBrief API (`IBroker` has no flight-plan members at all -- see
+  CLAUDE.md). Available before the pilot even connects to VATSIM, since it doesn't depend on the
+  connection -- this is what ranking's route match falls back to when the VATSIM one below isn't
+  available yet. All `simbrief*` fields are `null` until the first successful fetch.
+- `vatsim*`: the pilot's actual filed VATSIM flight plan, found by cross-referencing
+  `vatsimCallsign` (the live callsign from `IBroker.NetworkConnected` -- the callsign actually
+  typed into vPilot's connect dialog, not whatever was typed when the SimBrief OFP was generated)
+  against the public data feed's `pilots[]`. This is the more authoritative source once it
+  exists, and is what ranking's route match prefers when available.
+
+Resent whenever any of the three changes: a SimBrief fetch (startup, or triggered by
+`refreshFlightPlan`) succeeds, the VATSIM connection's callsign changes, or the public data
+feed's next poll (~15s interval) lands.
 
 ```json
 {
   "type": "flightPlan",
-  "callsign": "BAW123",
-  "origin": "EGLL",
-  "destination": "KJFK",
-  "alternate": "KBOS"
+  "simbriefCallsign": "BAW123",
+  "simbriefOrigin": "EGLL",
+  "simbriefDestination": "KJFK",
+  "simbriefAlternate": "KBOS",
+  "vatsimCallsign": "BAW123",
+  "vatsimOrigin": "EGLL",
+  "vatsimDestination": "KJFK"
 }
 ```
 
-`alternate` is fetched and stored for future use but not yet surfaced in the Android app.
+`simbriefAlternate` is fetched and stored for future use but not yet surfaced in the Android app
+(there's no VATSIM-side equivalent surfaced here, though the feed's `flight_plan.alternate` does
+exist).
+
+`vatsimCallsign` is `null` until connected. Once it's non-null but `vatsimOrigin`/
+`vatsimDestination` are still `null`, that means the pilot is connected but the data feed has no
+filed plan for them yet -- either it hasn't polled since connecting (transient, within ~15s), or
+they genuinely haven't filed on the network at all. Clients should treat a *sustained* instance
+of this (past the transient poll-lag window) as worth flagging -- forgetting to file is a real,
+recurring mistake ("sorry, but you didn't file a flight plan" from Delivery), not just a stale
+feed. A mismatch between `simbrief*` and `vatsim*` (once both are known) is also worth flagging --
+it means the SimBrief OFP and what's actually filed on the network have diverged.
 
 ### `nearbyAircraft`
 

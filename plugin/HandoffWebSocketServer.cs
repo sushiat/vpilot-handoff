@@ -33,10 +33,11 @@ namespace Handoff.Plugin
         private readonly VatsimDataFeedModel _vatsimDataFeed;
         private readonly NearbyAircraftModel _nearbyAircraft;
         private readonly SelcalActiveModel _selcalActive;
+        private readonly PilotSessionModel _pilotSession;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -45,6 +46,7 @@ namespace Handoff.Plugin
             _vatsimDataFeed = vatsimDataFeed ?? throw new ArgumentNullException(nameof(vatsimDataFeed));
             _nearbyAircraft = nearbyAircraft ?? throw new ArgumentNullException(nameof(nearbyAircraft));
             _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
+            _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _logDebug = logDebug;
         }
 
@@ -63,8 +65,15 @@ namespace Handoff.Plugin
                 _controllerRanking.Changed += (s, e) => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
-                _flightPlanState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
                 _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
+
+                // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
+                // plan (PilotSessionModel's own callsign, cross-referenced against
+                // VatsimDataFeedModel's pilots[]), so any of the three changing needs to
+                // re-broadcast it, not just a SimBrief refetch.
+                _flightPlanState.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+                _pilotSession.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+                _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
 
                 // Each of these three also feeds the subsystemStatus message, so any of them
                 // changing needs to re-broadcast it too, not just their own message type.
@@ -88,9 +97,17 @@ namespace Handoff.Plugin
             socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
-            socket.Send(ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current));
+            socket.Send(BuildFlightPlanMessage());
             socket.Send(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
             socket.Send(BuildSubsystemStatusMessage());
+        }
+
+        private string BuildFlightPlanMessage()
+        {
+            var vatsimCallsign = _pilotSession.Callsign;
+            VatsimPilotInfo vatsimPilot = null;
+            if (vatsimCallsign != null) _vatsimDataFeed.Pilots.TryGetValue(vatsimCallsign, out vatsimPilot);
+            return ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current, vatsimCallsign, vatsimPilot);
         }
 
         private string BuildSubsystemStatusMessage() =>

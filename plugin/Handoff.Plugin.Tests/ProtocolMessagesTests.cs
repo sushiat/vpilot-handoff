@@ -141,26 +141,52 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildFlightPlanMessage_BeforeFirstFetch_FieldsAreNull()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null));
 
             Assert.Equal("flightPlan", (string)json["type"]);
-            Assert.Equal(JTokenType.Null, json["callsign"].Type);
-            Assert.Equal(JTokenType.Null, json["origin"].Type);
-            Assert.Equal(JTokenType.Null, json["destination"].Type);
-            Assert.Equal(JTokenType.Null, json["alternate"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefCallsign"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefDestination"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefAlternate"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimCallsign"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimDestination"].Type);
         }
 
         [Fact]
-        public void BuildFlightPlanMessage_WithValues()
+        public void BuildFlightPlanMessage_WithSimbriefValues()
         {
             var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
 
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null));
 
-            Assert.Equal("BAW123", (string)json["callsign"]);
-            Assert.Equal("EGLL", (string)json["origin"]);
-            Assert.Equal("KJFK", (string)json["destination"]);
-            Assert.Equal("KBOS", (string)json["alternate"]);
+            Assert.Equal("BAW123", (string)json["simbriefCallsign"]);
+            Assert.Equal("EGLL", (string)json["simbriefOrigin"]);
+            Assert.Equal("KJFK", (string)json["simbriefDestination"]);
+            Assert.Equal("KBOS", (string)json["simbriefAlternate"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_WithVatsimValues()
+        {
+            var simbrief = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
+            var vatsimPilot = new VatsimPilotInfo(callsign: "BAW123", departure: "EGLL", arrival: "KJFK");
+
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(simbrief, vatsimCallsign: "BAW123", vatsimPilot: vatsimPilot));
+
+            Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
+            Assert.Equal("EGLL", (string)json["vatsimOrigin"]);
+            Assert.Equal("KJFK", (string)json["vatsimDestination"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_VatsimCallsignKnown_ButNothingFiledYet_OriginDestinationStayNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: "BAW123", vatsimPilot: null));
+
+            Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
+            Assert.Equal(JTokenType.Null, json["vatsimOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimDestination"].Type);
         }
 
         [Fact]

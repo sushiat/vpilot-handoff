@@ -70,15 +70,25 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
-        public static string BuildFlightPlanMessage(FlightPlan plan)
+        /// <summary>
+        /// Combines the SimBrief-derived plan with the actually-filed VATSIM one (the pilot's own
+        /// callsign from IBroker, cross-referenced against the public data feed's pilots[]) so
+        /// the client can flag a mismatch instead of silently trusting whichever loaded first --
+        /// see docs/protocol.md. `vatsimCallsign` is the authoritative live value even when
+        /// `vatsimPilot` is null (feed not yet caught up, or nothing filed on the network).
+        /// </summary>
+        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot)
         {
             var payload = new
             {
                 type = "flightPlan",
-                callsign = plan.Callsign,
-                origin = plan.Origin,
-                destination = plan.Destination,
-                alternate = plan.Alternate
+                simbriefCallsign = simbriefPlan.Callsign,
+                simbriefOrigin = simbriefPlan.Origin,
+                simbriefDestination = simbriefPlan.Destination,
+                simbriefAlternate = simbriefPlan.Alternate,
+                vatsimCallsign,
+                vatsimOrigin = vatsimPilot?.Departure,
+                vatsimDestination = vatsimPilot?.Arrival
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

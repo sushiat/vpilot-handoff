@@ -73,6 +73,7 @@ namespace Handoff.Plugin
         private readonly VatsimDataFeedModel _vatsimFeed;
         private readonly ContactMeModel _contactMe;
         private readonly SelcalActiveModel _selcalActive;
+        private readonly PilotSessionModel _pilotSession;
         private readonly Action<string> _logDebug;
         private readonly Func<DateTimeOffset> _now;
 
@@ -86,7 +87,7 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
-        public ControllerRankingModel(ControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, ContactMeModel contactMe, SelcalActiveModel selcalActive, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
+        public ControllerRankingModel(ControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, ContactMeModel contactMe, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
         {
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _radioState = radioState ?? throw new ArgumentNullException(nameof(radioState));
@@ -94,6 +95,7 @@ namespace Handoff.Plugin
             _vatsimFeed = vatsimFeed ?? throw new ArgumentNullException(nameof(vatsimFeed));
             _contactMe = contactMe ?? throw new ArgumentNullException(nameof(contactMe));
             _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
+            _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _logDebug = logDebug;
             _now = now ?? (() => DateTimeOffset.Now);
 
@@ -103,6 +105,7 @@ namespace Handoff.Plugin
             _vatsimFeed.Changed += (s, e) => Recompute();
             _contactMe.Changed += (s, e) => Recompute();
             _selcalActive.Changed += (s, e) => Recompute();
+            _pilotSession.Changed += (s, e) => Recompute();
 
             Recompute();
         }
@@ -163,7 +166,18 @@ namespace Handoff.Plugin
             if (currentCallsign != null) _contactMe.Clear(currentCallsign);
             var currentTier = currentCallsign != null ? currentCallsign.ParseControllerTier() : (ControllerTier?)null;
 
-            var routeAirport = _hasTakenOffThisSession ? flightPlan.Destination : flightPlan.Origin;
+            // Prefers the actually-filed VATSIM plan (own callsign from PilotSessionModel,
+            // cross-referenced against the public data feed's pilots[]) over the SimBrief-derived
+            // one -- it's the more authoritative source once it exists. Falls back to SimBrief
+            // when it doesn't: pre-connection (ranking needs a route before the pilot has even
+            // filed, e.g. sitting at the gate deciding which DEL/GND to expect), the feed hasn't
+            // polled it in yet (~15s lag), or the data feed is unreachable.
+            VatsimPilotInfo vatsimPilot = null;
+            var vatsimCallsign = _pilotSession.Callsign;
+            if (vatsimCallsign != null) _vatsimFeed.Pilots.TryGetValue(vatsimCallsign, out vatsimPilot);
+            var origin = vatsimPilot?.Departure ?? flightPlan.Origin;
+            var destination = vatsimPilot?.Arrival ?? flightPlan.Destination;
+            var routeAirport = _hasTakenOffThisSession ? destination : origin;
 
             var remaining = controllers.Where(c => !string.Equals(c.Callsign, currentCallsign, StringComparison.OrdinalIgnoreCase)).ToList();
             var orderedRemaining = new List<Controller>();
