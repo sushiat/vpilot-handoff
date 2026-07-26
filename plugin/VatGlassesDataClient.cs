@@ -124,31 +124,60 @@ namespace Handoff.Plugin
         /// <summary>
         /// Parses one region file's JSON (see issue #9's description of the airports/airspace/
         /// positions schema). Missing/malformed fields degrade to null/empty rather than
-        /// throwing, except for a fundamentally unparseable document (not a JSON object at all),
-        /// which throws -- the caller (VatGlassesDataModel) treats that as a failed sync for that
-        /// file, same as a failed fetch.
+        /// throwing, except for a fundamentally unparseable document (not a JSON object at all)
+        /// or an individual entry whose shape isn't recognized at all -- both throw, wrapped
+        /// with exactly which entry (airports.LOWI, airspace[42] (id=VCL), positions.L, etc.)
+        /// failed and why, rather than a bare Newtonsoft cast message with no location. The
+        /// caller (VatGlassesDataModel) treats that as a failed sync for that file, same as a
+        /// failed fetch -- VATGlasses has no published schema doc, so a location in the error is
+        /// what actually makes a future surprise (like topdown[]'s runway-override objects,
+        /// below) diagnosable from one log line instead of a manual file-by-file bisection.
         /// </summary>
         public static VatGlassesRegionData ParseRegionFile(string json)
         {
             var root = JObject.Parse(json);
+            return new VatGlassesRegionData(ParseAirports(root), ParseAirspace(root), ParsePositions(root));
+        }
 
+        private static Dictionary<string, VatGlassesAirport> ParseAirports(JObject root)
+        {
             var airports = new Dictionary<string, VatGlassesAirport>(StringComparer.OrdinalIgnoreCase);
-            if (root["airports"] is JObject airportsObj)
+            if (!(root["airports"] is JObject airportsObj)) return airports;
+
+            foreach (var property in airportsObj.Properties())
             {
-                foreach (var property in airportsObj.Properties())
+                try
                 {
-                    var topdown = (property.Value["topdown"] as JArray)?.Select(t => (string)t).ToList()
-                        ?? new List<string>();
+                    // topdown[] entries are usually plain position-ID strings, but some (e.g.
+                    // LOWI) mix in runway-specific override objects
+                    // ({"runway": {...}, "topdown": [...]}) for airports whose fallback chain
+                    // depends on the active runway config -- confirmed against a live region
+                    // file (data/lo.json). Those overrides aren't modeled yet (deferred to the
+                    // ranking-integration follow-up along with the rest of the lookup logic), so
+                    // only the plain-string entries are kept here.
+                    var topdown = StringArray(property.Value["topdown"]);
                     airports[property.Name] = new VatGlassesAirport(property.Name, topdown);
+                }
+                catch (Exception ex)
+                {
+                    throw new FormatException($"airports.{property.Name}: {ex.Message}", ex);
                 }
             }
 
+            return airports;
+        }
+
+        private static List<VatGlassesSector> ParseAirspace(JObject root)
+        {
             var airspace = new List<VatGlassesSector>();
-            if (root["airspace"] is JArray airspaceArray)
+            if (!(root["airspace"] is JArray airspaceArray)) return airspace;
+
+            for (var i = 0; i < airspaceArray.Count; i++)
             {
-                foreach (var entry in airspaceArray)
+                var entry = airspaceArray[i];
+                try
                 {
-                    var owner = (entry["owner"] as JArray)?.Select(o => (string)o).ToList() ?? new List<string>();
+                    var owner = StringArray(entry["owner"]);
                     var levels = new List<VatGlassesSectorLevel>();
                     if (entry["sectors"] is JArray sectorsArray)
                     {
@@ -166,18 +195,30 @@ namespace Handoff.Plugin
 
                     airspace.Add(new VatGlassesSector((string)entry["id"], (string)entry["group"], owner, levels));
                 }
+                catch (Exception ex)
+                {
+                    var id = entry["id"]?.Type == JTokenType.String ? (string)entry["id"] : "?";
+                    throw new FormatException($"airspace[{i}] (id={id}): {ex.Message}", ex);
+                }
             }
 
+            return airspace;
+        }
+
+        private static Dictionary<string, VatGlassesPosition> ParsePositions(JObject root)
+        {
             var positions = new Dictionary<string, VatGlassesPosition>(StringComparer.OrdinalIgnoreCase);
-            if (root["positions"] is JObject positionsObj)
+            if (!(root["positions"] is JObject positionsObj)) return positions;
+
+            foreach (var property in positionsObj.Properties())
             {
-                foreach (var property in positionsObj.Properties())
+                try
                 {
                     var value = property.Value;
                     // "pre" is always an array (confirmed against a live region file), even
                     // when a position only carries one prefix -- e.g. ["LON"], or
                     // ["EGTT", "EGTT-I", "LON", "LON-I"] for one that carries several.
-                    var prefixes = (value["pre"] as JArray)?.Select(p => (string)p).ToList() ?? new List<string>();
+                    var prefixes = StringArray(value["pre"]);
                     positions[property.Name] = new VatGlassesPosition(
                         id: property.Name,
                         type: (string)value["type"],
@@ -185,10 +226,25 @@ namespace Handoff.Plugin
                         callsign: (string)value["callsign"],
                         prefixes: prefixes);
                 }
+                catch (Exception ex)
+                {
+                    throw new FormatException($"positions.{property.Name}: {ex.Message}", ex);
+                }
             }
 
-            return new VatGlassesRegionData(airports, airspace, positions);
+            return positions;
         }
+
+        /// <summary>
+        /// Reads a JSON array as a list of strings, silently skipping any entry that isn't
+        /// actually a string (VATGlasses mixes non-string entries into otherwise-string arrays
+        /// in at least one known place -- see ParseRegionFile's topdown[] handling -- so every
+        /// "array of strings" field goes through this rather than an unguarded cast that would
+        /// throw and fail the whole file over one unexpected element).
+        /// </summary>
+        private static List<string> StringArray(JToken token) =>
+            (token as JArray)?.Where(t => t.Type == JTokenType.String).Select(t => (string)t).ToList()
+                ?? new List<string>();
     }
 
     /// <summary>One entry from the GitHub contents API listing -- a region file's name and raw download URL.</summary>

@@ -66,9 +66,10 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
-        /// Runs the check-then-sync described above. Never throws -- every failure path reports
-        /// through OperationProgressModel and leaves whatever was already loaded (disk cache or
-        /// a prior successful sync) untouched.
+        /// Runs the check-then-sync described above. Never throws -- a failure before the
+        /// per-file loop even starts (SHA check, file listing) leaves whatever was already
+        /// loaded untouched; a failure partway through the loop keeps every file that did
+        /// succeed (both on disk and in Regions) rather than discarding the whole run.
         /// </summary>
         public async Task SyncAsync()
         {
@@ -115,8 +116,15 @@ namespace Handoff.Plugin
                 return;
             }
 
-            var fetchedRegions = new Dictionary<string, VatGlassesRegionData>(StringComparer.OrdinalIgnoreCase);
-            var rawByFileName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Each region file is independent -- no cross-file references -- so each one is
+            // written to disk (and folded into Regions) as soon as it's fetched and parsed,
+            // rather than held in memory and only written once the whole batch succeeds. A sync
+            // that fails partway through (a rate limit, a transient network blip) still keeps
+            // whatever it got instead of discarding it all. Only the commit-SHA marker is
+            // deferred to the very end: as long as it's still the old one, the next sync attempt
+            // knows the data is incomplete and retries the full list (cheap -- fetches are
+            // idempotent overwrites of whatever's already on disk).
+            var succeededCount = 0;
             for (var i = 0; i < files.Count; i++)
             {
                 var file = files[i];
@@ -135,30 +143,44 @@ namespace Handoff.Plugin
 
                 if (json == null)
                 {
-                    _operationProgress.Finish(SyncOperationId, $"VatGlasses sync failed fetching {file.Name} -- using cached data.");
-                    return;
+                    Log($"Skipping {file.Name} -- fetch failed. Keeping {succeededCount}/{files.Count} files already synced this run.");
+                    continue;
                 }
 
+                VatGlassesRegionData parsed;
                 try
                 {
-                    fetchedRegions[file.Name] = VatGlassesDataClient.ParseRegionFile(json);
+                    parsed = VatGlassesDataClient.ParseRegionFile(json);
                 }
                 catch (Exception ex)
                 {
-                    Log($"Failed to parse {file.Name}: {ex.Message}");
-                    _operationProgress.Finish(SyncOperationId, $"VatGlasses sync failed parsing {file.Name} -- using cached data.");
-                    return;
+                    Log($"Skipping {file.Name} -- parse failed: {ex.Message}");
+                    continue;
                 }
 
-                rawByFileName[file.Name] = json;
+                WriteRegionFile(file.Name, json);
+                lock (_gate)
+                {
+                    // IReadOnlyDictionary has no direct copy-constructor overload -- built by
+                    // hand rather than via LINQ's ToDictionary purely to avoid an extra `using`.
+                    var next = new Dictionary<string, VatGlassesRegionData>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kv in _regionsByFileName) next[kv.Key] = kv.Value;
+                    next[file.Name] = parsed;
+                    _regionsByFileName = next;
+                }
+                Changed?.Invoke(this, EventArgs.Empty);
+                succeededCount++;
             }
 
-            WriteDiskCache(rawByFileName, latestSha);
-
-            lock (_gate) { _regionsByFileName = fetchedRegions; }
-            Changed?.Invoke(this, EventArgs.Empty);
-
-            _operationProgress.Finish(SyncOperationId, "VatGlasses data updated");
+            if (succeededCount == files.Count)
+            {
+                WriteShaMarker(latestSha);
+                _operationProgress.Finish(SyncOperationId, "VatGlasses data updated");
+            }
+            else
+            {
+                _operationProgress.Finish(SyncOperationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.");
+            }
         }
 
         private void LoadFromDiskCache()
@@ -167,11 +189,22 @@ namespace Handoff.Plugin
             {
                 if (!Directory.Exists(_cacheDirectory)) return;
 
+                // One corrupt/truncated cached file (e.g. from a prior hard crash mid-write)
+                // must not discard every other perfectly good cached file -- skip and log just
+                // that one, same "a single broken file can't kill the whole batch" reasoning as
+                // SyncAsync's per-file loop below.
                 var loaded = new Dictionary<string, VatGlassesRegionData>(StringComparer.OrdinalIgnoreCase);
                 foreach (var path in Directory.GetFiles(_cacheDirectory, "*.json"))
                 {
-                    var json = File.ReadAllText(path);
-                    loaded[Path.GetFileName(path)] = VatGlassesDataClient.ParseRegionFile(json);
+                    try
+                    {
+                        var json = File.ReadAllText(path);
+                        loaded[Path.GetFileName(path)] = VatGlassesDataClient.ParseRegionFile(json);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Skipping cached file {Path.GetFileName(path)} -- failed to load: {ex.Message}");
+                    }
                 }
 
                 if (loaded.Count > 0)
@@ -200,31 +233,39 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
-        /// Writes to a staging directory and swaps it in with a single Directory.Move, rather
-        /// than overwriting files in the live cache directory one at a time -- so a process
-        /// crash or exception partway through never leaves the on-disk cache half-written (the
-        /// old cache directory stays fully intact right up until the swap).
+        /// Writes one region file's raw JSON straight into the live cache directory -- each file
+        /// is independent, so there's nothing to stage/swap the way a single combined write
+        /// would need. Overwrites whatever was there for this file name; leaves every other
+        /// cached file untouched, including when this call itself fails.
         /// </summary>
-        private void WriteDiskCache(IReadOnlyDictionary<string, string> rawByFileName, string sha)
+        private void WriteRegionFile(string fileName, string json)
         {
             try
             {
-                var stagingDirectory = _cacheDirectory + ".staging";
-                if (Directory.Exists(stagingDirectory)) Directory.Delete(stagingDirectory, recursive: true);
-                Directory.CreateDirectory(stagingDirectory);
-
-                foreach (var entry in rawByFileName)
-                {
-                    File.WriteAllText(Path.Combine(stagingDirectory, entry.Key), entry.Value);
-                }
-                File.WriteAllText(Path.Combine(stagingDirectory, ShaFileName), sha);
-
-                if (Directory.Exists(_cacheDirectory)) Directory.Delete(_cacheDirectory, recursive: true);
-                Directory.Move(stagingDirectory, _cacheDirectory);
+                Directory.CreateDirectory(_cacheDirectory);
+                File.WriteAllText(Path.Combine(_cacheDirectory, fileName), json);
             }
             catch (Exception ex)
             {
-                Log("Failed to write disk cache: " + ex.Message);
+                Log($"Failed to write {fileName} to disk cache: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Written only once every file in a sync succeeded -- an incomplete sync leaves the old
+        /// (or absent) marker in place, so the next attempt's SHA comparison correctly treats the
+        /// data as still out of date and retries the full list.
+        /// </summary>
+        private void WriteShaMarker(string sha)
+        {
+            try
+            {
+                Directory.CreateDirectory(_cacheDirectory);
+                File.WriteAllText(Path.Combine(_cacheDirectory, ShaFileName), sha);
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to write commit SHA marker: " + ex.Message);
             }
         }
 

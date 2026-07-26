@@ -129,6 +129,8 @@ namespace Handoff.Plugin.Tests
                 File.WriteAllText(Path.Combine(cacheDir, "lo.json"), EmptyRegionJson);
 
                 var progress = new OperationProgressModel();
+                OperationProgressEventArgs lastEvent = null;
+                progress.Changed += (s, e) => lastEvent = e;
 
                 // Constructed after the cache directory is pre-populated, so LoadFromDiskCache
                 // (run at construction) picks up the existing entry.
@@ -146,6 +148,81 @@ namespace Handoff.Plugin.Tests
 
                 Assert.Single(model.Regions);
                 Assert.Equal("old-sha", File.ReadAllText(Path.Combine(cacheDir, "_commit.sha")));
+                Assert.True(lastEvent.Finished);
+                Assert.Contains("incomplete (0/1 files)", lastEvent.Status);
+            }
+            finally
+            {
+                if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task SyncAsync_OneFileFailsAmongSeveral_KeepsSucceededFilesButDoesNotWriteShaMarker()
+        {
+            var cacheDir = CreateTempCacheDir();
+            try
+            {
+                var progress = new OperationProgressModel();
+                OperationProgressEventArgs lastEvent = null;
+                progress.Changed += (s, e) => lastEvent = e;
+
+                var files = new List<VatGlassesDataFile>
+                {
+                    new VatGlassesDataFile("lo.json", "https://example/lo.json"),
+                    new VatGlassesDataFile("broken.json", "https://example/broken.json"),
+                    new VatGlassesDataFile("ld.json", "https://example/ld.json")
+                };
+
+                var model = new VatGlassesDataModel(
+                    progress,
+                    cacheDirectory: cacheDir,
+                    fetchLatestSha: () => Task.FromResult("sha-new"),
+                    listFiles: () => Task.FromResult<IReadOnlyList<VatGlassesDataFile>>(files),
+                    fetchFile: url => Task.FromResult(url.Contains("broken") ? null : EmptyRegionJson));
+
+                await model.SyncAsync();
+
+                // The one file that failed to fetch never lands on disk or in Regions, but it
+                // doesn't take the other two -- fetched independently -- down with it.
+                Assert.Equal(2, model.Regions.Count);
+                Assert.True(model.Regions.ContainsKey("lo.json"));
+                Assert.True(model.Regions.ContainsKey("ld.json"));
+                Assert.False(model.Regions.ContainsKey("broken.json"));
+                Assert.True(File.Exists(Path.Combine(cacheDir, "lo.json")));
+                Assert.True(File.Exists(Path.Combine(cacheDir, "ld.json")));
+                Assert.False(File.Exists(Path.Combine(cacheDir, "broken.json")));
+
+                // Marker withheld -- the next sync attempt must see this as still out of date and
+                // retry the full list (including re-fetching lo.json/ld.json, which is fine).
+                Assert.False(File.Exists(Path.Combine(cacheDir, "_commit.sha")));
+                Assert.True(lastEvent.Finished);
+                Assert.Contains("incomplete (2/3 files)", lastEvent.Status);
+            }
+            finally
+            {
+                if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Constructor_OneCorruptCachedFileAmongSeveral_LoadsTheRest()
+        {
+            var cacheDir = CreateTempCacheDir();
+            try
+            {
+                Directory.CreateDirectory(cacheDir);
+                File.WriteAllText(Path.Combine(cacheDir, "lo.json"), EmptyRegionJson);
+                File.WriteAllText(Path.Combine(cacheDir, "broken.json"), "{ not valid json");
+                File.WriteAllText(Path.Combine(cacheDir, "ld.json"), EmptyRegionJson);
+
+                var progress = new OperationProgressModel();
+                var model = new VatGlassesDataModel(progress, cacheDirectory: cacheDir);
+
+                Assert.Equal(2, model.Regions.Count);
+                Assert.True(model.Regions.ContainsKey("lo.json"));
+                Assert.True(model.Regions.ContainsKey("ld.json"));
+                Assert.False(model.Regions.ContainsKey("broken.json"));
             }
             finally
             {
