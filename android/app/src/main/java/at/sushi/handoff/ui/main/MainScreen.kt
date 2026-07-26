@@ -54,6 +54,25 @@ import at.sushi.handoff.ui.dialogs.SettingsDialog
 import at.sushi.handoff.ui.dialogs.XpdrDialog
 import at.sushi.handoff.ui.theme.HandoffTheme
 
+/** True only once [condition] has held continuously for [delayMs] -- used to distinguish "this
+ *  data source is genuinely missing" from "still waiting on a normal fetch/poll cycle" (a plugin
+ *  connection or feed poll takes a few seconds; flagging MISSING before that would be a false
+ *  alarm). Resets to false immediately if [condition] goes false before the delay elapses, since
+ *  a changed key restarts (and thereby cancels the pending) LaunchedEffect. */
+@Composable
+private fun rememberSustained(condition: Boolean, delayMs: Long): Boolean {
+    var sustained by remember { mutableStateOf(false) }
+    LaunchedEffect(condition) {
+        if (condition) {
+            kotlinx.coroutines.delay(delayMs)
+            sustained = true
+        } else {
+            sustained = false
+        }
+    }
+    return sustained
+}
+
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
@@ -84,6 +103,26 @@ private fun MainScreenContent() {
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
+    // The VATSIM-filed plan (docs/protocol.md's flightPlan message) is the more authoritative
+    // source once it exists -- SimBrief is just whatever was typed when the OFP was generated,
+    // available pre-connection but with no guarantee it matches what's actually filed. Route
+    // display prefers vatsim*, falling back to simbrief* only when the VATSIM side isn't known yet
+    // (not connected, or feed not yet polled) -- same fallback order as the plugin's own ranking
+    // route match.
+    val displayOrigin = flightPlan.vatsimOrigin ?: flightPlan.simbriefOrigin
+    val displayDestination = flightPlan.vatsimDestination ?: flightPlan.simbriefDestination
+    // VATSIM: connected (callsign known) but the data feed still shows no filed plan -- ~15s poll
+    // interval, so 20s covers a normal poll cycle without false-flagging.
+    val vatsimMissing = rememberSustained(flightPlan.vatsimCallsign != null && flightPlan.vatsimOrigin == null, 20_000)
+    // SimBrief: the plugin's own WebSocket connection is up (so it's had a chance to fetch) but no
+    // SimBrief plan has ever come back -- no credentials set, wrong ones, or the API's unreachable.
+    val simbriefMissing = rememberSustained(connectionStatus == at.sushi.handoff.ConnectionStatus.CONNECTED && flightPlan.simbriefOrigin == null, 20_000)
+    // Once both sides are known, a mismatch means the SimBrief OFP and what's actually filed on
+    // the network have diverged (stale OFP, re-filed after generating it, etc) -- worth flagging
+    // just as much as forgetting to file at all, since it's the same "wrong info on frequency" risk.
+    val flightPlanMismatch = flightPlan.vatsimOrigin != null && flightPlan.simbriefOrigin != null &&
+        (flightPlan.vatsimOrigin != flightPlan.simbriefOrigin || flightPlan.vatsimDestination != flightPlan.simbriefDestination)
+    val flightPlanWarning = flightPlanMismatch || vatsimMissing
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
     val pinnedCallsign by HandoffState.pinnedCallsign.collectAsState()
@@ -141,6 +180,10 @@ private fun MainScreenContent() {
                 activeTab = activeChatTab,
                 unreadByTab = unreadByTab,
                 selcalActive = selcalActive,
+                // The live vPilot connection callsign -- what other controllers actually see us
+                // as on frequency -- not the SimBrief one, which has no guarantee of matching the
+                // real connection (see docs/protocol.md's flightPlan message).
+                ownCallsign = flightPlan.vatsimCallsign,
                 onSelectTab = { activeChatTab = it },
                 onCloseTab = { peer ->
                     openChatTabs = openChatTabs - peer
@@ -290,8 +333,17 @@ private fun MainScreenContent() {
 
             FooterStatusBar(
                 connectionStatus = connectionStatus,
-                origin = flightPlan.origin,
-                destination = flightPlan.destination,
+                origin = displayOrigin,
+                destination = displayDestination,
+                flightPlanWarning = flightPlanWarning,
+                flightPlanMismatch = flightPlanMismatch,
+                activeCallsign = flightPlan.vatsimCallsign,
+                simbriefOrigin = flightPlan.simbriefOrigin,
+                simbriefDestination = flightPlan.simbriefDestination,
+                simbriefMissing = simbriefMissing,
+                vatsimOrigin = flightPlan.vatsimOrigin,
+                vatsimDestination = flightPlan.vatsimDestination,
+                vatsimMissing = vatsimMissing,
                 address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
                 subsystemStatus = subsystemStatus,
                 latencyMs = latencyMs,

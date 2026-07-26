@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -48,6 +50,27 @@ fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
     origin: String?,
     destination: String?,
+    // True when the SimBrief and VATSIM-filed plans disagree, or the pilot is connected with
+    // nothing filed at all (docs/protocol.md's flightPlan message) -- see MainScreen.kt for the
+    // detection logic. Drives the red exclamation icon next to the route.
+    flightPlanWarning: Boolean,
+    // Narrower than flightPlanWarning above -- true only for an actual SimBrief/VATSIM
+    // disagreement (not "nothing filed yet"), since that's the only flight-plan condition this
+    // dot's summary treats as "not good" (see this function's overallStatus comment).
+    flightPlanMismatch: Boolean,
+    // The live vPilot connection callsign, and both independent flight-plan views -- shown as
+    // their own always-visible rows in the expanded drawer regardless of whether they agree, so
+    // the pilot can see exactly what each source says instead of just being told "mismatch".
+    activeCallsign: String?,
+    simbriefOrigin: String?,
+    simbriefDestination: String?,
+    // True once a SimBrief fetch has had a real chance to succeed (WebSocket connected) but still
+    // hasn't -- see MainScreen.kt's rememberSustained. Only then does the row read "MISSING"
+    // instead of the placeholder "---- -> ----", which would otherwise flash on every launch.
+    simbriefMissing: Boolean,
+    vatsimOrigin: String?,
+    vatsimDestination: String?,
+    vatsimMissing: Boolean,
     address: String?,
     subsystemStatus: SubsystemStatusMessage,
     latencyMs: Long?,
@@ -93,27 +116,62 @@ fun FooterStatusBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val dotColor = if (connectionStatus == ConnectionStatus.CONNECTED) colors.ok else colors.attention
+            // Summarizes every sub-element into one dot rather than just this WebSocket's own
+            // state: red means the plugin connection itself is down (the one prerequisite for
+            // everything else); amber ("attention") means that connection is up but something
+            // underneath isn't -- RadioHost/Simulator/VatsimInfo unreachable, or the SimBrief and
+            // VATSIM-filed plans actually disagree; green means the plugin's up and everything
+            // else checks out. SimBrief being absent entirely is *not* degraded (it's optional --
+            // pre-connection, or the pilot doesn't use it), only a SimBrief plan that's present but
+            // wrong is -- that's exactly flightPlanMismatch, not the broader flightPlanWarning
+            // (which also covers "nothing filed on VATSIM yet", a separate, narrower warning
+            // surfaced via the exclamation icon instead).
+            val degraded = !subsystemStatus.radioHostConnected ||
+                !subsystemStatus.simulatorConnected ||
+                !subsystemStatus.vatsimDataFeedConnected ||
+                flightPlanMismatch
+            val dotColor = when {
+                connectionStatus != ConnectionStatus.CONNECTED -> at.sushi.handoff.ui.dialogs.outOfBandRed
+                degraded -> colors.attention
+                else -> colors.ok
+            }
             Box(Modifier.size(8.dp).background(dotColor, CircleShape))
             // The doc's full sentence ("Connected to Handoff vPilot plugin, flying from...")
             // reads fine in the design mock's wide preview but wraps awkwardly mid-word next to
-            // the refresh/settings icons on a real tablet -- shortened to status + route.
+            // the refresh/settings icons on a real tablet -- shortened to status + route. Once
+            // there's an actual callsign, "Connected" itself is redundant with it (a callsign only
+            // exists once truly connected) -- dropped so the line doesn't grow every time it's the
+            // one piece of the layout most likely to need retuning across widths.
             val statusLabel = when (connectionStatus) {
-                ConnectionStatus.CONNECTED -> "Connected"
+                ConnectionStatus.CONNECTED -> activeCallsign ?: "Connected"
                 ConnectionStatus.CONNECTING -> "Connecting"
                 ConnectionStatus.DISCONNECTED -> "Disconnected"
             }
             val route = "${origin ?: "----"} → ${destination ?: "----"}"
             val statusText = if (showStatusLabel) "$statusLabel · $route" else route
-            Text(
-                statusText,
-                fontSize = 12.sp,
-                color = colors.text,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            // The Text itself gets weight(1f, fill = false) rather than the outer Row -- that lets
+            // it size down to its own (possibly short) natural width within the space available,
+            // so the warning icon sits immediately after the visible text instead of being pushed
+            // all the way to this row's far edge by the Text's own weight.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    statusText,
+                    fontSize = 12.sp,
+                    color = colors.text,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (flightPlanWarning) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = "Flight plan mismatch or not filed",
+                        tint = colors.attention,
+                        modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                    )
+                }
+            }
             // Tight 30x30 boxes with a 2px gap, same pattern as ControllerList's pin/message
             // icons -- Material3's IconButton reserves a 48dp touch target plus its own internal
             // padding, which pushed these icons much further apart than intended.
@@ -158,10 +216,27 @@ fun FooterStatusBar(
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                SubsystemStatusRow("Connected to Handoff vPilot plugin", connectionStatus == ConnectionStatus.CONNECTED)
                 SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
                 SubsystemStatusRow("Connected to Simulator", subsystemStatus.simulatorConnected)
                 SubsystemStatusRow("Connected to Vatsim Info", subsystemStatus.vatsimDataFeedConnected)
                 SubsystemStatusRow("Fetched Simbrief flight plan", subsystemStatus.simbriefFetched)
+                // Always shown (not just on mismatch) -- both flight-plan sources plus the actual
+                // connection callsign, so the pilot can see exactly what each source says rather
+                // than just being told "mismatch" with no detail. Highlighted in colors.attention
+                // when they disagree (or nothing's filed at all), same signal as the collapsed
+                // row's exclamation icon.
+                FlightPlanDetailRow("Active callsign", activeCallsign ?: "----", flightPlanWarning)
+                FlightPlanDetailRow(
+                    "SimBrief",
+                    if (simbriefMissing) "MISSING" else "${simbriefOrigin ?: "----"} → ${simbriefDestination ?: "----"}",
+                    flightPlanWarning
+                )
+                FlightPlanDetailRow(
+                    "VATSIM",
+                    if (vatsimMissing) "MISSING" else "${vatsimOrigin ?: "----"} → ${vatsimDestination ?: "----"}",
+                    flightPlanWarning
+                )
             }
             // Pulled out of the padded Column above and placed as a direct child here instead --
             // it was nested inside that Column's own 14dp horizontal padding, so it rendered
@@ -193,6 +268,26 @@ fun FooterStatusBar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) {
+    val colors = LocalHandoffColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            label,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (warning) colors.attention else colors.textMuted,
+            modifier = Modifier.widthIn(min = 90.dp)
+        )
+        Text(
+            value,
+            fontSize = 11.5.sp,
+            fontFamily = RobotoMono,
+            color = if (warning) colors.attention else colors.textMuted
+        )
     }
 }
 

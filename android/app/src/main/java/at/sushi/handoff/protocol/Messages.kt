@@ -68,13 +68,24 @@ data class ChatMessage(
     val selcalAlerts: List<SelcalAlert>
 ) : ServerMessage
 
+/** Two independent views of the flight plan (docs/protocol.md) -- surfaced side by side so the
+ *  client can flag a mismatch instead of silently trusting one. [simbriefCallsign] is whatever
+ *  was typed when the SimBrief OFP was generated (available pre-connection, no VATSIM dependency).
+ *  [vatsimCallsign] is the live, authoritative callsign from the actual vPilot connection,
+ *  cross-referenced against the public data feed for [vatsimOrigin]/[vatsimDestination] -- null
+ *  until connected; once non-null while origin/destination are still null past the feed's ~15s
+ *  poll window, that means connected but nothing filed on the network (worth flagging, not a
+ *  transient state). */
 @Serializable
 data class FlightPlanMessage(
     val type: String = "flightPlan",
-    val callsign: String? = null,
-    val origin: String? = null,
-    val destination: String? = null,
-    val alternate: String? = null
+    val simbriefCallsign: String? = null,
+    val simbriefOrigin: String? = null,
+    val simbriefDestination: String? = null,
+    val simbriefAlternate: String? = null,
+    val vatsimCallsign: String? = null,
+    val vatsimOrigin: String? = null,
+    val vatsimDestination: String? = null
 ) : ServerMessage
 
 @Serializable

@@ -77,6 +77,7 @@ fun ChatPanelContent(
     activeTab: String?,
     unreadByTab: Map<String, Int>,
     selcalActive: Boolean,
+    ownCallsign: String?,
     onSelectTab: (String?) -> Unit,
     onCloseTab: (String) -> Unit,
     onOpenNearbyDialog: () -> Unit,
@@ -196,7 +197,7 @@ fun ChatPanelContent(
                     item { SelcalEntry(latestAlert, selcalActive) }
                 }
             }
-            items(entries.reversed()) { entry -> MessageRow(entry) }
+            items(entries.reversed()) { entry -> MessageRow(entry, ownCallsign) }
         }
 
         // Reference has `border-top:1px solid t.border` on this bar -- missing entirely before.
@@ -277,11 +278,20 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
  *  rounded bubble aligned left/right by [ChatEntry.direction], with a small muted mono meta line
  *  above the body -- peer callsign for private messages, tuned frequency for radio, then the
  *  timestamp. This previously rendered as plain unstyled text with no box/border/alignment and no
- *  frequency/timestamp at all -- a real gap, not a style tweak. */
+ *  frequency/timestamp at all -- a real gap, not a style tweak.
+ *
+ *  Incoming radio messages that mention [ownCallsign] as a whole word are highlighted
+ *  (`colors.attentionBg`) -- this is chatter directed at us specifically (a controller instruction,
+ *  a reply to something we said) versus the ambient traffic of every other station's transmissions
+ *  on the same frequency, which is otherwise indistinguishable at a glance. Word-boundary matched
+ *  (not a plain substring) so e.g. callsign "OE-TZ" doesn't false-positive inside "OE-TZZ". Private
+ *  messages aren't checked -- every private message is already addressed to us by definition. */
 @Composable
-private fun MessageRow(entry: ChatEntry) {
+private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
     val colors = LocalHandoffColors.current
     val outgoing = entry.direction == "outgoing"
+    val mentionsUs = !outgoing && entry.channel == "radio" && ownCallsign != null &&
+        Regex("\\b${Regex.escape(ownCallsign)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(entry.text)
     val metaText = buildString {
         append(entry.peer ?: entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) } ?: "")
         if (isNotEmpty()) append(" · ")
@@ -294,11 +304,19 @@ private fun MessageRow(entry: ChatEntry) {
             Column(
                 Modifier
                     .widthIn(max = bubbleMaxWidth)
-                    // Incoming bubbles are colors.panel (true white in light theme), not
-                    // panelAlt -- panelAlt is a near-white oklch tint that reads as visibly grey
-                    // on the real tablet display, same lesson as the controller list/chat panel's
-                    // own background (see those files' matching notes).
-                    .background(if (outgoing) colors.accentBg else colors.panel, RoundedCornerShape(10.dp))
+                    // Incoming bubbles use panelAlt (a subdued near-white tint) rather than the
+                    // stark panel/white background, so they read as visually distinct from
+                    // outgoing (accentBg) instead of nearly blending into the panel itself.
+                    // Messages mentioning our own callsign on the radio channel stand out further
+                    // still, in attentionBg -- see this function's doc comment.
+                    .background(
+                        when {
+                            outgoing -> colors.accentBg
+                            mentionsUs -> colors.attentionBg
+                            else -> colors.panelAlt
+                        },
+                        RoundedCornerShape(10.dp)
+                    )
                     .border(1.dp, colors.border, RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {

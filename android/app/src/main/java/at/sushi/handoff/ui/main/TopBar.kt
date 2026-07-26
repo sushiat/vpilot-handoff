@@ -79,6 +79,17 @@ fun TopBar(
             // padding on both sides.
             val rowContentWidth = maxWidth - 14.dp * 2
             val buttonContentWidth = (rowContentWidth - 8.dp * 2) / 3 - 20.dp
+            val com1Value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---"
+            val com2Value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---"
+            val activeFontSize = if (isNarrow) 16.sp else 20.sp
+            // The Mode C badge lives in the XPDR button, but whether it fits is really a question
+            // about the whole row's real available width -- COM1/COM2 going two-line is the actual
+            // narrow-space signal, not the earlier/coarser isNarrow threshold (which only drives
+            // the font-size reduction and used to hide the badge far too eagerly, while there was
+            // still plenty of room for it).
+            val com1NeedsSplit = rememberFrequencyNeedsSplit(com1Value, activeFontSize, FontWeight.Bold, buttonContentWidth)
+            val com2NeedsSplit = rememberFrequencyNeedsSplit(com2Value, activeFontSize, FontWeight.Bold, buttonContentWidth)
+            val showModeCBadge = !com1NeedsSplit && !com2NeedsSplit
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -98,7 +109,7 @@ fun TopBar(
                     FrequencyButton(
                         Modifier.weight(1f).fillMaxHeight(),
                         label = "COM1",
-                        value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---",
+                        value = com1Value,
                         large = true,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
@@ -107,13 +118,13 @@ fun TopBar(
                     FrequencyButton(
                         Modifier.weight(1f).fillMaxHeight(),
                         label = "COM2",
-                        value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---",
+                        value = com2Value,
                         large = true,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
                         onClick = onSwapCom2
                     )
-                    XpdrButton(Modifier.weight(1f).fillMaxHeight(), radioState, isNarrow = isNarrow, availableWidth = buttonContentWidth, onClick = onOpenXpdrDialog)
+                    XpdrButton(Modifier.weight(1f).fillMaxHeight(), radioState, isNarrow = isNarrow, showModeCBadge = showModeCBadge, availableWidth = buttonContentWidth, onClick = onOpenXpdrDialog)
                 }
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -121,7 +132,7 @@ fun TopBar(
                 ) {
                     FrequencyButton(
                         Modifier.weight(1f).fillMaxHeight(),
-                        label = "COM1",
+                        label = "STBY",
                         value = radioState.com1StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
                         large = false,
                         isNarrow = isNarrow,
@@ -130,7 +141,7 @@ fun TopBar(
                     )
                     FrequencyButton(
                         Modifier.weight(1f).fillMaxHeight(),
-                        label = "COM2",
+                        label = "STBY",
                         value = radioState.com2StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
                         large = false,
                         isNarrow = isNarrow,
@@ -246,6 +257,28 @@ private fun RowScope.FrequencyButton(
  *  three buttons in a row match whichever one is tallest; nesting a BoxWithConstraints anywhere
  *  in that Row's subtree crashes outright with "Asking for intrinsic measurements of
  *  SubcomposeLayout layouts is not supported." */
+/** Measures whether [value] (a "DDD.DDD"-shaped frequency string) fits on one line at this font
+ *  size within [availableWidth]. Shared between [FrequencyValueText]'s own line-splitting decision
+ *  and TopBar's Mode C badge visibility -- the badge needs to disappear at exactly the same point
+ *  the COM values actually go two-line, not at the earlier/coarser isNarrow threshold. */
+@Composable
+private fun rememberFrequencyNeedsSplit(
+    value: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight,
+    availableWidth: androidx.compose.ui.unit.Dp
+): Boolean {
+    val dotIndex = value.indexOf('.')
+    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val textStyle = androidx.compose.ui.text.TextStyle(fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val naturalWidth = remember(value, fontSize, fontWeight) {
+        textMeasurer.measure(value, textStyle).size.width
+    }
+    val availableWidthPx = remember(availableWidth, density) { with(density) { availableWidth.roundToPx() } }
+    return dotIndex >= 0 && naturalWidth > availableWidthPx
+}
+
 @Composable
 private fun FrequencyValueText(
     value: String,
@@ -255,14 +288,7 @@ private fun FrequencyValueText(
     availableWidth: androidx.compose.ui.unit.Dp
 ) {
     val dotIndex = value.indexOf('.')
-    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val textStyle = androidx.compose.ui.text.TextStyle(fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono)
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val naturalWidth = remember(value, fontSize, fontWeight) {
-        textMeasurer.measure(value, textStyle).size.width
-    }
-    val availableWidthPx = remember(availableWidth, density) { with(density) { availableWidth.roundToPx() } }
-    val needsSplit = dotIndex >= 0 && naturalWidth > availableWidthPx
+    val needsSplit = rememberFrequencyNeedsSplit(value, fontSize, fontWeight, availableWidth)
     if (needsSplit) {
         Column {
             Text(value.substring(0, dotIndex + 1), fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono, color = color, maxLines = 1, softWrap = false)
@@ -278,18 +304,15 @@ private fun RowScope.XpdrButton(
     modifier: Modifier = Modifier,
     radioState: RadioStateMessage,
     isNarrow: Boolean,
+    showModeCBadge: Boolean,
     availableWidth: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(10.dp)
-    // Reference structure is a single outer row (originally vertically centered across the whole
-    // button height, to fix an even older bug where the badge was only centered against the
-    // value line) -- now top-aligned instead, to match FrequencyButton's plain (implicitly
-    // top-aligned) Column. Once buttons in a row can stretch to match whichever sibling wrapped
-    // onto a second line (see the height(IntrinsicSize.Min)/fillMaxHeight() pairing in TopBar),
-    // center-aligning here alone made this button's label/value drift down to the row's vertical
-    // center while its un-stretched neighbors stayed pinned to the top.
+    // Top-aligned throughout, same as MsgButton's unread badge -- both badges stay top-right
+    // rather than centered, since centering against a height that varies for reasons unrelated to
+    // the badge (a wrapped two-line value) would make the two badges disagree with each other.
     Row(
         modifier
             .background(colors.panelAlt, shape)
@@ -317,10 +340,10 @@ private fun RowScope.XpdrButton(
                 availableWidth = availableWidth
             )
         }
-        // Dropped entirely below the narrow threshold rather than shrunk further -- it was
-        // crowding the "XPDR" label into wrapping onto its own line even before the label text
-        // itself ran out of room.
-        if (!isNarrow) {
+        // Dropped entirely once COM1/COM2 actually go two-line (showModeCBadge, measured in
+        // TopBar) rather than at the earlier isNarrow threshold -- that hid it far too eagerly,
+        // while there was still plenty of room for it at the reduced font size.
+        if (showModeCBadge) {
             ModeCBadge(radioState.modeCEnabled)
         }
     }
@@ -330,10 +353,10 @@ private fun RowScope.XpdrButton(
  *  solid fill (accent when on, otherwise a solid `t.border` fill -- not an outline), white text
  *  always, 14sp/700. */
 @Composable
-private fun ModeCBadge(modeCEnabled: Boolean) {
+private fun ModeCBadge(modeCEnabled: Boolean, modifier: Modifier = Modifier) {
     val colors = LocalHandoffColors.current
     Box(
-        Modifier
+        modifier
             .widthIn(min = 26.dp)
             .size(width = 26.dp, height = 24.dp)
             .background(if (modeCEnabled) colors.accent else colors.border, RoundedCornerShape(6.dp)),
@@ -416,21 +439,25 @@ private fun RowScope.MsgButton(
                 )
             }
         }
-        if (unreadCount > 0) {
-            Box(
-                Modifier
-                    .widthIn(min = 26.dp)
-                    .size(width = 26.dp, height = 24.dp)
-                    .background(colors.attention, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    unreadCount.toString(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = androidx.compose.ui.graphics.Color.White
-                )
-            }
+        // Always visible (not just when unread > 0) -- greyed out and showing "0" when there's
+        // nothing new, same always-there treatment as the Mode C badge, rather than the button
+        // looking sparse/asymmetric next to its neighbors when empty. Kept top-aligned (not
+        // centered like Mode C) since MSG's own label/value column can be an arbitrary-length
+        // callsign or a split two-line frequency -- centering this against a height that varies
+        // for reasons unrelated to the badge itself would look inconsistent.
+        Box(
+            Modifier
+                .widthIn(min = 26.dp)
+                .size(width = 26.dp, height = 24.dp)
+                .background(if (unreadCount > 0) colors.attention else colors.border, RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                unreadCount.toString(),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (unreadCount > 0) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+            )
         }
     }
 }
