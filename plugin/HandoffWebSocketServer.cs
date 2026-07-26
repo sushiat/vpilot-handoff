@@ -85,7 +85,7 @@ namespace Handoff.Plugin
 
                 // A stream, not a snapshot -- broadcast just the one operation that changed, not
                 // the whole set of currently-active operations (see OperationProgressModel).
-                _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished));
+                _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished, e.Success));
 
                 Log("Listening on " + Address);
             }
@@ -111,7 +111,7 @@ namespace Handoff.Plugin
             // next step happens to fire.
             foreach (var operation in _operationProgress.ActiveOperations)
             {
-                socket.Send(ProtocolMessages.BuildOperationProgressMessage(operation.Key, operation.Value, finished: false));
+                socket.Send(ProtocolMessages.BuildOperationProgressMessage(operation.Key, operation.Value, finished: false, success: true));
             }
         }
 

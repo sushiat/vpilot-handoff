@@ -73,19 +73,29 @@ private fun rememberSustained(condition: Boolean, delayMs: Long): Boolean {
     return sustained
 }
 
-/** True while [state] is non-null and its receivedAtMillis is within [timeoutMs] -- a
- *  client-side backstop clearing an operation's indicator even if the plugin's `finished`
- *  message for it is dropped (e.g. a disconnect mid-sync), see docs/protocol.md's
- *  operationProgress message. Ticks on a 1s loop rather than a single delayed check, since
- *  [state] itself keeps changing (a new receivedAtMillis on every step) while an operation is
- *  actually progressing normally. */
+// docs/protocol.md: while still in progress, a backstop against a dropped `finished` message;
+// once finished, how long the success/failure result stays visible before clearing -- long
+// enough to actually read a failure (the more actionable case), shorter for a routine success.
+private const val OperationInProgressTimeoutMs = 60_000L
+private const val OperationSuccessLingerMs = 5_000L
+private const val OperationFailureLingerMs = 30_000L
+
+/** True while [state] is non-null and still within its display window -- see the constants
+ *  above. Ticks on a 1s loop rather than a single delayed check, since [state] itself keeps
+ *  changing (a new receivedAtMillis on every step) while an operation is actually progressing
+ *  normally, and the window itself changes the moment `finished` flips to true. */
 @Composable
-private fun rememberOperationProgressActive(state: at.sushi.handoff.OperationProgressState?, timeoutMs: Long = 60_000): Boolean {
+private fun rememberOperationProgressDisplay(state: at.sushi.handoff.OperationProgressState?): Boolean {
     var active by remember(state) { mutableStateOf(state != null) }
     LaunchedEffect(state) {
         if (state == null) {
             active = false
             return@LaunchedEffect
+        }
+        val timeoutMs = when {
+            !state.message.finished -> OperationInProgressTimeoutMs
+            state.message.success -> OperationSuccessLingerMs
+            else -> OperationFailureLingerMs
         }
         while (true) {
             val elapsed = System.currentTimeMillis() - state.receivedAtMillis
@@ -160,8 +170,10 @@ private fun MainScreenContent() {
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
-    val operationProgressActive = rememberOperationProgressActive(operationProgress)
-    val operationStatus = if (operationProgressActive) operationProgress?.message?.status else null
+    val operationProgressVisible = rememberOperationProgressDisplay(operationProgress)
+    val operationStatus = if (operationProgressVisible) operationProgress?.message?.status else null
+    val operationFinished = operationProgress?.message?.finished ?: false
+    val operationSuccess = operationProgress?.message?.success ?: true
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -376,6 +388,8 @@ private fun MainScreenContent() {
                 address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
                 subsystemStatus = subsystemStatus,
                 operationStatus = operationStatus,
+                operationFinished = operationFinished,
+                operationSuccess = operationSuccess,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
                 keepScreenAwake = keepScreenAwake,
@@ -432,6 +446,10 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             onDismiss = { settingsDialogOpen = false },
+            onQuit = {
+                context.stopService(android.content.Intent(context, HandoffConnectionService::class.java))
+                (context as? android.app.Activity)?.finishAndRemoveTask()
+            },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)

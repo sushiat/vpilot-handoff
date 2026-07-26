@@ -67,5 +67,29 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("VatGlasses data up to date", raised.Status);
             Assert.True(raised.Finished);
         }
+
+        [Fact]
+        public void Finish_DefaultsToSuccess()
+        {
+            var model = new OperationProgressModel();
+            OperationProgressEventArgs raised = null;
+            model.Changed += (s, e) => raised = e;
+
+            model.Finish("vatGlassesSync", "VatGlasses data updated");
+
+            Assert.True(raised.Success);
+        }
+
+        [Fact]
+        public void Finish_WithSuccessFalse_RaisesChangedWithSuccessFalse()
+        {
+            var model = new OperationProgressModel();
+            OperationProgressEventArgs raised = null;
+            model.Changed += (s, e) => raised = e;
+
+            model.Finish("vatGlassesSync", "VatGlasses sync incomplete", success: false);
+
+            Assert.False(raised.Success);
+        }
     }
 }

@@ -141,17 +141,18 @@ namespace Handoff.Plugin
         /// <summary>
         /// Unlike every other Build*Message here, this isn't a resendable full-state snapshot --
         /// it's one step of an in-progress background operation (see OperationProgressModel and
-        /// docs/protocol.md). finished=true is the "end of update" signal clients clear their
-        /// indicator on.
+        /// docs/protocol.md). finished=true is the "end of update" signal clients swap their
+        /// spinner for a success/failure icon on; success is only meaningful once finished=true.
         /// </summary>
-        public static string BuildOperationProgressMessage(string operationId, string status, bool finished)
+        public static string BuildOperationProgressMessage(string operationId, string status, bool finished, bool success)
         {
             var payload = new
             {
                 type = "operationProgress",
                 operationId,
                 status,
-                finished
+                finished,
+                success
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

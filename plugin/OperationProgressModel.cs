@@ -39,13 +39,15 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
-        /// Marks the given operation finished -- the "end of update" signal clients use to clear
-        /// their indicator. <paramref name="status"/> is optional: pass it to report a final
-        /// summary status (e.g. "VatGlasses data up to date") even when Report was never called
-        /// for this operation at all (the common, fast, nothing-changed case); omit it to just
-        /// echo whatever the last reported status was.
+        /// Marks the given operation finished -- the "end of update" signal clients use to swap
+        /// their spinner for a success/failure icon (docs/protocol.md). <paramref name="status"/>
+        /// is optional: pass it to report a final summary status (e.g. "VatGlasses data up to
+        /// date") even when Report was never called for this operation at all (the common, fast,
+        /// nothing-changed case); omit it to just echo whatever the last reported status was.
+        /// <paramref name="success"/> drives which icon/linger-duration a client shows -- see
+        /// docs/protocol.md's operationProgress message.
         /// </summary>
-        public void Finish(string operationId, string status = null)
+        public void Finish(string operationId, string status = null, bool success = true)
         {
             if (string.IsNullOrEmpty(operationId)) throw new ArgumentNullException(nameof(operationId));
 
@@ -55,7 +57,7 @@ namespace Handoff.Plugin
                 _activeStatus.TryGetValue(operationId, out lastStatus);
                 _activeStatus.Remove(operationId);
             }
-            Changed?.Invoke(this, new OperationProgressEventArgs(operationId, status ?? lastStatus, finished: true));
+            Changed?.Invoke(this, new OperationProgressEventArgs(operationId, status ?? lastStatus, finished: true, success: success));
         }
     }
 
@@ -65,11 +67,15 @@ namespace Handoff.Plugin
         public string Status { get; }
         public bool Finished { get; }
 
-        public OperationProgressEventArgs(string operationId, string status, bool finished)
+        /// <summary>Only meaningful when Finished is true -- see OperationProgressModel.Finish.</summary>
+        public bool Success { get; }
+
+        public OperationProgressEventArgs(string operationId, string status, bool finished, bool success = true)
         {
             OperationId = operationId;
             Status = status;
             Finished = finished;
+            Success = success;
         }
     }
 }

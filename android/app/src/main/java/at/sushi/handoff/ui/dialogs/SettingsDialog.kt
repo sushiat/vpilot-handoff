@@ -17,8 +17,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,6 +89,10 @@ fun SettingsDialog(
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
     onDismiss: () -> Unit,
+    // Stops the background connection entirely and closes the app -- for a pilot who won't be
+    // flying for a while and doesn't want the reconnect loop quietly burning battery in the
+    // background until then. Confirmed below before this actually fires.
+    onQuit: () -> Unit,
     onSave: (
         host: String?,
         simbriefUserId: String?,
@@ -105,6 +111,7 @@ fun SettingsDialog(
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
     var discoveryStatus by remember { mutableStateOf("") }
+    var confirmingQuit by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -261,9 +268,42 @@ fun SettingsDialog(
                             }
                         }
                     }
+
+                    // Deliberately its own full-width block at the very bottom of the scrollable
+                    // content, well away from the toggles/fields above -- a destructive action
+                    // (stops background connectivity entirely) shouldn't sit where a casual
+                    // scroll-and-tap could hit it by accident.
+                    SectionLabel("QUIT")
+                    Text(
+                        "Quit Handoff",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = outOfBandRed,
+                        modifier = Modifier.clickable { confirmingQuit = true }
+                    )
+                    Text(
+                        "Stops the background connection and closes the app -- reopen from the home screen to resume.",
+                        fontSize = 11.sp,
+                        color = colors.textMuted,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+                    )
                 }
             }
         }
+    }
+
+    if (confirmingQuit) {
+        AlertDialog(
+            onDismissRequest = { confirmingQuit = false },
+            title = { Text("Quit Handoff?") },
+            text = { Text("This stops the background connection and closes the app. It won't reconnect on its own -- reopen Handoff from the home screen when you're ready to fly again.") },
+            confirmButton = {
+                TextButton(onClick = { confirmingQuit = false; onQuit() }) { Text("Quit", color = outOfBandRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingQuit = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

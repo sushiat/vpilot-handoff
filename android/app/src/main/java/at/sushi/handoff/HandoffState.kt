@@ -27,9 +27,12 @@ enum class LayoutMode { SPLIT, FULLSCREEN }
 
 enum class SplitSide { LEFT, RIGHT }
 
-/** An in-progress operationProgress message plus the wall-clock time it was received, so the UI
- *  can apply its own ~60s "haven't heard from this operation in a while" timeout independent of
- *  a `finished` message ever arriving (docs/protocol.md) -- see FooterStatusBar's use of this. */
+/** The latest operationProgress message plus the wall-clock time it was received, so the UI can
+ *  apply its own display-duration timeout (docs/protocol.md): while `message.finished` is false,
+ *  a ~60s "haven't heard from this operation in a while" backstop independent of a `finished`
+ *  message ever arriving; once `message.finished` is true, a much shorter linger so the pilot
+ *  actually gets to see the success/failure result before it's cleared. See MainScreen.kt's
+ *  rememberOperationProgressDisplay and FooterStatusBar's use of it. */
 data class OperationProgressState(val message: OperationProgressMessage, val receivedAtMillis: Long)
 
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
@@ -154,7 +157,10 @@ object HandoffState {
     }
 
     fun update(message: OperationProgressMessage) {
-        _operationProgress.value = if (message.finished) null else OperationProgressState(message, System.currentTimeMillis())
+        // Always stored, even when finished=true -- the UI decides how long to keep showing a
+        // finished result (success/failure linger, see rememberOperationProgressDisplay) rather
+        // than this being cleared the instant it arrives.
+        _operationProgress.value = OperationProgressState(message, System.currentTimeMillis())
     }
 
     fun setLatencyMs(millis: Long?) {

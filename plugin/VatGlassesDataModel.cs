@@ -88,7 +88,7 @@ namespace Handoff.Plugin
 
             if (latestSha == null)
             {
-                _operationProgress.Finish(SyncOperationId, "VatGlasses update check failed -- using cached data.");
+                _operationProgress.Finish(SyncOperationId, "VatGlasses update check failed -- using cached data.", success: false);
                 return;
             }
 
@@ -112,7 +112,7 @@ namespace Handoff.Plugin
 
             if (files == null || files.Count == 0)
             {
-                _operationProgress.Finish(SyncOperationId, "VatGlasses file listing failed -- using cached data.");
+                _operationProgress.Finish(SyncOperationId, "VatGlasses file listing failed -- using cached data.", success: false);
                 return;
             }
 
@@ -179,7 +179,7 @@ namespace Handoff.Plugin
             }
             else
             {
-                _operationProgress.Finish(SyncOperationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.");
+                _operationProgress.Finish(SyncOperationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.", success: false);
             }
         }
 

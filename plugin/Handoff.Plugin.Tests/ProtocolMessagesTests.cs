@@ -228,7 +228,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildOperationProgressMessage_InProgress()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "Updating VatGlasses file 12/24", finished: false));
+            var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "Updating VatGlasses file 12/24", finished: false, success: true));
 
             Assert.Equal("operationProgress", (string)json["type"]);
             Assert.Equal("vatGlassesSync", (string)json["operationId"]);
@@ -237,11 +237,21 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public void BuildOperationProgressMessage_Finished()
+        public void BuildOperationProgressMessage_FinishedSuccess()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "VatGlasses data up to date", finished: true));
+            var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "VatGlasses data up to date", finished: true, success: true));
 
             Assert.True((bool)json["finished"]);
+            Assert.True((bool)json["success"]);
+        }
+
+        [Fact]
+        public void BuildOperationProgressMessage_FinishedFailure()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "VatGlasses sync incomplete", finished: true, success: false));
+
+            Assert.True((bool)json["finished"]);
+            Assert.False((bool)json["success"]);
         }
 
         [Fact]

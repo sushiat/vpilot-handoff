@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
@@ -29,6 +31,7 @@ import androidx.compose.ui.Modifier
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.ConnectionStatus
@@ -74,13 +77,16 @@ fun FooterStatusBar(
     vatsimMissing: Boolean,
     address: String?,
     subsystemStatus: SubsystemStatusMessage,
-    // Human-readable status text for an in-progress background plugin operation (e.g. the
-    // VatGlasses sector-data sync, docs/protocol.md's operationProgress message), or null when
-    // none is active/it's timed out -- see MainScreen.kt's rememberOperationProgressActive.
-    // Drives a spinning indicator: next to the status text when collapsed (same slot
-    // flightPlanWarning's triangle uses), moved down to sit next to its own row in the drawer
-    // once expanded.
+    // Human-readable status text for an in-progress (or recently finished, still lingering)
+    // background plugin operation (e.g. the VatGlasses sector-data sync, docs/protocol.md's
+    // operationProgress message), or null when none is active/its display window has elapsed --
+    // see MainScreen.kt's rememberOperationProgressDisplay. Drives an indicator: next to the
+    // status text when collapsed (same slot flightPlanWarning's triangle uses), moved down to
+    // sit next to its own row in the drawer once expanded. operationFinished/operationSuccess
+    // pick which icon: a spinner while still in progress, a green check or red X once finished.
     operationStatus: String?,
+    operationFinished: Boolean,
+    operationSuccess: Boolean,
     latencyMs: Long?,
     expanded: Boolean,
     keepScreenAwake: Boolean,
@@ -155,8 +161,18 @@ fun FooterStatusBar(
                 ConnectionStatus.CONNECTING -> "Connecting"
                 ConnectionStatus.DISCONNECTED -> "Disconnected"
             }
+            // Unlike every other placeholder in this footer/drawer, "---- -> ----" reads badly --
+            // there's no real airport code sitting next to it to make the dashes look like part
+            // of a pattern, it's just two dash-pairs and an arrow floating on their own. Dropped
+            // entirely (falling back to just the connection/callsign label) when neither side is
+            // known yet; kept once at least one side is, same as before.
+            val hasRoute = origin != null || destination != null
             val route = "${origin ?: "----"} → ${destination ?: "----"}"
-            val statusText = if (showStatusLabel) "$statusLabel · $route" else route
+            val statusText = when {
+                !hasRoute -> statusLabel
+                showStatusLabel -> "$statusLabel · $route"
+                else -> route
+            }
             // The Text itself gets weight(1f, fill = false) rather than the outer Row -- that lets
             // it size down to its own (possibly short) natural width within the space available,
             // so the warning icon sits immediately after the visible text instead of being pushed
@@ -182,12 +198,14 @@ fun FooterStatusBar(
                     // Same slot as the warning triangle above -- the two are mutually exclusive
                     // attention icons; if a mismatch were ever flagged mid-sync, the triangle
                     // wins since it's the more actionable one. Hidden while expanded: the
-                    // drawer's own status row (below) shows the spinner there instead, so it
-                    // isn't shown in both places at once.
-                    CircularProgressIndicator(
-                        color = colors.textMuted,
+                    // drawer's own status row (below) shows the icon there instead, so it isn't
+                    // shown in both places at once.
+                    OperationStatusIcon(
+                        finished = operationFinished,
+                        success = operationSuccess,
+                        size = 14.dp,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                        modifier = Modifier.padding(start = 4.dp)
                     )
                 }
             }
@@ -241,7 +259,7 @@ fun FooterStatusBar(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (operationStatus != null) {
-                    OperationProgressRow(operationStatus)
+                    OperationProgressRow(operationStatus, operationFinished, operationSuccess)
                 }
                 SubsystemStatusRow("Connected to Handoff vPilot plugin", connectionStatus == ConnectionStatus.CONNECTED)
                 SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
@@ -325,16 +343,29 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
     }
 }
 
-/** Mirrors SubsystemStatusRow's layout, but with a spinning indicator instead of a static dot --
- *  this is the "same spinner, now sitting next to the status line" effect from the collapsed
+/** Mirrors SubsystemStatusRow's layout, but with OperationStatusIcon instead of a static dot --
+ *  this is the "same indicator, now sitting next to the status line" effect from the collapsed
  *  row's version (see the face row's operationStatus branch above), both driven off the same
  *  underlying state. */
 @Composable
-private fun OperationProgressRow(status: String) {
+private fun OperationProgressRow(status: String, finished: Boolean, success: Boolean) {
     val colors = LocalHandoffColors.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        CircularProgressIndicator(color = colors.textMuted, strokeWidth = 1.5.dp, modifier = Modifier.size(10.dp))
+        OperationStatusIcon(finished = finished, success = success, size = 10.dp, strokeWidth = 1.5.dp)
         Text(status, fontSize = 13.5.sp, color = colors.textMuted)
+    }
+}
+
+/** A spinner while an operation is still in progress, swapped for a green check or red X once
+ *  finished (docs/protocol.md's operationProgress message) -- shared by both places this footer
+ *  shows operation status (the collapsed row's slot and the drawer's own row). */
+@Composable
+private fun OperationStatusIcon(finished: Boolean, success: Boolean, size: Dp, strokeWidth: Dp, modifier: Modifier = Modifier) {
+    val colors = LocalHandoffColors.current
+    when {
+        !finished -> CircularProgressIndicator(color = colors.textMuted, strokeWidth = strokeWidth, modifier = modifier.size(size))
+        success -> Icon(Icons.Filled.CheckCircle, contentDescription = "Succeeded", tint = colors.ok, modifier = modifier.size(size))
+        else -> Icon(Icons.Filled.Cancel, contentDescription = "Failed", tint = at.sushi.handoff.ui.dialogs.outOfBandRed, modifier = modifier.size(size))
     }
 }
 
