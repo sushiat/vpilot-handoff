@@ -78,19 +78,20 @@ expected to be VatSpy-sourced -- see issue #13. Always `null` for now; no VatSpy
 exists yet. Until it's populated, clients should keep parsing just the facility-suffix word
 from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
 
-Ranking order: the currently-tuned controller (or a manually pinned one, see
-`pinController` below) first, then any controller with an outstanding "contact me" request, then
-the rest grouped by the standard top-down chain (DEL→GND→TWR→APP/DEP→CTR) relative to the
-current tier, each tier internally sorted by flight-plan route match then distance to ownship.
-`isLikelyNextCandidate` is `true` on every controller in whichever tier is immediately next in
-the chain -- however many that is, not a fixed count.
+Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
+order received and never re-sort client-side. The algorithm (tier chain, route matching,
+distance, SELCAL/contact-me priority, etc.) is documented as an implementation detail in the
+plugin's `ControllerRankingModel.cs`, not here: it can change between plugin versions without any
+client update needed, as long as the fields below keep meaning what they say.
 
-`isApproaching` is only ever `true` when nothing is currently tuned/pinned (i.e. flying
-uncontrolled) -- a "you're closing in on this station" signal for GND (on the ground, within
-10nm), TWR (airborne, within 20nm), and APP (airborne; within 40nm counts regardless of
-heading, 40-50nm only counts if ownship's heading is within 45° of the bearing to the
-station). Not computed for DEL (already well-served by route match) or CTR (a single lat/lon
-can't represent a FIR's real shape -- needs actual sector geometry, see issue #11).
+The boolean fields are what clients actually consume, each driving its own badge/highlight:
+
+- `isCurrent`: this is the tuned (or manually pinned) controller.
+- `isContactMe`: this controller sent an outstanding "contact me" request.
+- `isLikelyNextCandidate`: the plugin's best guess at which controller the pilot will want to
+  contact next.
+- `isApproaching`: only ever `true` when nothing is currently tuned/pinned (flying uncontrolled)
+  -- the pilot is closing in on this station's range.
 
 ### `chat`
 
@@ -298,6 +299,19 @@ controller goes offline. `clearPinnedController` carries no fields of its own.
 ```json
 {"type": "pinController", "callsign": "EGLL_TWR"}
 {"type": "clearPinnedController"}
+```
+
+### `dismissSelcal`
+
+Clears a controller's currently-active SELCAL alert (see Ranking order above and the `chat`
+message's `selcalAlerts`), dropping it out of the ranking priority it gets while active. This is
+the *only* way to clear an alert short of its own expiry -- there's no tune-match auto-clear,
+since real SELCAL requires the pilot to already be tuned to the alerting frequency (just with the
+volume down) for the pulse to reach the aircraft at all, so being tuned proves nothing about
+whether the alert's been seen.
+
+```json
+{"type": "dismissSelcal", "callsign": "EGLL_CTR"}
 ```
 
 ### `ping` / `pong`

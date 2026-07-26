@@ -317,6 +317,15 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_DismissSelcal()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"dismissSelcal\",\"callsign\":\"EGLL_CTR\"}");
+
+            Assert.Equal(ClientCommand.TypeDismissSelcal, command.Type);
+            Assert.Equal("EGLL_CTR", command.Callsign);
+        }
+
+        [Fact]
         public void ParseClientCommand_UnknownType_ParsesWithoutThrowing()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"somethingElse\"}");

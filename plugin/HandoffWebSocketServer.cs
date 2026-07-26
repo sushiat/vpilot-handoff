@@ -32,10 +32,11 @@ namespace Handoff.Plugin
         private readonly FlightPlanModel _flightPlanState;
         private readonly VatsimDataFeedModel _vatsimDataFeed;
         private readonly NearbyAircraftModel _nearbyAircraft;
+        private readonly SelcalActiveModel _selcalActive;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -43,6 +44,7 @@ namespace Handoff.Plugin
             _flightPlanState = flightPlanState ?? throw new ArgumentNullException(nameof(flightPlanState));
             _vatsimDataFeed = vatsimDataFeed ?? throw new ArgumentNullException(nameof(vatsimDataFeed));
             _nearbyAircraft = nearbyAircraft ?? throw new ArgumentNullException(nameof(nearbyAircraft));
+            _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
             _logDebug = logDebug;
         }
 
@@ -157,6 +159,9 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeClearPinnedController:
                     _controllerRanking.ClearPinnedController();
+                    break;
+                case ClientCommand.TypeDismissSelcal:
+                    _selcalActive.Clear(command.Callsign);
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);

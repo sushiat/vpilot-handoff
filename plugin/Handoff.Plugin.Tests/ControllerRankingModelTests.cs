@@ -14,13 +14,16 @@ namespace Handoff.Plugin.Tests
         private readonly FakeRadioStateModel _radio = new FakeRadioStateModel();
         private readonly VatsimDataFeedModel _vatsimFeed = new VatsimDataFeedModel();
         private readonly ControllerStateModel _controllers;
+        private readonly ChatModel _chat;
         private readonly ContactMeModel _contactMe;
+        private readonly SelcalActiveModel _selcalActive;
 
         public ControllerRankingModelTests()
         {
             _controllers = new ControllerStateModel(_broker);
-            var chat = new ChatModel(_broker);
-            _contactMe = new ContactMeModel(chat, _controllers);
+            _chat = new ChatModel(_broker);
+            _contactMe = new ContactMeModel(_chat, _controllers);
+            _selcalActive = new SelcalActiveModel(_chat, _controllers);
         }
 
         public void Dispose()
@@ -29,7 +32,7 @@ namespace Handoff.Plugin.Tests
         }
 
         private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null) =>
-            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, now: now);
+            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, now: now);
 
         private FlightPlanModel NoOpFlightPlan() =>
             new FlightPlanModel(fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
@@ -114,6 +117,73 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void SelcalActiveController_RanksJustBelowContactMe_AboveEverythingElse()
+        {
+            AddController("EGLL_TWR", 23725);
+            AddController("EGLL_GND", 21800); // contact-me, must still outrank SELCAL
+            AddController("EGLL_CTR", 12345); // SELCAL, far tier, would otherwise sort last
+            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me"));
+            _broker.RaiseSelcalAlertReceived(new SelcalAlertReceivedEventArgs(new[] { 12345 }, "EGLL_CTR"));
+
+            var ranked = model.Current;
+            Assert.Equal("EGLL_TWR", ranked[0].Callsign);
+            Assert.Equal("EGLL_GND", ranked[1].Callsign);
+            Assert.Equal("EGLL_CTR", ranked[2].Callsign);
+        }
+
+        [Fact]
+        public void SelcalActiveController_NotClearedByTuningTheAlertingFrequency()
+        {
+            // Real SELCAL requires the pilot to already be tuned (volume down) for the pulse to
+            // reach the aircraft at all -- tune-match is trivially always true and must not clear
+            // the alert the way it clears a contact-me request.
+            AddController("EGLL_CTR", 12345);
+            var model = CreateModel();
+            _broker.RaiseSelcalAlertReceived(new SelcalAlertReceivedEventArgs(new[] { 12345 }, "EGLL_CTR"));
+
+            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "EGLL_CTR").IsCurrent);
+            Assert.True(_selcalActive.IsActive("EGLL_CTR"));
+        }
+
+        [Fact]
+        public void DismissSelcal_ClearsTheAlert()
+        {
+            AddController("EGLL_CTR", 12345);
+            var model = CreateModel();
+            _broker.RaiseSelcalAlertReceived(new SelcalAlertReceivedEventArgs(new[] { 12345 }, "EGLL_CTR"));
+            Assert.True(model.Current.Single(c => c.Callsign == "EGLL_CTR").IsCurrent == false); // sanity: not current
+
+            _selcalActive.Clear("EGLL_CTR");
+
+            Assert.False(_selcalActive.IsActive("EGLL_CTR"));
+        }
+
+        [Fact]
+        public void ChainDistance_AtisNeverOutranksAWrappedRealTier_EvenWhenTunedToCtr()
+        {
+            // Regression: Other (ATIS)'s raw ordinal (5) is higher than every real tier's, so its
+            // un-wrapped ChainDistance from CTR (5-4=1) used to be smaller than a wrapped tier's
+            // (e.g. Delivery: (0-4)+100=96) -- ATIS would sort right after current instead of
+            // last, exactly backwards.
+            AddController("EGLL_ATIS", 12800);
+            AddController("EGLL_DEL", 12100);
+            AddController("EGLL_CTR", 12345);
+            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.Equal("EGLL_ATIS", ranked.Last().Callsign);
+        }
+
+        [Fact]
         public void ContactMeController_RanksJustBelowCurrent()
         {
             AddController("EGLL_TWR", 23725);
@@ -155,6 +225,143 @@ namespace Handoff.Plugin.Tests
 
             Assert.True(model.Current.Single(c => c.Callsign == "EGLL_TWR").IsLikelyNextCandidate);
             Assert.False(model.Current.Single(c => c.Callsign == "EGLL_CTR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_RouteMatchedStationOnly_UnrelatedAirportSameTierNotFlagged()
+        {
+            // Regression: parked at LOWW with a LOWW-LZIB plan and DEL tuned, only LOWW_GND
+            // should be "likely next" -- an unrelated airport's GND (LZIB_GND) sharing the next
+            // tier must not be flagged just because it's also Ground.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
+            AddController("LOWW_DEL", 12100);
+            AddController("LOWW_GND", 12150);
+            AddController("LZIB_GND", 12200);
+            _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "LOWW_GND").IsLikelyNextCandidate);
+            Assert.False(ranked.Single(c => c.Callsign == "LZIB_GND").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_OutranksTierCloserButUnrelatedController()
+        {
+            // Regression: LZIB_GND (tier Ground, one chain-step from nothing-tuned) must not
+            // outrank LOWW_TWR (tier Tower, flagged as the actual next candidate) just because
+            // Ground sits earlier in the chain -- "likely next" must win the overall ranking,
+            // not just get the badge while still sorting behind an unrelated closer-tier station.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LZIB_GND", 12200);
+            AddController("LOWW_TWR", 12180);
+            var model = CreateModel(flightPlan);
+
+            var ranked = model.Current;
+            Assert.Equal("LOWW_TWR", ranked[0].Callsign);
+            Assert.True(ranked[0].IsLikelyNextCandidate);
+            Assert.Equal("LZIB_GND", ranked[1].Callsign);
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_NothingTuned_UnrelatedGlobalDelDoesNotShadowLocalTower()
+        {
+            // Regression: nothing tuned, only LOWW_TWR online (no LOWW DEL/GND at all), but some
+            // unrelated airport's DEL is connected elsewhere on the network. The old global
+            // "lowest tier present anywhere" search would lock onto that foreign DEL and never
+            // even look at Tower. LOWW_TWR route-matches the loaded flight plan and must win.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDF_DEL", 12100); // unrelated airport, lowest tier present globally
+            AddController("LOWW_TWR", 12180);
+            var model = CreateModel(flightPlan);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWW_TWR").IsLikelyNextCandidate);
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDF_DEL").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task MomentaryOnGroundFlicker_WhileParked_DoesNotLatchHasTakenOff()
+        {
+            // Regression: a single spurious OnGround==false sample at ~0ft AGL (squat-switch
+            // flicker from a ramp bump/load-in settle, not a real takeoff) must not permanently
+            // flip _hasTakenOffThisSession -- otherwise route matching silently swaps to the
+            // destination airport for the rest of the session while still parked at the origin.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LOWW_GND", 12150, 0, 0);
+            AddController("LOWW_TWR", 12180, 0, 0);
+            _radio.Current = new RadioState(12150, null, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            // Flicker: momentarily reports airborne at ~2ft AGL, still parked.
+            _radio.Telemetry = new OwnshipTelemetry(false, 0, 2, 0, 0, 0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+            // Settles back to on-ground.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWW_TWR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_NoRouteMatchInTier_FlightPlanLoaded_NothingFlaggedBelowCtr()
+        {
+            // A flight plan is loaded, so callsign prefix is trusted: neither TWR belongs to
+            // LOWW or LZIB, so neither is "likely next" -- proximity must not paper over that
+            // for DEL/GND/TWR/APP tiers once real route data exists.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
+            AddController("AAA_TWR", 20000, 0, 0);
+            AddController("BBB_TWR", 20100, 0, 1);
+            AddController("LOWW_DEL", 12100, 0, 0);
+            _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0.4, DateTimeOffset.Now); // AAA closer
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.False(ranked.Single(c => c.Callsign == "AAA_TWR").IsLikelyNextCandidate);
+            Assert.False(ranked.Single(c => c.Callsign == "BBB_TWR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public void NextTierCandidate_NoRouteMatchInTier_NoFlightPlanAtAll_FallsBackToClosestBelowCtr()
+        {
+            // No flight plan loaded at all (NoOpFlightPlan) -- there's no route data to trust
+            // either way, so below-CTR tiers still fall back to proximity same as CTR would.
+            AddController("AAA_TWR", 20000, 0, 0);
+            AddController("BBB_TWR", 20100, 0, 1);
+            AddController("EGLL_DEL", 12100, 0, 0);
+            _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0.4, DateTimeOffset.Now); // AAA closer
+            var model = CreateModel();
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "AAA_TWR").IsLikelyNextCandidate);
+            Assert.False(ranked.Single(c => c.Callsign == "BBB_TWR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_Ctr_NoRouteMatch_AlwaysFallsBackToClosest()
+        {
+            // CTR is the exception even with a flight plan loaded: FIR callsigns (e.g. "VIE_CTR")
+            // routinely don't share an airport's ICAO prefix, so proximity always applies there.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
+            AddController("VIE_CTR", 20000, 0, 0);
+            AddController("BRA_CTR", 20100, 0, 1);
+            AddController("LOWW_APP", 12100, 0, 0);
+            _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0.4, DateTimeOffset.Now); // VIE closer
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
+            Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsLikelyNextCandidate);
         }
 
         [Fact]
