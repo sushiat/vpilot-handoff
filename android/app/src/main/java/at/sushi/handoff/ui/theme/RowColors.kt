@@ -22,9 +22,19 @@ data class RowColors(
 /** The near-black text color the reference uses instead of pure black (`rgba(0,0,0,.82)`). */
 val nearBlackText = Color.Black.copy(alpha = 0.82f)
 
+/** Last underscore-delimited token of a callsign (e.g. "LOWW_N_GND" -> "GND"), used as a
+ *  callsign-only fallback for facility classification before the VATSIM data feed has enriched
+ *  a controller with a real facility number. */
+private fun facilitySuffix(callsign: String): String =
+    callsign.substringAfterLast('_', missingDelimiterValue = "")
+
 /** VATSIM facility number -> hue (degrees). ATIS is detected via callsign suffix rather than a
- *  facility number; an unrecognized/missing facility falls back to hue 250, matching the
- *  reference's `FACILITY[c.facility] || 250` (there's no "no hue" case there). */
+ *  facility number. [Controller.facility] is null until the VATSIM data feed enriches a
+ *  freshly-added controller (it comes only from IBroker at first) -- falling straight to a
+ *  hardcoded "unknown" hue there previously caused newly-added GND/TWR stations to render
+ *  indistinguishably from DEL (250 vs DEL's 255, both blue) until the next feed poll. So an
+ *  unenriched controller is classified from its callsign suffix instead, matching
+ *  [facilitySuffixName]; only a truly unrecognized suffix falls back to hue 250. */
 fun facilityHue(controller: Controller): Float {
     if (controller.callsign.endsWith("_ATIS")) return FacilityColors.ATIS_HUE
     return when (controller.facility) {
@@ -33,9 +43,22 @@ fun facilityHue(controller: Controller): Float {
         4 -> FacilityColors.TWR_HUE
         5 -> FacilityColors.APP_DEP_HUE
         6 -> FacilityColors.CTR_HUE
-        else -> 250f
+        else -> when (facilitySuffix(controller.callsign)) {
+            "DEL" -> FacilityColors.DEL_HUE
+            "GND" -> FacilityColors.GND_HUE
+            "TWR" -> FacilityColors.TWR_HUE
+            "APP", "DEP" -> FacilityColors.APP_DEP_HUE
+            "CTR" -> FacilityColors.CTR_HUE
+            else -> 250f
+        }
     }
 }
+
+/** Whether a controller should get the TWR-specific L48/C0.22 color tweak -- true for a
+ *  data-feed-confirmed facility 4, or (before enrichment) a callsign ending in "_TWR", so the
+ *  tweak doesn't silently disappear for freshly-added stations the same way the hue used to. */
+private fun isTowerFacility(controller: Controller): Boolean =
+    controller.facility == 4 || (controller.facility == null && facilitySuffix(controller.callsign) == "TWR")
 
 /** The row's full-saturation color if it were flagged (isCurrent/contact-me/next/approaching) --
  *  exposed separately from [controllerRowColors] since the chat panel's SELCAL bubble also needs
@@ -45,7 +68,7 @@ fun facilityColor(controller: Controller): Color {
     val isAtis = controller.callsign.endsWith("_ATIS")
     return when {
         isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f).bg
-        controller.facility == 4 -> FacilityColors.fullColor(hue, 48f, 0.22f).bg
+        isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f).bg
         else -> FacilityColors.fullColor(hue).bg
     }
 }
@@ -120,7 +143,7 @@ fun controllerRowColors(
         controller.isCurrent -> FacilityColors.fullColor(FacilityColors.TUNED_HUE)
         contactMeActive || controller.isLikelyNextCandidate || controller.isApproaching -> when {
             isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f)
-            controller.facility == 4 -> FacilityColors.fullColor(hue, 48f, 0.22f)
+            isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f)
             else -> FacilityColors.fullColor(hue)
         }
         else -> FacilityColors.fadedColor(hue, colors.isDark)

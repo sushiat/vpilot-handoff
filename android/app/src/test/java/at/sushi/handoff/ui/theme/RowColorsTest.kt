@@ -103,6 +103,26 @@ class RowColorsTest {
     }
 
     @Test
+    fun facilityHue_fallsBackToCallsignSuffixWhenFacilityNotYetEnrichedByDataFeed() {
+        // Regression: before the VATSIM data feed enriches a freshly-added controller,
+        // `facility` is null. GND and TWR must not both collapse into DEL's near-identical hue.
+        val gnd = controller(callsign = "LZIB_GND", facility = null)
+        val twr = controller(callsign = "LZIB_TWR", facility = null)
+        val del = controller(callsign = "LZIB_DEL", facility = null)
+        assertEquals(FacilityColors.GND_HUE, facilityHue(gnd))
+        assertEquals(FacilityColors.TWR_HUE, facilityHue(twr))
+        assertEquals(FacilityColors.DEL_HUE, facilityHue(del))
+        assertTrue(facilityHue(gnd) != facilityHue(del))
+        assertTrue(facilityHue(twr) != facilityHue(del))
+    }
+
+    @Test
+    fun facilityHue_unrecognizedSuffixWithNoFacilityFallsBackToNeutralHue() {
+        val c = controller(callsign = "LZIB_APP2", facility = null)
+        assertEquals(250f, facilityHue(c))
+    }
+
+    @Test
     fun facilitySuffixName_mapsKnownSuffixesAndAtis() {
         assertEquals("Tower", facilitySuffixName("EGLL_TWR"))
         assertEquals("Ground", facilitySuffixName("EGLL_GND"))

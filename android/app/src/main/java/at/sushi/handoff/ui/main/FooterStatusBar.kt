@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +43,8 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
  *  screen 1's footer, the sub-connection rows / plugin version / address now come from the
  *  plugin's `subsystemStatus` message and the persisted host pref; latency is measured
  *  client-side from the ping/pong exchange (see HandoffConnectionService) -- see docs/protocol.md. */
+private val DropStatusLabelThreshold = 260.dp
+
 @Composable
 fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
@@ -68,11 +71,19 @@ fun FooterStatusBar(
         // compose bar -- this row's height used to fall out implicitly from IconButton's 48dp
         // touch target + this padding (48+2*8=64dp); switching to tight 30dp icon boxes dropped
         // that to 46dp and threw the drawer/compose-bar border alignment off again.
-        Row(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .clickable(onClick = onToggleExpanded)
+        ) {
+        // Below this width the "Connected"/"Disconnected" label drops, leaving just the route --
+        // if that still doesn't fully fit, it's fine for it to ellipsize (the route itself is
+        // still legible), it just must never wrap onto a second line.
+        val showStatusLabel = maxWidth >= DropStatusLabelThreshold
+        Row(
+            Modifier
+                .fillMaxWidth()
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -87,12 +98,14 @@ fun FooterStatusBar(
                 ConnectionStatus.CONNECTING -> "Connecting"
                 ConnectionStatus.DISCONNECTED -> "Disconnected"
             }
-            val statusText = "$statusLabel · ${origin ?: "----"} → ${destination ?: "----"}"
+            val route = "${origin ?: "----"} → ${destination ?: "----"}"
+            val statusText = if (showStatusLabel) "$statusLabel · $route" else route
             Text(
                 statusText,
                 fontSize = 12.sp,
                 color = colors.text,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
@@ -128,6 +141,7 @@ fun FooterStatusBar(
                     Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = colors.textMuted, modifier = Modifier.size(20.dp))
                 }
             }
+        }
         }
 
         if (expanded) {

@@ -5,10 +5,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -55,50 +59,100 @@ fun TopBar(
             .background(colors.panel)
     ) {
         AppHeaderRow()
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FrequencyButton(
-                Modifier.weight(1f),
-                label = "COM1",
-                value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---",
-                large = true,
-                onClick = onSwapCom1
-            )
-            FrequencyButton(
-                Modifier.weight(1f),
-                label = "COM2",
-                value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---",
-                large = true,
-                onClick = onSwapCom2
-            )
-            XpdrButton(Modifier.weight(1f), radioState, onClick = onOpenXpdrDialog)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FrequencyButton(
-                Modifier.weight(1f),
-                label = "COM1",
-                value = radioState.com1StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
-                large = false,
-                onClick = onOpenCom1Dialog
-            )
-            FrequencyButton(
-                Modifier.weight(1f),
-                label = "COM2",
-                value = radioState.com2StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
-                large = false,
-                onClick = onOpenCom2Dialog
-            )
-            MsgButton(Modifier.weight(1f), lastMessageLabel, unreadCount, onClick = onToggleChat)
-        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Below this width the layout starts breaking down (Mode C badge crowding the XPDR
+            // label into wrapping, COM1/2's 20sp active readout no longer fitting) -- narrow mode
+            // drops the badge entirely and shrinks the active-frequency font instead of letting
+            // either clip or wrap.
+            val isNarrow = maxWidth < NarrowTopBarThreshold
+            // Computed here (from this BoxWithConstraints, which sits above any
+            // height(IntrinsicSize.Min) row) rather than with a second, nested BoxWithConstraints
+            // inside each button -- BoxWithConstraints is built on SubcomposeLayout, and
+            // Compose cannot compute intrinsic measurements through a SubcomposeLayout node.
+            // Nesting one inside a Row that uses height(IntrinsicSize.Min) (see below) crashed
+            // outright with "Asking for intrinsic measurements of SubcomposeLayout layouts is not
+            // supported." maxWidth here is measured *before* the Column below applies its own
+            // 14dp-per-side horizontal padding -- forgetting to subtract that first overestimated
+            // every button's available width, which meant the split-vs-clip check thought there
+            // was more room than actually existed and let text clip instead of wrapping. Then:
+            // three equal-weight buttons with 2 8dp gaps between them, each with 10dp horizontal
+            // padding on both sides.
+            val rowContentWidth = maxWidth - 14.dp * 2
+            val buttonContentWidth = (rowContentWidth - 8.dp * 2) / 3 - 20.dp
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // height(IntrinsicSize.Min) on the Row + fillMaxHeight() on each child is the
+                // standard Compose idiom for "stretch every child to the tallest one's height" --
+                // a Row doesn't do this by default (unlike CSS flexbox's align-items:stretch), so
+                // without it, whichever button wraps its value onto a second line (XPDR, at the
+                // narrowest widths) ends up visibly taller than its neighbors instead of the whole
+                // row growing together.
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FrequencyButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        label = "COM1",
+                        value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---",
+                        large = true,
+                        isNarrow = isNarrow,
+                        availableWidth = buttonContentWidth,
+                        onClick = onSwapCom1
+                    )
+                    FrequencyButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        label = "COM2",
+                        value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---",
+                        large = true,
+                        isNarrow = isNarrow,
+                        availableWidth = buttonContentWidth,
+                        onClick = onSwapCom2
+                    )
+                    XpdrButton(Modifier.weight(1f).fillMaxHeight(), radioState, isNarrow = isNarrow, availableWidth = buttonContentWidth, onClick = onOpenXpdrDialog)
+                }
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FrequencyButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        label = "COM1",
+                        value = radioState.com1StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
+                        large = false,
+                        isNarrow = isNarrow,
+                        availableWidth = buttonContentWidth,
+                        onClick = onOpenCom1Dialog
+                    )
+                    FrequencyButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        label = "COM2",
+                        value = radioState.com2StandbyFrequency?.let(RadioFrequency::format) ?: "---.---",
+                        large = false,
+                        isNarrow = isNarrow,
+                        availableWidth = buttonContentWidth,
+                        onClick = onOpenCom2Dialog
+                    )
+                    MsgButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        lastMessageLabel = lastMessageLabel,
+                        unreadCount = unreadCount,
+                        radioFrequency = radioState.com1Frequency,
+                        availableWidth = buttonContentWidth,
+                        onClick = onToggleChat
+                    )
+                }
+            }
         }
         androidx.compose.material3.HorizontalDivider(color = colors.border)
     }
 }
+
+private val NarrowTopBarThreshold = 375.dp
 
 @Composable
 private fun AppHeaderRow() {
@@ -139,6 +193,8 @@ private fun RowScope.FrequencyButton(
     label: String,
     value: String,
     large: Boolean,
+    isNarrow: Boolean,
+    availableWidth: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
@@ -155,32 +211,89 @@ private fun RowScope.FrequencyButton(
             fontSize = 9.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.06f.em,
-            color = colors.textMuted.copy(alpha = if (large) 0.7f else 0.6f)
+            color = colors.textMuted.copy(alpha = if (large) 0.7f else 0.6f),
+            maxLines = 1,
+            softWrap = false
         )
-        Text(
-            value,
-            fontSize = if (large) 20.sp else 15.sp,
+        FrequencyValueText(
+            value = value,
+            fontSize = if (large) (if (isNarrow) 16.sp else 20.sp) else 15.sp,
             fontWeight = if (large) FontWeight.Bold else FontWeight.Medium,
-            fontFamily = RobotoMono,
-            color = colors.text.copy(alpha = if (large) 1f else 0.75f)
+            color = colors.text.copy(alpha = if (large) 1f else 0.75f),
+            availableWidth = availableWidth
         )
     }
 }
 
+/** Renders a "DDD.DDD"-shaped frequency value, splitting it into two explicit lines at the
+ *  decimal point *only if it's actually measured not to fit* on one line at this font size and
+ *  this button's real available width -- not a blanket narrow-mode flag. An earlier version
+ *  split whenever the whole top bar crossed its narrow-mode width threshold, which also governs
+ *  unrelated things (font size, the Mode C badge) and doesn't track each button's own available
+ *  space -- it force-split frequencies onto two lines even in the part of that range where the
+ *  (already-shrunk) font still fit on one line just fine. Plain soft-wrap was tried before that
+ *  and also reverted: Compose breaks wherever the current width forces it to, which landed on the
+ *  decimal point at one specific width but, at others, just as often orphaned a single trailing
+ *  digit onto its own line ("122.80" / "0"). Measuring directly avoids both failure modes.
+ *
+ *  [availableWidth] is passed in (computed once, from TopBar's own top-level BoxWithConstraints)
+ *  rather than measured here with a nested BoxWithConstraints -- BoxWithConstraints is built on
+ *  SubcomposeLayout, and Compose cannot compute intrinsic measurements through one. This
+ *  composable sits inside a Row that uses height(IntrinsicSize.Min) (see TopBar) to make all
+ *  three buttons in a row match whichever one is tallest; nesting a BoxWithConstraints anywhere
+ *  in that Row's subtree crashes outright with "Asking for intrinsic measurements of
+ *  SubcomposeLayout layouts is not supported." */
 @Composable
-private fun RowScope.XpdrButton(modifier: Modifier = Modifier, radioState: RadioStateMessage, onClick: () -> Unit) {
+private fun FrequencyValueText(
+    value: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight,
+    color: androidx.compose.ui.graphics.Color,
+    availableWidth: androidx.compose.ui.unit.Dp
+) {
+    val dotIndex = value.indexOf('.')
+    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val textStyle = androidx.compose.ui.text.TextStyle(fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val naturalWidth = remember(value, fontSize, fontWeight) {
+        textMeasurer.measure(value, textStyle).size.width
+    }
+    val availableWidthPx = remember(availableWidth, density) { with(density) { availableWidth.roundToPx() } }
+    val needsSplit = dotIndex >= 0 && naturalWidth > availableWidthPx
+    if (needsSplit) {
+        Column {
+            Text(value.substring(0, dotIndex + 1), fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono, color = color, maxLines = 1, softWrap = false)
+            Text(value.substring(dotIndex + 1), fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono, color = color, maxLines = 1, softWrap = false)
+        }
+    } else {
+        Text(value, fontSize = fontSize, fontWeight = fontWeight, fontFamily = RobotoMono, color = color, maxLines = 1, softWrap = false)
+    }
+}
+
+@Composable
+private fun RowScope.XpdrButton(
+    modifier: Modifier = Modifier,
+    radioState: RadioStateMessage,
+    isNarrow: Boolean,
+    availableWidth: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit
+) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(10.dp)
-    // Reference structure is a single outer row (vertically centered across the *whole* button
-    // height): a label+value column, then the badge -- not two stacked rows with the badge only
-    // centered against the value line, which is what left it looking vertically off.
+    // Reference structure is a single outer row (originally vertically centered across the whole
+    // button height, to fix an even older bug where the badge was only centered against the
+    // value line) -- now top-aligned instead, to match FrequencyButton's plain (implicitly
+    // top-aligned) Column. Once buttons in a row can stretch to match whichever sibling wrapped
+    // onto a second line (see the height(IntrinsicSize.Min)/fillMaxHeight() pairing in TopBar),
+    // center-aligning here alone made this button's label/value drift down to the row's vertical
+    // center while its un-stretched neighbors stayed pinned to the top.
     Row(
         modifier
             .background(colors.panelAlt, shape)
             .border(1.dp, colors.border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(Modifier.weight(1f)) {
@@ -189,17 +302,24 @@ private fun RowScope.XpdrButton(modifier: Modifier = Modifier, radioState: Radio
                 fontSize = 9.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.06f.em,
-                color = colors.textMuted.copy(alpha = 0.7f)
+                color = colors.textMuted.copy(alpha = 0.7f),
+                maxLines = 1,
+                softWrap = false
             )
-            Text(
-                radioState.transponderCode?.toString()?.padStart(4, '0') ?: "----",
-                fontSize = 20.sp,
+            FrequencyValueText(
+                value = radioState.transponderCode?.toString()?.padStart(4, '0') ?: "----",
+                fontSize = if (isNarrow) 16.sp else 20.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = RobotoMono,
-                color = colors.text
+                color = colors.text,
+                availableWidth = availableWidth
             )
         }
-        ModeCBadge(radioState.modeCEnabled)
+        // Dropped entirely below the narrow threshold rather than shrunk further -- it was
+        // crowding the "XPDR" label into wrapping onto its own line even before the label text
+        // itself ran out of room.
+        if (!isNarrow) {
+            ModeCBadge(radioState.modeCEnabled)
+        }
     }
 }
 
@@ -226,18 +346,36 @@ private fun ModeCBadge(modeCEnabled: Boolean) {
 }
 
 @Composable
-private fun RowScope.MsgButton(modifier: Modifier = Modifier, lastMessageLabel: String?, unreadCount: Int, onClick: () -> Unit) {
+private fun RowScope.MsgButton(
+    modifier: Modifier = Modifier,
+    lastMessageLabel: String?,
+    unreadCount: Int,
+    radioFrequency: Int?,
+    availableWidth: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit
+) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(10.dp)
-    // Same fix as XpdrButton: one outer row (vertically centered across the whole button), a
-    // label+value column, then the badge -- not the badge centered only against the value line.
+    // "RADIO" is MainScreen's own sentinel for the radio tab (see its lastMessageLabel
+    // computation) -- when that's what's showing, the tuned frequency is far more useful here
+    // than the literal word "RADIO", and happens to be exactly what fills this button out to
+    // match the COM standby buttons' size/weight instead of looking sparse next to them.
+    val isRadioTab = lastMessageLabel == "RADIO"
+    val displayValue = if (isRadioTab) {
+        radioFrequency?.let(RadioFrequency::format) ?: "---.---"
+    } else {
+        lastMessageLabel ?: ""
+    }
+    // Top-aligned for the same reason as XpdrButton -- matches FrequencyButton's neighbors
+    // instead of drifting to the row's vertical center once this button stretches taller than
+    // its own content.
     Row(
         modifier
             .background(colors.panelAlt, shape)
             .border(1.dp, colors.border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(Modifier.weight(1f)) {
@@ -246,16 +384,34 @@ private fun RowScope.MsgButton(modifier: Modifier = Modifier, lastMessageLabel: 
                 fontSize = 9.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.06f.em,
-                color = colors.textMuted.copy(alpha = 0.7f)
-            )
-            Text(
-                lastMessageLabel ?: "",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = colors.text,
+                color = colors.textMuted.copy(alpha = 0.7f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                softWrap = false
             )
+            if (isRadioTab) {
+                // Matches the COM standby buttons' value style exactly (15sp/Medium) instead of a
+                // smaller 12sp -- otherwise this button needs to read as the same weight/size as
+                // its neighbors, not visually sparse next to them. Same deterministic
+                // decimal-point split as FrequencyButton -- see its doc comment.
+                FrequencyValueText(
+                    value = displayValue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.text.copy(alpha = 0.75f),
+                    availableWidth = availableWidth
+                )
+            } else {
+                // An arbitrary callsign doesn't have a natural break point like a frequency's
+                // decimal point, so it keeps a single-line ellipsis instead of wrapping mid-word.
+                Text(
+                    displayValue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.text.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         if (unreadCount > 0) {
             Box(
