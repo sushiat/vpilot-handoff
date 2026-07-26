@@ -72,7 +72,11 @@ private fun MainScreenContent() {
 
     val configuration = LocalConfiguration.current
     LaunchedEffect(configuration) {
-        HandoffState.setLayoutMode(if (isSplitScreen(context, configuration)) LayoutMode.SPLIT else LayoutMode.FULLSCREEN)
+        val split = isSplitScreen(context, configuration)
+        HandoffState.setLayoutMode(if (split) LayoutMode.SPLIT else LayoutMode.FULLSCREEN)
+        if (split) {
+            HandoffState.setSplitSide(detectSplitSide(context))
+        }
     }
 
     val controllers by HandoffState.controllers.collectAsState()
@@ -205,12 +209,26 @@ private fun MainScreenContent() {
         } else {
             RectangleShape
         }
-        Column(
+        // Only in split mode: a static 24dp dead strip on the edge touching the chat overlay, with
+        // no interactive content in it -- present whether chat is open or closed, so toggling chat
+        // never resizes/reflows the real controls (no "jump"). Samsung One UI renders rounded
+        // corners and a drag-handle margin on the main app's own task window in split-screen,
+        // independent of anything drawn here; the overlay sits flush against this window's edge
+        // (see ChatOverlayHost), so whatever gap that produces only ever reveals this blank strip,
+        // never a real button or control. An actual overlap-the-edge approach was tried first and
+        // reverted -- it covered live compose-bar/footer controls instead of dead space.
+        val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT) 24.dp else 0.dp
+        Row(
             Modifier
                 .fillMaxHeight()
                 .let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }
                 .clip(mainPanelShape)
+                .background(colors.panel)
         ) {
+            if (layoutMode == LayoutMode.SPLIT && splitSide == at.sushi.handoff.SplitSide.RIGHT) {
+                Box(Modifier.width(touchingMarginDp).fillMaxHeight())
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(
                 radioState = radioState,
                 // Blank until there's actually been any chat activity -- defaulting to "RADIO"
@@ -274,10 +292,20 @@ private fun MainScreenContent() {
                 subsystemStatus = subsystemStatus,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
+                keepScreenAwake = keepScreenAwake,
                 onToggleExpanded = { footerExpanded = !footerExpanded },
                 onRefresh = { send(RefreshFlightPlanCommand()) },
-                onOpenSettings = { settingsDialogOpen = true }
+                onOpenSettings = { settingsDialogOpen = true },
+                onToggleKeepScreenAwake = {
+                    val newValue = !keepScreenAwake
+                    HandoffState.setKeepScreenAwake(newValue)
+                    prefs.edit { putBoolean(HandoffConnectionService.PrefKeyKeepScreenAwake, newValue) }
+                }
             )
+            }
+            if (layoutMode == LayoutMode.SPLIT && splitSide == at.sushi.handoff.SplitSide.LEFT) {
+                Box(Modifier.width(touchingMarginDp).fillMaxHeight())
+            }
         }
 
         if (layoutMode == LayoutMode.FULLSCREEN) {
@@ -318,9 +346,8 @@ private fun MainScreenContent() {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
-            initialKeepScreenAwake = keepScreenAwake,
             onDismiss = { settingsDialogOpen = false },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newKeepScreenAwake ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)
                     putString(HandoffConnectionService.PrefKeySimbriefUserId, simbriefUserId)
@@ -328,12 +355,10 @@ private fun MainScreenContent() {
                     putString(HandoffConnectionService.PrefKeyTheme, newTheme.name)
                     putString(HandoffConnectionService.PrefKeyChannelSpacing, newSpacing.name)
                     putString(HandoffConnectionService.PrefKeyKeypadBlockMode, newKeypadMode.name)
-                    putBoolean(HandoffConnectionService.PrefKeyKeepScreenAwake, newKeepScreenAwake)
                 }
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
                 HandoffState.setKeypadBlockMode(newKeypadMode)
-                HandoffState.setKeepScreenAwake(newKeepScreenAwake)
                 HandoffConnectionService.instance?.reconnectNow()
                 send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
                 send(RefreshFlightPlanCommand())
@@ -368,7 +393,12 @@ private fun ChatOverlayHost(
             val panelWidthPx = with(density) { 360.dp.roundToPx() }
             // Positioned immediately adjacent to this app's own window, using its actual absolute
             // on-screen bounds -- anchoring to the display's far edge (Gravity.END) put this
-            // panel *past* the split-screen neighbor app instead of next to this app.
+            // panel *past* the split-screen neighbor app instead of next to this app. Sits flush
+            // against that edge -- the main panel itself reserves a dead 24dp margin there (see
+            // MainScreen's touchingMarginDp) so whatever rounded-corner/drag-handle rendering
+            // Samsung One UI applies to the main app's own task window only ever reveals that
+            // blank strip, not a real control (an earlier attempt had this overlay overlap the
+            // edge instead, which covered live compose-bar/footer buttons).
             val ownBounds = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).currentWindowMetrics.bounds
             } else {
@@ -422,4 +452,20 @@ private fun displayAndOwnWidthPx(context: Context, configuration: Configuration)
 private fun isSplitScreen(context: Context, configuration: Configuration): Boolean {
     val (fullWidthPx, ownWidthPx) = displayAndOwnWidthPx(context, configuration)
     return ownWidthPx < fullWidthPx * 0.95f
+}
+
+/** Which half of the physical display this Activity's own window currently occupies -- this was
+ *  previously never actually detected at runtime (HandoffState.splitSide sat at its hardcoded
+ *  LEFT default forever), so docking the app on the right used LEFT-side math everywhere
+ *  (overlay x-offset, corner rounding), producing nonsense positioning. Compares the window's own
+ *  horizontal center against the full display's center; below API 30 (no per-window bounds
+ *  available) this can't be determined, so it falls back to the existing LEFT default. */
+private fun detectSplitSide(context: Context): at.sushi.handoff.SplitSide {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) return at.sushi.handoff.SplitSide.LEFT
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val fullBounds = windowManager.maximumWindowMetrics.bounds
+    val ownBounds = windowManager.currentWindowMetrics.bounds
+    val ownCenterX = (ownBounds.left + ownBounds.right) / 2
+    val fullCenterX = (fullBounds.left + fullBounds.right) / 2
+    return if (ownCenterX <= fullCenterX) at.sushi.handoff.SplitSide.LEFT else at.sushi.handoff.SplitSide.RIGHT
 }

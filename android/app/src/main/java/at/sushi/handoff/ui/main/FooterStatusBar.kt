@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
@@ -50,9 +51,11 @@ fun FooterStatusBar(
     subsystemStatus: SubsystemStatusMessage,
     latencyMs: Long?,
     expanded: Boolean,
+    keepScreenAwake: Boolean,
     onToggleExpanded: () -> Unit,
     onRefresh: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onToggleKeepScreenAwake: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
     Column(
@@ -61,11 +64,16 @@ fun FooterStatusBar(
             .background(colors.panel)
     ) {
         HorizontalDivider(color = colors.border) // the reference's border-top only, not a full box
+        // Pinned to the same 64dp height as the expanded drawer's detail-line row and the chat
+        // compose bar -- this row's height used to fall out implicitly from IconButton's 48dp
+        // touch target + this padding (48+2*8=64dp); switching to tight 30dp icon boxes dropped
+        // that to 46dp and threw the drawer/compose-bar border alignment off again.
         Row(
             Modifier
                 .fillMaxWidth()
+                .height(64.dp)
                 .clickable(onClick = onToggleExpanded)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -90,8 +98,23 @@ fun FooterStatusBar(
             )
             // Tight 30x30 boxes with a 2px gap, same pattern as ControllerList's pin/message
             // icons -- Material3's IconButton reserves a 48dp touch target plus its own internal
-            // padding, which pushed these two icons much further apart than intended.
+            // padding, which pushed these icons much further apart than intended.
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Toggle, not a dialog-opener -- tint reflects on/off state the same way the top
+                // bar's Mode C badge does, rather than opening anything. Default on: the primary
+                // use case is a tablet docked and wired into power in the cockpit for the whole
+                // flight, where Android's screen timeout is actively unwanted.
+                Box(
+                    Modifier.size(30.dp).clickable(onClick = onToggleKeepScreenAwake),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Coffee,
+                        contentDescription = if (keepScreenAwake) "Keep screen awake: on" else "Keep screen awake: off",
+                        tint = if (keepScreenAwake) colors.accent else colors.textMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 Box(
                     Modifier.size(30.dp).clickable(onClick = onRefresh),
                     contentAlignment = Alignment.Center
