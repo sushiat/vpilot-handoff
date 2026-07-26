@@ -8,8 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.network.HandoffWebSocketClient
+import at.sushi.handoff.notifications.HandoffNotifier
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
@@ -38,6 +42,7 @@ class HandoffConnectionService : Service() {
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
+        const val PrefKeyKeepScreenAwake = "keep_screen_awake"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         private const val MinBackoffMillis = 2_000L
@@ -55,18 +60,32 @@ class HandoffConnectionService : Service() {
     private var pingJob: Job? = null
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
+    private lateinit var notifier: HandoffNotifier
+
+    private val appVisibilityObserver = object : DefaultLifecycleObserver {
+        // ON_START/ON_STOP on the process-wide lifecycle fire once whenever *any* Activity of
+        // this app becomes visible/fully invisible -- true for both fullscreen and split-screen
+        // (Android only stops an Activity once it's completely covered/backgrounded), which is
+        // exactly "not visible at all" per the user's notification rule, without needing to poll
+        // window bounds or track individual Activities ourselves.
+        override fun onStart(owner: LifecycleOwner) = HandoffState.setAppVisible(true)
+        override fun onStop(owner: LifecycleOwner) = HandoffState.setAppVisible(false)
+    }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         notificationManager = getSystemService(NotificationManager::class.java)
-        createNotificationChannel()
+        notifier = HandoffNotifier(this)
+        createConnectionNotificationChannel()
+        notifier.createChannels()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         loadPersistedUiSettings()
         client = HandoffWebSocketClient(
             onMessage = { message ->
                 when (message) {
-                    is ControllersMessage -> HandoffState.update(message)
-                    is ChatMessage -> HandoffState.update(message)
+                    is ControllersMessage -> { HandoffState.update(message); notifier.onControllersUpdate(message) }
+                    is ChatMessage -> { HandoffState.update(message); notifier.onChatUpdate(message) }
                     is RadioStateMessage -> HandoffState.update(message)
                     is FlightPlanMessage -> HandoffState.update(message)
                     is NearbyAircraftMessage -> HandoffState.update(message)
@@ -76,7 +95,12 @@ class HandoffConnectionService : Service() {
             },
             onStateChanged = { connected -> onConnectionStateChanged(connected) }
         )
-        startForeground(NotificationId, buildNotification("Connecting…"))
+        // Static and silent -- Android requires an active notification for a foreground service
+        // to keep running at all (the WebSocket connection surviving backgrounding is the whole
+        // point of this being a service, see the class doc), but the user doesn't want it calling
+        // attention to itself or updating with connection status. MIN importance + no further
+        // notify() calls keeps it collapsed and silent in the shade.
+        startForeground(NotificationId, buildConnectionNotification())
         reconnectLoop()
     }
 
@@ -86,6 +110,7 @@ class HandoffConnectionService : Service() {
         connectionJob?.cancel()
         pingJob?.cancel()
         client.close()
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
         instance = null
         super.onDestroy()
     }
@@ -147,11 +172,12 @@ class HandoffConnectionService : Service() {
         prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
         }
+        // Defaults to true (HandoffState's own default) if never explicitly set.
+        HandoffState.setKeepScreenAwake(prefs.getBoolean(PrefKeyKeepScreenAwake, true))
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {
         HandoffState.setConnectionStatus(if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED)
-        notificationManager.notify(NotificationId, buildNotification(if (connected) "Connected" else "Disconnected"))
         if (connected) {
             startPingLoop()
         } else {
@@ -173,16 +199,17 @@ class HandoffConnectionService : Service() {
         }
     }
 
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(ChannelId, "Handoff connection", NotificationManager.IMPORTANCE_LOW)
+    private fun createConnectionNotificationChannel() {
+        val channel = NotificationChannel(ChannelId, "Handoff background connection", NotificationManager.IMPORTANCE_MIN)
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(status: String): Notification =
+    private fun buildConnectionNotification(): Notification =
         NotificationCompat.Builder(this, ChannelId)
             .setContentTitle("Handoff")
-            .setContentText(status)
+            .setContentText("Running in the background")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
 }

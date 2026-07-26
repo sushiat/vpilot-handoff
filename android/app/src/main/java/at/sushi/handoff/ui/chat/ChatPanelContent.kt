@@ -1,10 +1,12 @@
 package at.sushi.handoff.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,17 +40,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.ChatEntry
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.Controller
+import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.util.formatLocalTime
 
 private const val RADIO_TAB = "radio"
 
@@ -92,9 +100,25 @@ fun ChatPanelContent(
     // works correctly because the overlay window is now configured with
     // SOFT_INPUT_ADJUST_RESIZE (see ChatOverlayWindow.kt) -- without that, the window doesn't
     // report a live/accurate IME inset to begin with, regardless of this modifier.
+    // Mirrors MainScreen.kt's mainPanelShape: this panel is only a separate WindowManager window
+    // (with its own OS-rounded corners) while hosted as the split-screen overlay (onCollapse !=
+    // null is exactly that case -- fullscreen's persistent side panel never needs this). The edge
+    // touching the main app pane stays straight (borderSide's line already draws there); the
+    // opposite, screen-facing edge rounds to match.
+    val outerCornerShape = if (onCollapse != null && borderSide != null) {
+        if (borderSide == ChatPanelBorderSide.START) {
+            RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 16.dp)
+        } else {
+            RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomStart = 16.dp, bottomEnd = 0.dp)
+        }
+    } else {
+        RectangleShape
+    }
+
     Column(
         Modifier
             .fillMaxSize()
+            .clip(outerCornerShape)
             // Reference's chatPanelStyle background is t.bg (oklch(97% 0.006 250), a pale
             // blue-gray), which was correct-per-value but reads as a visible off-white on the
             // real tablet display next to the panel-colored top bar/footer -- using colors.panel
@@ -249,16 +273,46 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
     }
 }
 
+/** Matches the reference's message bubble exactly (`activeMessagesView` in the JS): a bordered,
+ *  rounded bubble aligned left/right by [ChatEntry.direction], with a small muted mono meta line
+ *  above the body -- peer callsign for private messages, tuned frequency for radio, then the
+ *  timestamp. This previously rendered as plain unstyled text with no box/border/alignment and no
+ *  frequency/timestamp at all -- a real gap, not a style tweak. */
 @Composable
 private fun MessageRow(entry: ChatEntry) {
     val colors = LocalHandoffColors.current
-    val label = when {
-        entry.channel == "private" -> "${entry.direction} · ${entry.peer}"
-        else -> entry.direction
+    val outgoing = entry.direction == "outgoing"
+    val metaText = buildString {
+        append(entry.peer ?: entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) } ?: "")
+        if (isNotEmpty()) append(" · ")
+        append(formatLocalTime(entry.timestamp))
     }
-    Column(Modifier.padding(vertical = 4.dp)) {
-        Text(label, fontSize = 10.sp, color = colors.textMuted)
-        Text(entry.text, fontSize = 13.sp, color = colors.text)
+
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        val bubbleMaxWidth = maxWidth * 0.8f
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start) {
+            Column(
+                Modifier
+                    .widthIn(max = bubbleMaxWidth)
+                    // Incoming bubbles are colors.panel (true white in light theme), not
+                    // panelAlt -- panelAlt is a near-white oklch tint that reads as visibly grey
+                    // on the real tablet display, same lesson as the controller list/chat panel's
+                    // own background (see those files' matching notes).
+                    .background(if (outgoing) colors.accentBg else colors.panel, RoundedCornerShape(10.dp))
+                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    metaText,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.textMuted,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
+                Text(entry.text, fontSize = 12.5.sp, color = colors.text)
+            }
+        }
     }
 }
 

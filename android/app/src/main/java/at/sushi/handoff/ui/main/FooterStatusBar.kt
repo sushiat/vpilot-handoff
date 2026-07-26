@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -89,11 +88,22 @@ fun FooterStatusBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted)
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = colors.textMuted)
+            // Tight 30x30 boxes with a 2px gap, same pattern as ControllerList's pin/message
+            // icons -- Material3's IconButton reserves a 48dp touch target plus its own internal
+            // padding, which pushed these two icons much further apart than intended.
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Box(
+                    Modifier.size(30.dp).clickable(onClick = onRefresh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted, modifier = Modifier.size(20.dp))
+                }
+                Box(
+                    Modifier.size(30.dp).clickable(onClick = onOpenSettings),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = colors.textMuted, modifier = Modifier.size(20.dp))
+                }
             }
         }
 

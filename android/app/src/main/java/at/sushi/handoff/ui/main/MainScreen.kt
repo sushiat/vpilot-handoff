@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -86,6 +89,13 @@ private fun MainScreenContent() {
     val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
     val latencyMs by HandoffState.latencyMs.collectAsState()
+    val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
+
+    // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
+    // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
+    // wake lock kept alive in the background.
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(keepScreenAwake) { view.keepScreenOn = keepScreenAwake }
 
     var comDialogOpen by remember { mutableStateOf<Int?>(null) } // 1 or 2
     var xpdrDialogOpen by remember { mutableStateOf(false) }
@@ -176,7 +186,31 @@ private fun MainScreenContent() {
             .background(colors.bg)
             .windowInsetsPadding(WindowInsets.systemBars)
     ) {
-        Column(Modifier.fillMaxHeight().let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }) {
+        // Only in split mode: the chat overlay is a separate WindowManager window sitting flush
+        // against this Activity's own window edge -- Android/One UI renders each window's own
+        // corners rounded, so without this the main pane's rounded corner on the side touching
+        // the overlay leaves a visible gap between the two. Straighten just that touching edge
+        // while the overlay is open; the far (outer, screen-facing) edge stays rounded, and with
+        // the overlay closed there's nothing to butt up against, so all four corners round again.
+        val mainPanelShape = if (layoutMode == LayoutMode.SPLIT) {
+            if (chatOpen) {
+                if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
+                    RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomStart = 16.dp, bottomEnd = 0.dp)
+                } else {
+                    RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 16.dp)
+                }
+            } else {
+                RoundedCornerShape(16.dp)
+            }
+        } else {
+            RectangleShape
+        }
+        Column(
+            Modifier
+                .fillMaxHeight()
+                .let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }
+                .clip(mainPanelShape)
+        ) {
             TopBar(
                 radioState = radioState,
                 // Blank until there's actually been any chat activity -- defaulting to "RADIO"
@@ -284,8 +318,9 @@ private fun MainScreenContent() {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
+            initialKeepScreenAwake = keepScreenAwake,
             onDismiss = { settingsDialogOpen = false },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newKeepScreenAwake ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)
                     putString(HandoffConnectionService.PrefKeySimbriefUserId, simbriefUserId)
@@ -293,10 +328,12 @@ private fun MainScreenContent() {
                     putString(HandoffConnectionService.PrefKeyTheme, newTheme.name)
                     putString(HandoffConnectionService.PrefKeyChannelSpacing, newSpacing.name)
                     putString(HandoffConnectionService.PrefKeyKeypadBlockMode, newKeypadMode.name)
+                    putBoolean(HandoffConnectionService.PrefKeyKeepScreenAwake, newKeepScreenAwake)
                 }
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
                 HandoffState.setKeypadBlockMode(newKeypadMode)
+                HandoffState.setKeepScreenAwake(newKeepScreenAwake)
                 HandoffConnectionService.instance?.reconnectNow()
                 send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
                 send(RefreshFlightPlanCommand())

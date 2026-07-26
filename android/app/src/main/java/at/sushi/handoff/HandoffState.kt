@@ -66,10 +66,24 @@ object HandoffState {
     private val _keypadBlockMode = MutableStateFlow(KeypadBlockMode.BLOCK_INVALID)
     val keypadBlockMode: StateFlow<KeypadBlockMode> = _keypadBlockMode.asStateFlow()
 
+    // Default on -- the primary use case is a tablet docked and wired into power in the cockpit
+    // for the whole flight, where Android's screen timeout is actively unwanted, not a battery
+    // concern. MainScreen applies this to the window via View.keepScreenOn.
+    private val _keepScreenAwake = MutableStateFlow(true)
+    val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
+
     // Mirrors the last pinController/clearPinnedController call, for optimistic row highlighting
     // before the next controllers resend confirms it.
     private val _pinnedCallsign = MutableStateFlow<String?>(null)
     val pinnedCallsign: StateFlow<String?> = _pinnedCallsign.asStateFlow()
+
+    // Whether any of this app's Activities are currently started (i.e. on-screen at all --
+    // fullscreen or split-screen both count as "visible"; only a fully backgrounded/covered app
+    // is not). Driven by ProcessLifecycleOwner in HandoffConnectionService.onCreate. Notifications
+    // for contact-me/SELCAL/incoming messages only fire while this is false -- the user doesn't
+    // want notifications competing with what's already on screen.
+    private val _appVisible = MutableStateFlow(true)
+    val appVisible: StateFlow<Boolean> = _appVisible.asStateFlow()
 
     private val _layoutMode = MutableStateFlow(LayoutMode.FULLSCREEN)
     val layoutMode: StateFlow<LayoutMode> = _layoutMode.asStateFlow()
@@ -121,8 +135,16 @@ object HandoffState {
         _keypadBlockMode.value = mode
     }
 
+    fun setKeepScreenAwake(enabled: Boolean) {
+        _keepScreenAwake.value = enabled
+    }
+
     fun setPinnedCallsign(callsign: String?) {
         _pinnedCallsign.value = callsign
+    }
+
+    fun setAppVisible(visible: Boolean) {
+        _appVisible.value = visible
     }
 
     fun setLayoutMode(mode: LayoutMode) {

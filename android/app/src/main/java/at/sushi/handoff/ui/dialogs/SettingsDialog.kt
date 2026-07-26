@@ -77,6 +77,7 @@ fun SettingsDialog(
     initialTheme: ThemeMode,
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
+    initialKeepScreenAwake: Boolean,
     onDismiss: () -> Unit,
     onSave: (
         host: String?,
@@ -84,7 +85,8 @@ fun SettingsDialog(
         simbriefUsername: String?,
         theme: ThemeMode,
         channelSpacing: ChannelSpacing,
-        keypadBlockMode: KeypadBlockMode
+        keypadBlockMode: KeypadBlockMode,
+        keepScreenAwake: Boolean
     ) -> Unit
 ) {
     val colors = LocalHandoffColors.current
@@ -95,6 +97,7 @@ fun SettingsDialog(
     var theme by remember { mutableStateOf(initialTheme) }
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
+    var keepScreenAwake by remember { mutableStateOf(initialKeepScreenAwake) }
     var discoveryStatus by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -208,6 +211,18 @@ fun SettingsDialog(
                                 ),
                                 keypadBlockMode
                             ) { keypadBlockMode = it }
+
+                            // Default on -- the primary use case is a tablet docked and wired
+                            // into power in the cockpit for the whole flight, where Android's
+                            // screen timeout is actively unwanted.
+                            SectionLabel("KEEP SCREEN AWAKE")
+                            ToggleRow(
+                                listOf(
+                                    ToggleOption(true, "Keep awake"),
+                                    ToggleOption(false, "Allow sleep")
+                                ),
+                                keepScreenAwake
+                            ) { keepScreenAwake = it }
                         }
 
                         Column(Modifier.weight(1f)) {
@@ -230,7 +245,8 @@ fun SettingsDialog(
                                 simbriefUsername.ifBlank { null },
                                 theme,
                                 channelSpacing,
-                                keypadBlockMode
+                                keypadBlockMode,
+                                keepScreenAwake
                             )
                             onDismiss()
                         }
