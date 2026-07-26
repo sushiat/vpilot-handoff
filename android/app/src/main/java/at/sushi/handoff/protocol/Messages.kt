@@ -22,6 +22,10 @@ data class Controller(
     val name: String? = null,
     val facility: Int? = null,
     val rating: Int? = null,
+    // VatSpy-sourced facility/airport display name (e.g. "Heathrow Tower") -- always null until
+    // that integration exists on the plugin side. Falls back to facilitySuffixName(callsign)
+    // client-side until then; see docs/protocol.md.
+    val stationName: String? = null,
     // Priority-ranking flags -- see docs/protocol.md. Not yet used for anything beyond
     // decoding: the list arrives pre-sorted by the plugin, so rendering it in order is all
     // that's needed for now; colour-coding by these flags is a follow-up.
@@ -29,7 +33,12 @@ data class Controller(
     val isCurrent: Boolean = false,
     val isContactMe: Boolean = false,
     val isLikelyNextCandidate: Boolean = false,
-    val isApproaching: Boolean = false
+    val isApproaching: Boolean = false,
+    // A softer, no-badge "worth rendering full color" signal -- unlike isLikelyNextCandidate it
+    // never affects ranking order, and unlike isApproaching it isn't gated on nothing being
+    // tuned. Only ever set by the plugin for CTR (airborne + bounded range, pending real sector
+    // geometry) and ATIS (route-matched ICAO prefix) -- see docs/protocol.md.
+    val isHighlighted: Boolean = false
 )
 
 @Serializable
@@ -64,13 +73,24 @@ data class ChatMessage(
     val selcalAlerts: List<SelcalAlert>
 ) : ServerMessage
 
+/** Two independent views of the flight plan (docs/protocol.md) -- surfaced side by side so the
+ *  client can flag a mismatch instead of silently trusting one. [simbriefCallsign] is whatever
+ *  was typed when the SimBrief OFP was generated (available pre-connection, no VATSIM dependency).
+ *  [vatsimCallsign] is the live, authoritative callsign from the actual vPilot connection,
+ *  cross-referenced against the public data feed for [vatsimOrigin]/[vatsimDestination] -- null
+ *  until connected; once non-null while origin/destination are still null past the feed's ~15s
+ *  poll window, that means connected but nothing filed on the network (worth flagging, not a
+ *  transient state). */
 @Serializable
 data class FlightPlanMessage(
     val type: String = "flightPlan",
-    val callsign: String? = null,
-    val origin: String? = null,
-    val destination: String? = null,
-    val alternate: String? = null
+    val simbriefCallsign: String? = null,
+    val simbriefOrigin: String? = null,
+    val simbriefDestination: String? = null,
+    val simbriefAlternate: String? = null,
+    val vatsimCallsign: String? = null,
+    val vatsimOrigin: String? = null,
+    val vatsimDestination: String? = null
 ) : ServerMessage
 
 @Serializable
@@ -82,6 +102,36 @@ data class RadioStateMessage(
     val com2StandbyFrequency: Int? = null,
     val modeCEnabled: Boolean,
     val transponderCode: Int? = null
+) : ServerMessage
+
+@Serializable
+data class NearbyAircraft(
+    val callsign: String,
+    val aircraftType: String? = null,
+    val distanceNm: Double
+)
+
+@Serializable
+data class NearbyAircraftMessage(
+    val type: String = "nearbyAircraft",
+    val aircraft: List<NearbyAircraft>
+) : ServerMessage
+
+@Serializable
+data class SubsystemStatusMessage(
+    val type: String = "subsystemStatus",
+    val radioHostConnected: Boolean = false,
+    val simulatorConnected: Boolean = false,
+    val vatsimDataFeedConnected: Boolean = false,
+    val simbriefFetched: Boolean = false,
+    val pluginVersion: String? = null
+) : ServerMessage
+
+@Serializable
+data class PongMessage(
+    val type: String = "pong",
+    val clientTimestamp: Long,
+    val serverTimestamp: Long
 ) : ServerMessage
 
 private val json = Json {
@@ -99,6 +149,9 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "chat" -> json.decodeFromJsonElement<ChatMessage>(element)
         "radioState" -> json.decodeFromJsonElement<RadioStateMessage>(element)
         "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
+        "nearbyAircraft" -> json.decodeFromJsonElement<NearbyAircraftMessage>(element)
+        "subsystemStatus" -> json.decodeFromJsonElement<SubsystemStatusMessage>(element)
+        "pong" -> json.decodeFromJsonElement<PongMessage>(element)
         else -> null
     }
 }
@@ -180,4 +233,45 @@ data class RefreshFlightPlanCommand(
     val type: String = "refreshFlightPlan"
 ) : ClientCommand {
     override fun encode() = json.encodeToString(RefreshFlightPlanCommand.serializer(), this)
+}
+
+/** Forces `callsign` to rank 0 / isCurrent in the next controllers message, overriding the
+ *  tuned-frequency heuristic, until cleared or the controller goes offline. */
+@Serializable
+data class PinControllerCommand(
+    val type: String = "pinController",
+    val callsign: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(PinControllerCommand.serializer(), this)
+}
+
+/** Carries no fields of its own. */
+@Serializable
+data class ClearPinnedControllerCommand(
+    val type: String = "clearPinnedController"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(ClearPinnedControllerCommand.serializer(), this)
+}
+
+/** Clears `callsign`'s active SELCAL alert plugin-side, dropping it out of the ranking priority
+ *  it gets while active (docs/protocol.md). There's no tune-match auto-clear on the plugin side --
+ *  real SELCAL requires the pilot to already be tuned to the alerting frequency (volume down) for
+ *  the pulse to arrive at all, so this explicit command is the only way to clear it short of its
+ *  own expiry. */
+@Serializable
+data class DismissSelcalCommand(
+    val type: String = "dismissSelcal",
+    val callsign: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(DismissSelcalCommand.serializer(), this)
+}
+
+/** Latency probe for the footer's detail line -- the plugin echoes clientTimestamp back in a
+ *  PongMessage; latency is (time pong received) - clientTimestamp, computed client-side. */
+@Serializable
+data class PingCommand(
+    val type: String = "ping",
+    val clientTimestamp: Long
+) : ClientCommand {
+    override fun encode() = json.encodeToString(PingCommand.serializer(), this)
 }

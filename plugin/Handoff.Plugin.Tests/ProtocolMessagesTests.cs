@@ -21,7 +21,7 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false)
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false, false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
@@ -40,6 +40,8 @@ namespace Handoff.Plugin.Tests
             Assert.False((bool)controller["isContactMe"]);
             Assert.True((bool)controller["isLikelyNextCandidate"]);
             Assert.False((bool)controller["isApproaching"]);
+            Assert.False((bool)controller["isHighlighted"]);
+            Assert.Equal(JTokenType.Null, controller["stationName"].Type);
         }
 
         [Fact]
@@ -47,7 +49,7 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false)
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false, false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
@@ -140,26 +142,106 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildFlightPlanMessage_BeforeFirstFetch_FieldsAreNull()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null));
 
             Assert.Equal("flightPlan", (string)json["type"]);
-            Assert.Equal(JTokenType.Null, json["callsign"].Type);
-            Assert.Equal(JTokenType.Null, json["origin"].Type);
-            Assert.Equal(JTokenType.Null, json["destination"].Type);
-            Assert.Equal(JTokenType.Null, json["alternate"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefCallsign"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefDestination"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefAlternate"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimCallsign"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimDestination"].Type);
         }
 
         [Fact]
-        public void BuildFlightPlanMessage_WithValues()
+        public void BuildFlightPlanMessage_WithSimbriefValues()
         {
             var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
 
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null));
 
-            Assert.Equal("BAW123", (string)json["callsign"]);
-            Assert.Equal("EGLL", (string)json["origin"]);
-            Assert.Equal("KJFK", (string)json["destination"]);
-            Assert.Equal("KBOS", (string)json["alternate"]);
+            Assert.Equal("BAW123", (string)json["simbriefCallsign"]);
+            Assert.Equal("EGLL", (string)json["simbriefOrigin"]);
+            Assert.Equal("KJFK", (string)json["simbriefDestination"]);
+            Assert.Equal("KBOS", (string)json["simbriefAlternate"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_WithVatsimValues()
+        {
+            var simbrief = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
+            var vatsimPilot = new VatsimPilotInfo(callsign: "BAW123", departure: "EGLL", arrival: "KJFK");
+
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(simbrief, vatsimCallsign: "BAW123", vatsimPilot: vatsimPilot));
+
+            Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
+            Assert.Equal("EGLL", (string)json["vatsimOrigin"]);
+            Assert.Equal("KJFK", (string)json["vatsimDestination"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_VatsimCallsignKnown_ButNothingFiledYet_OriginDestinationStayNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: "BAW123", vatsimPilot: null));
+
+            Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
+            Assert.Equal(JTokenType.Null, json["vatsimOrigin"].Type);
+            Assert.Equal(JTokenType.Null, json["vatsimDestination"].Type);
+        }
+
+        [Fact]
+        public void BuildNearbyAircraftMessage_EmptyList()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildNearbyAircraftMessage(new List<NearbyAircraft>()));
+
+            Assert.Equal("nearbyAircraft", (string)json["type"]);
+            Assert.Empty((JArray)json["aircraft"]);
+        }
+
+        [Fact]
+        public void BuildNearbyAircraftMessage_OneAircraft()
+        {
+            var aircraft = new List<NearbyAircraft> { new NearbyAircraft("BAW123", "B738", 6.2) };
+
+            var json = JObject.Parse(ProtocolMessages.BuildNearbyAircraftMessage(aircraft));
+            var entry = json["aircraft"][0];
+
+            Assert.Equal("BAW123", (string)entry["callsign"]);
+            Assert.Equal("B738", (string)entry["aircraftType"]);
+            Assert.Equal(6.2, (double)entry["distanceNm"]);
+        }
+
+        [Fact]
+        public void BuildSubsystemStatusMessage_IncludesAllFields()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0"));
+
+            Assert.Equal("subsystemStatus", (string)json["type"]);
+            Assert.True((bool)json["radioHostConnected"]);
+            Assert.False((bool)json["simulatorConnected"]);
+            Assert.True((bool)json["vatsimDataFeedConnected"]);
+            Assert.False((bool)json["simbriefFetched"]);
+            Assert.Equal("0.1.0", (string)json["pluginVersion"]);
+        }
+
+        [Fact]
+        public void BuildPongMessage_EchoesClientTimestamp()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildPongMessage(1234567890));
+
+            Assert.Equal("pong", (string)json["type"]);
+            Assert.Equal(1234567890, (long)json["clientTimestamp"]);
+            Assert.True((long)json["serverTimestamp"] > 0);
+        }
+
+        [Fact]
+        public void ParseClientCommand_Ping()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"ping\",\"clientTimestamp\":1234567890}");
+
+            Assert.Equal(ClientCommand.TypePing, command.Type);
+            Assert.Equal(1234567890, command.ClientTimestamp);
         }
 
         [Fact]
@@ -259,6 +341,15 @@ namespace Handoff.Plugin.Tests
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"clearPinnedController\"}");
 
             Assert.Equal(ClientCommand.TypeClearPinnedController, command.Type);
+        }
+
+        [Fact]
+        public void ParseClientCommand_DismissSelcal()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"dismissSelcal\",\"callsign\":\"EGLL_CTR\"}");
+
+            Assert.Equal(ClientCommand.TypeDismissSelcal, command.Type);
+            Assert.Equal("EGLL_CTR", command.Callsign);
         }
 
         [Fact]

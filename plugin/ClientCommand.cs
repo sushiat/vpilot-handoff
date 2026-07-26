@@ -19,6 +19,8 @@ namespace Handoff.Plugin
         public const string TypeRefreshFlightPlan = "refreshFlightPlan";
         public const string TypePinController = "pinController";
         public const string TypeClearPinnedController = "clearPinnedController";
+        public const string TypeDismissSelcal = "dismissSelcal";
+        public const string TypePing = "ping";
 
         public string Type { get; set; }
 
@@ -28,6 +30,8 @@ namespace Handoff.Plugin
         // pinController -- forces this callsign to rank 0 / isCurrent regardless of tuned
         // frequency, until clearPinnedController or the controller goes offline. Not used by
         // clearPinnedController, which carries no fields of its own.
+        // dismissSelcal -- clears that callsign's active SELCAL alert (SelcalActiveModel), same
+        // as tune-matching it would; independent of the private "contact me" list.
         public string Callsign { get; set; }
 
         // sendPrivateMessage / sendRadioMessage
@@ -49,5 +53,10 @@ namespace Handoff.Plugin
         // just fetches with whatever is currently persisted.
         public string SimbriefUserId { get; set; }
         public string SimbriefUsername { get; set; }
+
+        // ping -- client-supplied timestamp (epoch milliseconds), echoed back unchanged on the
+        // pong reply so the client can measure round-trip latency itself; the plugin does not
+        // interpret this value.
+        public long? ClientTimestamp { get; set; }
     }
 }

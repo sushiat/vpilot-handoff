@@ -36,6 +36,10 @@ namespace Handoff.Plugin.Tests
         public void RaiseControllerFrequencyChanged(ControllerFrequencyChangedEventArgs e) => ControllerFrequencyChanged?.Invoke(this, e);
         public void RaiseControllerLocationChanged(ControllerLocationChangedEventArgs e) => ControllerLocationChanged?.Invoke(this, e);
 
+        public void RaiseAircraftAdded(AircraftAddedEventArgs e) => AircraftAdded?.Invoke(this, e);
+        public void RaiseAircraftUpdated(AircraftUpdatedEventArgs e) => AircraftUpdated?.Invoke(this, e);
+        public void RaiseAircraftDeleted(AircraftDeletedEventArgs e) => AircraftDeleted?.Invoke(this, e);
+
         public void RaisePrivateMessageReceived(PrivateMessageReceivedEventArgs e) => PrivateMessageReceived?.Invoke(this, e);
         public void RaiseRadioMessageReceived(RadioMessageReceivedEventArgs e) => RadioMessageReceived?.Invoke(this, e);
         public void RaiseBroadcastMessageReceived(BroadcastMessageReceivedEventArgs e) => BroadcastMessageReceived?.Invoke(this, e);

@@ -97,3 +97,55 @@ once it has its first release.
   `cid`/`name`/`facility`/`rating`/`requestsContactMe`/`isCurrent`/`isContactMe`/
   `isLikelyNextCandidate`/`isApproaching` — with no UI changes yet; the list already renders in
   the server-sent (pre-sorted) order.
+- Android: full native UI implementing issue #13's design doc, replacing every placeholder
+  tab screen. `MainScreen` (top bar + controller list + footer status drawer, owning
+  dialog/overlay visibility), `TopBar` (COM1/COM2/XPDR active row, standby row, tap-to-swap/
+  tap-to-tune, Mode C and unread-message badges), `ControllerList` (facility-colored rows,
+  badge stacking, tap-anywhere tune popover with COM/STBY grid and SELCAL dismiss),
+  `FooterStatusBar` (connection/flight-plan status line, expandable subsystem-health and
+  flight-plan-detail drawer), `ComTuningDialog`/`XpdrDialog` (numeric keypads with live
+  channel-spacing-grid validation and snap-to-nearest-valid on commit —
+  `util/ChannelSpacing.kt`, unit tested against the 25kHz/8.33kHz grids), `SettingsDialog`
+  (SimBrief/Appearance/Plugin Connection/Channel Spacing/Frequency Keypad, Credits/Contribute
+  attribution, wide two-column layout collapsing to one column in narrow split-screen),
+  `NearbyAircraftDialog`, and the chat panel (`ChatPanelContent`, tab strip, SELCAL alerts
+  merged into the RADIO tab's timestamped message list with hard-cut flashing, radio messages
+  mentioning the pilot's own live vPilot callsign highlighted). Custom OKLCH-derived light/dark/
+  system theme (`ui/theme/`), real Roboto Mono bundled for every frequency/code readout (not
+  the generic monospace font, which renders 0 and O identically).
+- Android: split-screen chat is a `SYSTEM_ALERT_WINDOW` overlay window
+  (`ChatOverlayWindow`/`ChatOverlayHost`) that genuinely extends over the neighboring app's
+  screen area, rather than being confined to this app's own window bounds — real
+  multi-window detection (`layoutMode`/`splitSide`) replaces the design doc's demo-only toggle.
+  Fullscreen mode instead shows chat as a persistent side panel.
+- Android: background notifications (`HandoffNotifier`) for incoming private messages and
+  "contact me" requests while the app isn't in the foreground; a keep-screen-awake control
+  that tracks live battery charging state by default rather than a persisted preference.
+- Plugin: `NearbyAircraftModel`, closing the "nearby aircraft" gap flagged in issue #13 — a
+  new `nearbyAircraft` server message (callsign/type/distance, closest first) derived from the
+  VATSIM data feed's pilot positions plus ownship telemetry.
+- Plugin: `SelcalActiveModel`, clearing an active SELCAL alert once the pilot is genuinely
+  tuned to the alerting frequency (not just a manual dismiss), plus a new `dismissSelcal`
+  client command wired to the Android controller row's tune-popover.
+- Plugin: `PilotSessionModel` captures the live, authoritative callsign/CID from
+  `IBroker.NetworkConnected` — the callsign actually used for the VATSIM connection, distinct
+  from the SimBrief OFP's callsign, which can't be verified against what's actually flying.
+  `VatsimDataFeedClient`/`VatsimDataFeedModel` now also parse the feed's `pilots[]` section,
+  cross-referencing the pilot's own callsign against it for the actually-filed VATSIM flight
+  plan. The `flightPlan` message now sends `simbrief*` and `vatsim*` fields side by side so a
+  client can detect a mismatch (or "connected but never filed") instead of blindly trusting the
+  SimBrief OFP — surfaced in the Android footer's status drawer with color-coded warnings.
+  `ControllerRankingModel`'s route match now prefers the VATSIM-filed plan when available,
+  falling back to SimBrief otherwise.
+- Plugin: `isHighlighted` field on `controllers` entries — a no-badge, ranking-neutral
+  "worth rendering full color" signal, currently set only for an airborne/in-range CTR station
+  and a route-matched ATIS, both tiers that `isLikelyNextCandidate`/`isApproaching` otherwise
+  never touch.
+
+### Changed
+
+- Plugin: dropped CTR's proximity-based `isLikelyNextCandidate` fallback — with no sector
+  geometry yet (see #11), it could flag an unrelated, distant CTR controller as "next" purely
+  by closest-lat/lon, regardless of phase of flight or actual range. CTR now only ever earns
+  `isLikelyNextCandidate` via a genuine flight-plan route match; the proximity signal moved to
+  the new cosmetic `isHighlighted` field instead (see Added).

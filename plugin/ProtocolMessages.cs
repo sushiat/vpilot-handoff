@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -34,11 +35,13 @@ namespace Handoff.Plugin
                     name = c.Name,
                     facility = c.Facility,
                     rating = c.Rating,
+                    stationName = c.StationName,
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
                     isLikelyNextCandidate = c.IsLikelyNextCandidate,
-                    isApproaching = c.IsApproaching
+                    isApproaching = c.IsApproaching,
+                    isHighlighted = c.IsHighlighted
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
@@ -68,15 +71,25 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
-        public static string BuildFlightPlanMessage(FlightPlan plan)
+        /// <summary>
+        /// Combines the SimBrief-derived plan with the actually-filed VATSIM one (the pilot's own
+        /// callsign from IBroker, cross-referenced against the public data feed's pilots[]) so
+        /// the client can flag a mismatch instead of silently trusting whichever loaded first --
+        /// see docs/protocol.md. `vatsimCallsign` is the authoritative live value even when
+        /// `vatsimPilot` is null (feed not yet caught up, or nothing filed on the network).
+        /// </summary>
+        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot)
         {
             var payload = new
             {
                 type = "flightPlan",
-                callsign = plan.Callsign,
-                origin = plan.Origin,
-                destination = plan.Destination,
-                alternate = plan.Alternate
+                simbriefCallsign = simbriefPlan.Callsign,
+                simbriefOrigin = simbriefPlan.Origin,
+                simbriefDestination = simbriefPlan.Destination,
+                simbriefAlternate = simbriefPlan.Alternate,
+                vatsimCallsign,
+                vatsimOrigin = vatsimPilot?.Departure,
+                vatsimDestination = vatsimPilot?.Arrival
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
@@ -92,6 +105,46 @@ namespace Handoff.Plugin
                 com2StandbyFrequency = state.Com2StandbyFrequency,
                 modeCEnabled = state.ModeCEnabled,
                 transponderCode = state.TransponderCode
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildNearbyAircraftMessage(IReadOnlyList<NearbyAircraft> aircraft)
+        {
+            var payload = new
+            {
+                type = "nearbyAircraft",
+                aircraft = aircraft.Select(a => new
+                {
+                    callsign = a.Callsign,
+                    aircraftType = a.AircraftType,
+                    distanceNm = a.DistanceNm
+                })
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion)
+        {
+            var payload = new
+            {
+                type = "subsystemStatus",
+                radioHostConnected,
+                simulatorConnected,
+                vatsimDataFeedConnected,
+                simbriefFetched,
+                pluginVersion
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        public static string BuildPongMessage(long? clientTimestamp)
+        {
+            var payload = new
+            {
+                type = "pong",
+                clientTimestamp,
+                serverTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

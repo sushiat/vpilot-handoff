@@ -57,11 +57,13 @@ VATSIM facility conventions).
       "name": "John Smith",
       "facility": 4,
       "rating": 5,
+      "stationName": null,
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
       "isLikelyNextCandidate": false,
-      "isApproaching": false
+      "isApproaching": false,
+      "isHighlighted": false
     }
   ]
 }
@@ -72,19 +74,37 @@ doesn't expose them) and are `null` until that feed's ~15s-lagged enrichment sol
 given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP, 6=CTR`);
 `rating` is display-only, never used in ranking.
 
-Ranking order: the currently-tuned controller (or a manually pinned one, see
-`pinController` below) first, then any controller with an outstanding "contact me" request, then
-the rest grouped by the standard top-down chain (DEL→GND→TWR→APP/DEP→CTR) relative to the
-current tier, each tier internally sorted by flight-plan route match then distance to ownship.
-`isLikelyNextCandidate` is `true` on every controller in whichever tier is immediately next in
-the chain -- however many that is, not a fixed count.
+`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`),
+expected to be VatSpy-sourced -- see issue #13. Always `null` for now; no VatSpy integration
+exists yet. Until it's populated, clients should keep parsing just the facility-suffix word
+from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
 
-`isApproaching` is only ever `true` when nothing is currently tuned/pinned (i.e. flying
-uncontrolled) -- a "you're closing in on this station" signal for GND (on the ground, within
-10nm), TWR (airborne, within 20nm), and APP (airborne; within 40nm counts regardless of
-heading, 40-50nm only counts if ownship's heading is within 45° of the bearing to the
-station). Not computed for DEL (already well-served by route match) or CTR (a single lat/lon
-can't represent a FIR's real shape -- needs actual sector geometry, see issue #11).
+Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
+order received and never re-sort client-side. The algorithm (tier chain, route matching,
+distance, SELCAL/contact-me priority, etc.) is documented as an implementation detail in the
+plugin's `ControllerRankingModel.cs`, not here: it can change between plugin versions without any
+client update needed, as long as the fields below keep meaning what they say.
+
+The boolean fields are what clients actually consume, each driving its own badge/highlight:
+
+- `isCurrent`: this is the tuned (or manually pinned) controller.
+- `isContactMe`: this controller sent an outstanding "contact me" request.
+- `isLikelyNextCandidate`: the plugin's best guess at which controller the pilot will want to
+  contact next.
+- `isApproaching`: only ever `true` when nothing is currently tuned/pinned (flying uncontrolled)
+  -- the pilot is closing in on this station's range.
+- `isHighlighted`: a softer, no-badge-implied "worth rendering prominently" signal -- unlike
+  `isLikelyNextCandidate` it never affects ranking order, and unlike `isApproaching` it isn't
+  gated on nothing being tuned. **Currently only ever set for two tiers, nothing else:**
+  - **CTR**: gated on being airborne and within a bounded range (no real sector geometry exists
+    yet -- issue #11 -- so this is a rough proximity cutoff, not a modeled FIR boundary).
+  - **ATIS**: gated on the callsign's ICAO prefix matching the route airport (origin
+    pre-departure, destination after takeoff) -- the same route-match logic used for
+    DEL/GND/TWR/APP/DEP elsewhere, just applied to a tier (`Other`) that both
+    `isLikelyNextCandidate`'s tier walk and `isApproaching` otherwise skip entirely.
+  
+  Every other tier already gets equivalent treatment through `isLikelyNextCandidate` or
+  `isApproaching`, so `isHighlighted` is always `false` for them.
 
 ### `chat`
 
@@ -147,21 +167,93 @@ plugin side.
 
 ### `flightPlan`
 
-The pilot's filed flight plan, fetched from the SimBrief API (`IBroker` has no flight-plan
-members at all -- see CLAUDE.md). Resent whenever a fetch (startup or triggered by
-`refreshFlightPlan`) succeeds. All fields are `null` until the first successful fetch.
+Two independent views of the flight plan, both surfaced so the client can flag a mismatch
+instead of silently trusting one:
+
+- `simbrief*`: fetched from the SimBrief API (`IBroker` has no flight-plan members at all -- see
+  CLAUDE.md). Available before the pilot even connects to VATSIM, since it doesn't depend on the
+  connection -- this is what ranking's route match falls back to when the VATSIM one below isn't
+  available yet. All `simbrief*` fields are `null` until the first successful fetch.
+- `vatsim*`: the pilot's actual filed VATSIM flight plan, found by cross-referencing
+  `vatsimCallsign` (the live callsign from `IBroker.NetworkConnected` -- the callsign actually
+  typed into vPilot's connect dialog, not whatever was typed when the SimBrief OFP was generated)
+  against the public data feed's `pilots[]`. This is the more authoritative source once it
+  exists, and is what ranking's route match prefers when available.
+
+Resent whenever any of the three changes: a SimBrief fetch (startup, or triggered by
+`refreshFlightPlan`) succeeds, the VATSIM connection's callsign changes, or the public data
+feed's next poll (~15s interval) lands.
 
 ```json
 {
   "type": "flightPlan",
-  "callsign": "BAW123",
-  "origin": "EGLL",
-  "destination": "KJFK",
-  "alternate": "KBOS"
+  "simbriefCallsign": "BAW123",
+  "simbriefOrigin": "EGLL",
+  "simbriefDestination": "KJFK",
+  "simbriefAlternate": "KBOS",
+  "vatsimCallsign": "BAW123",
+  "vatsimOrigin": "EGLL",
+  "vatsimDestination": "KJFK"
 }
 ```
 
-`alternate` is fetched and stored for future use but not yet surfaced in the Android app.
+`simbriefAlternate` is fetched and stored for future use but not yet surfaced in the Android app
+(there's no VATSIM-side equivalent surfaced here, though the feed's `flight_plan.alternate` does
+exist).
+
+`vatsimCallsign` is `null` until connected. Once it's non-null but `vatsimOrigin`/
+`vatsimDestination` are still `null`, that means the pilot is connected but the data feed has no
+filed plan for them yet -- either it hasn't polled since connecting (transient, within ~15s), or
+they genuinely haven't filed on the network at all. Clients should treat a *sustained* instance
+of this (past the transient poll-lag window) as worth flagging -- forgetting to file is a real,
+recurring mistake ("sorry, but you didn't file a flight plan" from Delivery), not just a stale
+feed. A mismatch between `simbrief*` and `vatsim*` (once both are known) is also worth flagging --
+it means the SimBrief OFP and what's actually filed on the network have diverged.
+
+### `nearbyAircraft`
+
+Other traffic within 20nm of ownship, closest first -- feeds the chat panel's "start chat with
+a nearby aircraft" dialog (issue #13). Resent whenever the underlying aircraft list or ownship
+position changes.
+
+```json
+{
+  "type": "nearbyAircraft",
+  "aircraft": [
+    {"callsign": "BAW123", "aircraftType": "B738", "distanceNm": 6.2}
+  ]
+}
+```
+
+Built from `IBroker`'s `AircraftAdded`/`AircraftUpdated`/`AircraftDeleted` events (real-time,
+no feed lag), not the VATSIM data feed -- `IBroker` only ever reports *other* traffic, so no
+ownship self-filtering is needed. `distanceNm` is computed against ownship's own position from
+`RadioStateModel`'s telemetry (SimConnect via `Handoff.RadioHost`); the list is empty until
+that position is available. `aircraftType` is `IBroker`'s type code and may be `null`.
+
+### `subsystemStatus`
+
+Per-subsystem connection health plus the plugin version, for the footer's expandable status
+drawer (issue #13). Resent whenever any of the underlying signals change.
+
+```json
+{
+  "type": "subsystemStatus",
+  "radioHostConnected": true,
+  "simulatorConnected": true,
+  "vatsimDataFeedConnected": true,
+  "simbriefFetched": false,
+  "pluginVersion": "0.1.0"
+}
+```
+
+`radioHostConnected` is whether the plugin's IPC pipe to `Handoff.RadioHost` is currently up.
+`simulatorConnected` is whether `Handoff.RadioHost` has reported a SimConnect-sourced radio
+state this session -- an approximation (it can lag a real sim disconnect until the next
+`NetworkDisconnected`/`SessionEnded` reset), good enough for a status indicator, not meant as a
+hard guarantee. `vatsimDataFeedConnected` reflects the most recent VATSIM data feed poll.
+`simbriefFetched` is whether a SimBrief fetch has ever succeeded this session. `pluginVersion`
+is a static string for now (`"0.1.0"`) until the plugin has a real versioning scheme.
 
 ## Client → server messages
 
@@ -249,8 +341,34 @@ controller goes offline. `clearPinnedController` carries no fields of its own.
 {"type": "clearPinnedController"}
 ```
 
-## Not yet in this protocol
+### `dismissSelcal`
 
-Phase-of-flight is still open per `CLAUDE.md` — this protocol will grow a new message type for
-it once that piece of the plugin's state model exists. Don't design a client against fields that
-aren't listed above.
+Clears a controller's currently-active SELCAL alert (see Ranking order above and the `chat`
+message's `selcalAlerts`), dropping it out of the ranking priority it gets while active. This is
+the *only* way to clear an alert short of its own expiry -- there's no tune-match auto-clear,
+since real SELCAL requires the pilot to already be tuned to the alerting frequency (just with the
+volume down) for the pulse to reach the aircraft at all, so being tuned proves nothing about
+whether the alert's been seen.
+
+```json
+{"type": "dismissSelcal", "callsign": "EGLL_CTR"}
+```
+
+### `ping` / `pong`
+
+Client-initiated latency probe for the footer's detail line (issue #13) -- the server has no
+authoritative clock worth reporting, so this simply echoes back a client-supplied timestamp for
+the client to diff against its own send time, rather than the plugin computing latency itself.
+
+```json
+{"type": "ping", "clientTimestamp": 1234567890}
+```
+
+The plugin replies directly to the sender only (not broadcast to other connected clients):
+
+```json
+{"type": "pong", "clientTimestamp": 1234567890, "serverTimestamp": 1234567891}
+```
+
+`clientTimestamp`/`serverTimestamp` are epoch milliseconds. `serverTimestamp` is informational
+only; latency is `(time pong received) - clientTimestamp`.

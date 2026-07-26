@@ -109,24 +109,40 @@ class MessagesTest {
 
     @Test
     fun decodesFlightPlanMessageWithValues() {
-        val json = """{"type":"flightPlan","callsign":"BAW123","origin":"EGLL","destination":"KJFK","alternate":"KBOS"}"""
+        val json = """{"type":"flightPlan","simbriefCallsign":"BAW123","simbriefOrigin":"EGLL","simbriefDestination":"KJFK","simbriefAlternate":"KBOS","vatsimCallsign":"BAW123","vatsimOrigin":"EGLL","vatsimDestination":"KJFK"}"""
 
         val message = decodeServerMessage(json) as FlightPlanMessage
-        assertEquals("BAW123", message.callsign)
-        assertEquals("EGLL", message.origin)
-        assertEquals("KJFK", message.destination)
-        assertEquals("KBOS", message.alternate)
+        assertEquals("BAW123", message.simbriefCallsign)
+        assertEquals("EGLL", message.simbriefOrigin)
+        assertEquals("KJFK", message.simbriefDestination)
+        assertEquals("KBOS", message.simbriefAlternate)
+        assertEquals("BAW123", message.vatsimCallsign)
+        assertEquals("EGLL", message.vatsimOrigin)
+        assertEquals("KJFK", message.vatsimDestination)
     }
 
     @Test
     fun decodesFlightPlanMessageBeforeFirstFetch() {
-        val json = """{"type":"flightPlan","callsign":null,"origin":null,"destination":null,"alternate":null}"""
+        val json = """{"type":"flightPlan","simbriefCallsign":null,"simbriefOrigin":null,"simbriefDestination":null,"simbriefAlternate":null,"vatsimCallsign":null,"vatsimOrigin":null,"vatsimDestination":null}"""
 
         val message = decodeServerMessage(json) as FlightPlanMessage
-        assertNull(message.callsign)
-        assertNull(message.origin)
-        assertNull(message.destination)
-        assertNull(message.alternate)
+        assertNull(message.simbriefCallsign)
+        assertNull(message.simbriefOrigin)
+        assertNull(message.simbriefDestination)
+        assertNull(message.simbriefAlternate)
+        assertNull(message.vatsimCallsign)
+        assertNull(message.vatsimOrigin)
+        assertNull(message.vatsimDestination)
+    }
+
+    @Test
+    fun decodesFlightPlanMessageConnectedButNotFiled() {
+        val json = """{"type":"flightPlan","simbriefCallsign":"BAW123","simbriefOrigin":"EGLL","simbriefDestination":"KJFK","simbriefAlternate":"KBOS","vatsimCallsign":"BAW123","vatsimOrigin":null,"vatsimDestination":null}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals("BAW123", message.vatsimCallsign)
+        assertNull(message.vatsimOrigin)
+        assertNull(message.vatsimDestination)
     }
 
     @Test
@@ -186,6 +202,12 @@ class MessagesTest {
     fun encodesSetTransponderCodeCommand() {
         val json = SetTransponderCodeCommand(transponderCode = 1200).encode()
         assertEquals("""{"type":"setTransponderCode","transponderCode":1200}""", json)
+    }
+
+    @Test
+    fun encodesDismissSelcalCommand() {
+        val json = DismissSelcalCommand(callsign = "EGLL_CTR").encode()
+        assertEquals("""{"type":"dismissSelcal","callsign":"EGLL_CTR"}""", json)
     }
 
     @Test

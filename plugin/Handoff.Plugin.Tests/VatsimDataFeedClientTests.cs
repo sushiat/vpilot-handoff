@@ -64,5 +64,54 @@ namespace Handoff.Plugin.Tests
 
             Assert.Empty(controllers);
         }
+
+        [Fact]
+        public void ParsePilots_ParsesFiledFlightPlan()
+        {
+            var json = @"{
+                ""pilots"": [
+                    {""callsign"": ""BAW123"", ""flight_plan"": {""departure"": ""EGLL"", ""arrival"": ""KJFK""}}
+                ]
+            }";
+
+            var pilot = VatsimDataFeedClient.ParsePilots(json).Single();
+
+            Assert.Equal("BAW123", pilot.Callsign);
+            Assert.Equal("EGLL", pilot.Departure);
+            Assert.Equal("KJFK", pilot.Arrival);
+        }
+
+        [Fact]
+        public void ParsePilots_NoFlightPlanFiled_IsSkipped()
+        {
+            var json = @"{
+                ""pilots"": [
+                    {""callsign"": ""BAW123""},
+                    {""callsign"": ""DLH456"", ""flight_plan"": null}
+                ]
+            }";
+
+            var pilots = VatsimDataFeedClient.ParsePilots(json);
+
+            Assert.Empty(pilots);
+        }
+
+        [Fact]
+        public void ParsePilots_MissingCallsign_IsSkipped()
+        {
+            var json = @"{""pilots"": [{""flight_plan"": {""departure"": ""EGLL"", ""arrival"": ""KJFK""}}]}";
+
+            var pilots = VatsimDataFeedClient.ParsePilots(json);
+
+            Assert.Empty(pilots);
+        }
+
+        [Fact]
+        public void ParsePilots_NoPilotsArray_ReturnsEmpty()
+        {
+            var pilots = VatsimDataFeedClient.ParsePilots("{}");
+
+            Assert.Empty(pilots);
+        }
     }
 }
