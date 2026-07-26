@@ -77,7 +77,7 @@ private fun rememberSustained(condition: Boolean, delayMs: Long): Boolean {
 // once finished, how long the success/failure result stays visible before clearing -- long
 // enough to actually read a failure (the more actionable case), shorter for a routine success.
 private const val OperationInProgressTimeoutMs = 60_000L
-private const val OperationSuccessLingerMs = 5_000L
+private const val OperationSuccessLingerMs = 10_000L
 private const val OperationFailureLingerMs = 30_000L
 
 /** True while [state] is non-null and still within its display window -- see the constants

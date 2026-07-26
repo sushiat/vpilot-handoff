@@ -356,6 +356,13 @@ private fun OperationProgressRow(status: String, finished: Boolean, success: Boo
     }
 }
 
+// Material's CheckCircle/Cancel glyphs carry noticeably more built-in padding within their
+// vector viewport than CircularProgressIndicator's ring (which draws essentially edge-to-edge
+// within its bounds) -- at an identical size() the two read as visibly different weights, the
+// icons looking smaller even though the layout box is the same. Scaled up to compensate so the
+// spinner-to-icon swap doesn't look like a size change.
+private const val StatusIconSizeCorrection = 1.35f
+
 /** A spinner while an operation is still in progress, swapped for a green check or red X once
  *  finished (docs/protocol.md's operationProgress message) -- shared by both places this footer
  *  shows operation status (the collapsed row's slot and the drawer's own row). */
@@ -364,8 +371,8 @@ private fun OperationStatusIcon(finished: Boolean, success: Boolean, size: Dp, s
     val colors = LocalHandoffColors.current
     when {
         !finished -> CircularProgressIndicator(color = colors.textMuted, strokeWidth = strokeWidth, modifier = modifier.size(size))
-        success -> Icon(Icons.Filled.CheckCircle, contentDescription = "Succeeded", tint = colors.ok, modifier = modifier.size(size))
-        else -> Icon(Icons.Filled.Cancel, contentDescription = "Failed", tint = at.sushi.handoff.ui.dialogs.outOfBandRed, modifier = modifier.size(size))
+        success -> Icon(Icons.Filled.CheckCircle, contentDescription = "Succeeded", tint = colors.ok, modifier = modifier.size(size * StatusIconSizeCorrection))
+        else -> Icon(Icons.Filled.Cancel, contentDescription = "Failed", tint = at.sushi.handoff.ui.dialogs.outOfBandRed, modifier = modifier.size(size * StatusIconSizeCorrection))
     }
 }
 
