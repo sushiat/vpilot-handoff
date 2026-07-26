@@ -1,14 +1,18 @@
 package at.sushi.handoff.ui.dialogs
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,10 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import at.sushi.handoff.ChannelSpacing
 import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.KeypadBlockMode
@@ -37,23 +42,32 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.ui.theme.verticalScrollbar
 import kotlinx.coroutines.launch
 
-private data class CreditRow(val label: String, val pillText: String, val url: String)
+private data class CreditRow(val label: String, val pillText: String?, val name: String, val url: String)
 
 private val credits = listOf(
-    CreditRow("Airport & FIR reference data", "VATSpy · CC BY-SA 4.0", "https://github.com/vatsimnetwork/vatspy-data-project"),
-    CreditRow("Sector boundary data", "VatGlasses · CC BY-NC-SA 4.0", "https://github.com/lennycolton/vatglasses-data"),
-    CreditRow("Live network data", "VATSIM Data Feed", "https://vatsim.dev"),
-    CreditRow("Flight plan data", "SimBrief by Navigraph", "https://www.simbrief.com"),
-    CreditRow("Pilot client", "vPilot", "https://vpilot.rosscarlson.dev")
+    CreditRow("Airport & FIR data", "CC BY-SA 4.0", "VATSpy", "https://github.com/vatsimnetwork/vatspy-data-project"),
+    CreditRow("Sector boundaries", "CC BY-NC-SA 4.0", "VatGlasses", "https://github.com/lennycolton/vatglasses-data"),
+    CreditRow("Live network data", null, "VATSIM Data Feed", "https://vatsim.dev"),
+    CreditRow("Flight plan data", null, "SimBrief by Navigraph", "https://www.simbrief.com"),
+    CreditRow("Pilot client", null, "vPilot", "https://vpilot.rosscarlson.dev")
 )
 
-/** Settings dialog -- issue #13 screen 4, matching the reference's `settingsDialog` object
- *  exactly: 320dp panel via [SimpleDialogPanel] (not the COM/XPDR dialogs' chrome -- that was a
- *  real mismatch, see SimpleDialogPanel's own doc comment), SimBrief fields, three toggle
- *  sections, a plugin-connection IP field, a full-width Save button, and a five-row Credits list
- *  with linked attribution pills plus a centered "Contribute" link -- none of which existed here
- *  before. Save persists everything and silently triggers a SimBrief refresh, with no
- *  confirmation toast, per the doc. */
+private val contributeRows = listOf(
+    CreditRow("GitHub", null, "sushi.at/vpilot-handoff", "https://github.com/sushiat/vpilot-handoff"),
+    CreditRow("Flightsim.to", null, "sushiat", "https://flightsim.to/profile/sushiat")
+)
+
+/** Settings dialog -- redesigned per the updated `design_handoff_vatsim_companion` reference
+ *  bundle's `settingsDialog` object (wide two-column layout, `width:min(640px,90vw)`,
+ *  `max-height:88vh` with its own scroll -- the original single-column stack cut off below the
+ *  IP field on real tablets). Left column: SimBrief, Appearance, Plugin Connection, Default
+ *  Channel Spacing, Frequency Keypad, then a full-width Save button spanning both columns.
+ *  Right column: Credits, then a separate Contribute section (GitHub, Flightsim.to rows in the
+ *  same label/name style as Credits, just without a license pill).
+ *
+ *  Uses its own Dialog/BoxWithConstraints chrome rather than [SimpleDialogPanel] (fixed-width) or
+ *  [KeypadDialogChrome] -- neither offers the responsive `min(640dp, 90% available width)` sizing
+ *  this needs, and this is scoped to Settings only, not shared chrome other dialogs rely on. */
 @Composable
 fun SettingsDialog(
     connectionStatus: ConnectionStatus,
@@ -85,111 +99,150 @@ fun SettingsDialog(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    SimpleDialogPanel(title = "Settings", width = 320.dp, onDismiss = onDismiss) {
-        Column(
-            Modifier
-                .heightIn(max = 560.dp)
-                .verticalScroll(scrollState)
-                .verticalScrollbar(scrollState, colors.border)
-                .padding(end = 8.dp) // room for the scrollbar thumb so it doesn't sit on top of text
-        ) {
-            SectionLabel("SIMBRIEF")
-            FieldLabel("SimBrief user ID")
-            HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", modifier = Modifier.fillMaxWidth())
-            Box(Modifier.padding(top = 10.dp)) {
-                FieldLabel("SimBrief username (fallback)")
-            }
-            HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", modifier = Modifier.fillMaxWidth())
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // Reference: width:min(640px,90vw) -- clamps to whichever available window is
+            // narrower, so this still degrades sensibly in split-screen's narrower app pane.
+            val panelWidth = minOf(maxWidth * 0.9f, 640.dp)
+            val panelMaxHeight = maxHeight * 0.88f
 
-            SectionLabel("APPEARANCE")
-            ToggleRow(
-                listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "☀ Light", ThemeMode.DARK to "☾ Dark"),
-                theme
-            ) { theme = it }
+            Column(
+                Modifier
+                    .width(panelWidth)
+                    .heightIn(max = panelMaxHeight)
+                    .background(colors.panel, RoundedCornerShape(16.dp))
+                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 22.dp, vertical = 20.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Settings", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.text)
+                    Text(
+                        "✕",
+                        fontSize = 16.sp,
+                        color = colors.text.copy(alpha = 0.5f),
+                        modifier = Modifier.clickable(onClick = onDismiss)
+                    )
+                }
 
-            SectionLabel("DEFAULT CHANNEL SPACING")
-            ToggleRow(
-                listOf(ChannelSpacing.KHZ_25 to "25 kHz", ChannelSpacing.KHZ_8_33 to "8.33 kHz"),
-                channelSpacing
-            ) { channelSpacing = it }
+                Column(
+                    Modifier
+                        .padding(top = 14.dp)
+                        .verticalScroll(scrollState)
+                        .verticalScrollbar(scrollState, colors.border)
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            SectionLabel("SIMBRIEF", topPadding = 0.dp)
+                            FieldLabel("SimBrief user ID")
+                            HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", modifier = Modifier.fillMaxWidth())
+                            Box(Modifier.padding(top = 10.dp)) {
+                                FieldLabel("SimBrief username (fallback)")
+                            }
+                            HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", modifier = Modifier.fillMaxWidth())
 
-            SectionLabel("FREQUENCY KEYPAD")
-            ToggleRow(
-                listOf(KeypadBlockMode.BLOCK_INVALID to "Block invalid", KeypadBlockMode.ALLOW_ALL to "Allow all"),
-                keypadBlockMode
-            ) { keypadBlockMode = it }
+                            SectionLabel("APPEARANCE")
+                            ToggleRow(
+                                listOf(
+                                    ToggleOption(ThemeMode.SYSTEM, "System"),
+                                    ToggleOption(ThemeMode.LIGHT, "Light"),
+                                    ToggleOption(ThemeMode.DARK, "Dark")
+                                ),
+                                theme
+                            ) { theme = it }
 
-            SectionLabel("PLUGIN CONNECTION")
-            FieldLabel("Manual IP (if discovery fails)")
-            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42", modifier = Modifier.fillMaxWidth())
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Status: $connectionStatus",
-                    fontSize = 10.sp,
-                    color = colors.textMuted,
-                    modifier = Modifier.weight(1f)
-                )
-                // Not in the static design mock (it has no live network to discover on), but a
-                // real, working feature this app already has (HandoffDiscoveryClient) that the
-                // protocol doc calls for as the IP field's fallback partner -- kept, not dropped.
-                Text(
-                    "Auto-detect",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.accent,
-                    modifier = Modifier.clickable {
-                        discoveryStatus = "Searching…"
-                        scope.launch {
-                            val found = HandoffDiscoveryClient().discoverHost()
-                            if (found != null) {
-                                host = found
-                                discoveryStatus = "Found $found"
-                            } else {
-                                discoveryStatus = "Not found -- enter IP manually"
+                            SectionLabel("PLUGIN CONNECTION")
+                            FieldLabel("Manual IP (if discovery fails)")
+                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42", modifier = Modifier.fillMaxWidth())
+                            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "Status: $connectionStatus",
+                                    fontSize = 10.sp,
+                                    color = colors.textMuted,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                // Not in the static design mock (it has no live network to
+                                // discover on), but a real, working feature this app already has
+                                // (HandoffDiscoveryClient) that the protocol doc calls for as the
+                                // IP field's fallback partner -- kept, not dropped.
+                                Text(
+                                    "Auto-detect",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.accent,
+                                    modifier = Modifier.clickable {
+                                        discoveryStatus = "Searching…"
+                                        scope.launch {
+                                            val found = HandoffDiscoveryClient().discoverHost()
+                                            if (found != null) {
+                                                host = found
+                                                discoveryStatus = "Found $found"
+                                            } else {
+                                                discoveryStatus = "Not found -- enter IP manually"
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            if (discoveryStatus.isNotBlank()) {
+                                Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
+                            }
+
+                            SectionLabel("DEFAULT CHANNEL SPACING")
+                            ToggleRow(
+                                listOf(
+                                    ToggleOption(ChannelSpacing.KHZ_25, "25 kHz"),
+                                    ToggleOption(ChannelSpacing.KHZ_8_33, "8.33 kHz")
+                                ),
+                                channelSpacing
+                            ) { channelSpacing = it }
+
+                            SectionLabel("FREQUENCY KEYPAD")
+                            ToggleRow(
+                                listOf(
+                                    ToggleOption(KeypadBlockMode.BLOCK_INVALID, "Block invalid", "Block inval"),
+                                    ToggleOption(KeypadBlockMode.ALLOW_ALL, "Allow all")
+                                ),
+                                keypadBlockMode
+                            ) { keypadBlockMode = it }
+                        }
+
+                        Column(Modifier.weight(1f)) {
+                            SectionLabel("CREDITS", topPadding = 0.dp)
+                            credits.forEach { credit ->
+                                AboutRow(credit.label, credit.name, credit.pillText) { uriHandler.openUri(credit.url) }
+                            }
+                            SectionLabel("CONTRIBUTE")
+                            contributeRows.forEach { row ->
+                                AboutRow(row.label, row.name, row.pillText) { uriHandler.openUri(row.url) }
                             }
                         }
                     }
-                )
-            }
-            if (discoveryStatus.isNotBlank()) {
-                Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
-            }
 
-            Box(Modifier.padding(top = 14.dp)) {
-                SaveButton {
-                    onSave(
-                        host.ifBlank { null },
-                        simbriefUserId.ifBlank { null },
-                        simbriefUsername.ifBlank { null },
-                        theme,
-                        channelSpacing,
-                        keypadBlockMode
-                    )
-                    onDismiss()
+                    Box(Modifier.padding(top = 18.dp)) {
+                        SaveButton {
+                            onSave(
+                                host.ifBlank { null },
+                                simbriefUserId.ifBlank { null },
+                                simbriefUsername.ifBlank { null },
+                                theme,
+                                channelSpacing,
+                                keypadBlockMode
+                            )
+                            onDismiss()
+                        }
+                    }
                 }
-            }
-
-            Box(Modifier.padding(top = 20.dp)) {
-                SectionLabel("CREDITS")
-            }
-            credits.forEach { credit ->
-                AboutRow(credit.label, credit.pillText) { uriHandler.openUri(credit.url) }
-            }
-            Box(Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "Contribute — sushi.at/vpilot-handoff",
-                    fontSize = 11.sp,
-                    color = colors.textMuted,
-                    textDecoration = TextDecoration.Underline,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://github.com/sushiat/vpilot-handoff") }
-                )
             }
         }
     }
 }
 
 @Composable
-private fun SectionLabel(label: String) {
+private fun SectionLabel(label: String, topPadding: androidx.compose.ui.unit.Dp = 14.dp) {
     val colors = LocalHandoffColors.current
     Text(
         label,
@@ -197,7 +250,7 @@ private fun SectionLabel(label: String) {
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.06f.em,
         color = colors.textMuted,
-        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)
+        modifier = Modifier.padding(top = topPadding, bottom = 8.dp)
     )
 }
 
@@ -214,26 +267,41 @@ private fun FieldLabel(label: String) {
     )
 }
 
+private data class ToggleOption<T>(val value: T, val label: String, val shortLabel: String? = null)
+
+/** Below this per-button width, buttons switch to their [ToggleOption.shortLabel] (if any) -- the
+ *  split-screen app pane can shrink down to ~20% of the tablet's width, squeezing this dialog's
+ *  two-column layout tight enough that "Block invalid" doesn't fit its button comfortably. */
+private val ToggleShortLabelThreshold = 90.dp
+
 @Composable
-private fun <T> ToggleRow(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+private fun <T> ToggleRow(options: List<ToggleOption<T>>, selected: T, onSelect: (T) -> Unit) {
     val colors = LocalHandoffColors.current
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEach { (value, label) ->
-            val isSelected = value == selected
-            Box(
-                Modifier
-                    .weight(1f)
-                    .background(if (isSelected) colors.accent else colors.panelAlt, RoundedCornerShape(8.dp))
-                    .clickable { onSelect(value) }
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    label,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isSelected) androidx.compose.ui.graphics.Color.White else colors.text
-                )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val gapCount = options.size - 1
+        val perButtonWidth = (maxWidth - 8.dp * gapCount) / options.size
+        val useShortLabels = perButtonWidth < ToggleShortLabelThreshold
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                val isSelected = option.value == selected
+                val label = if (useShortLabels) option.shortLabel ?: option.label else option.label
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .background(if (isSelected) colors.accent else colors.panelAlt, RoundedCornerShape(8.dp))
+                        .clickable { onSelect(option.value) }
+                        .padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        color = if (isSelected) androidx.compose.ui.graphics.Color.White else colors.text
+                    )
+                }
             }
         }
     }
@@ -254,28 +322,36 @@ private fun SaveButton(onClick: () -> Unit) {
     }
 }
 
+/** Matches the reference's `aboutRowStyle` (label above, muted, 11sp) + `attributionRowStyle`
+ *  (name + optional license pill in a row below, clickable as a whole -- the link's `<a>`). The
+ *  pill uses the reference's flat `attributionPillStyle` (solid `t.border` fill, 6px radius --
+ *  matches the app's other badges, not a rounded-pill shape), only shown when a license applies. */
 @Composable
-private fun AboutRow(label: String, pillText: String, onClick: () -> Unit) {
+private fun AboutRow(label: String, name: String, pillText: String?, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
-    Row(
-        Modifier.fillMaxWidth().padding(top = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, fontSize = 11.sp, color = colors.textMuted, modifier = Modifier.weight(1f))
-        Box(
-            Modifier
-                .background(colors.panelAlt, RoundedCornerShape(12.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 9.dp, vertical = 4.dp)
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp).clickable(onClick = onClick)) {
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = colors.textMuted)
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                pillText,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.03f.em,
-                color = colors.textMuted
-            )
+            Text(name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.text)
+            if (pillText != null) {
+                Box(
+                    Modifier
+                        .background(colors.border, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        pillText,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.03f.em,
+                        color = colors.textMuted
+                    )
+                }
+            }
         }
     }
 }
