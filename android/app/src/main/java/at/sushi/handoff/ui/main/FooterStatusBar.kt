@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.ConnectionStatus
+import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 /** The controller list's footer: a "face" row (connection dot + status line, refresh + settings
@@ -37,14 +39,17 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
  *  *upward* on screen when expanded -- the container's own bottom edge stays pinned to the
  *  screen's bottom, so adding content below the face row grows the block upward as a whole,
  *  carrying the face row with it, rather than the face row itself relocating. Per issue #13
- *  screen 1's footer, the sub-connection rows and version/latency detail are largely not in the
- *  protocol yet -- see docs/protocol.md -- so most of the expanded content is a visible stub. */
+ *  screen 1's footer, the sub-connection rows / plugin version / address now come from the
+ *  plugin's `subsystemStatus` message and the persisted host pref; latency is measured
+ *  client-side from the ping/pong exchange (see HandoffConnectionService) -- see docs/protocol.md. */
 @Composable
 fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
     origin: String?,
     destination: String?,
     address: String?,
+    subsystemStatus: SubsystemStatusMessage,
+    latencyMs: Long?,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onRefresh: () -> Unit,
@@ -98,21 +103,38 @@ fun FooterStatusBar(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onToggleExpanded)
-                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
+                    .padding(start = 14.dp, end = 14.dp, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StubStatusRow("Connected to RadioHost")
-                StubStatusRow("Connected to Simulator")
-                StubStatusRow("Connected to Vatsim Info")
-                StubStatusRow("Fetched Simbrief flight plan")
-                HorizontalDivider(color = colors.border, modifier = Modifier.padding(vertical = 2.dp))
+                SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
+                SubsystemStatusRow("Connected to Simulator", subsystemStatus.simulatorConnected)
+                SubsystemStatusRow("Connected to Vatsim Info", subsystemStatus.vatsimDataFeedConnected)
+                SubsystemStatusRow("Fetched Simbrief flight plan", subsystemStatus.simbriefFetched)
+            }
+            // Pulled out of the padded Column above and placed as a direct child here instead --
+            // it was nested inside that Column's own 14dp horizontal padding, so it rendered
+            // visibly inset compared to the face row's and chat compose bar's dividers, which are
+            // both full-width/edge-to-edge (placed before any padding is applied). This matches
+            // that same edge-to-edge treatment.
+            HorizontalDivider(color = colors.border, modifier = Modifier.padding(top = 8.dp))
+            // This row is pinned to the same 64dp height as the face row ("Connected · LOWW ->
+            // LOWI") -- it was previously sized from its own padding+text-line-height alone
+            // (~35-40dp), noticeably shorter, which is what left its border out of alignment.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .clickable(onClick = onToggleExpanded)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val versionLabel = subsystemStatus.pluginVersion?.let { "v$it" } ?: "v?"
+                val latencyLabel = latencyMs?.let { "${it}ms" } ?: "--ms"
                 Text(
                     // Matches the doc's "vPilot plugin v1.4.2 · ws://host:port · 38ms" line
-                    // shape, but only the address is real data -- the plugin doesn't report its
-                    // own version yet, and latency needs an app-level ping/pong the protocol
-                    // doesn't have either (see docs/protocol.md), so both stay static
-                    // placeholders until those exist.
-                    "vPilot plugin vX.X.X · ${address?.let { "ws://$it:48765" } ?: "not connected"} · --ms",
+                    // shape -- all three fields are now real data (subsystemStatus message +
+                    // persisted host pref + client-measured ping/pong RTT).
+                    "vPilot plugin $versionLabel · ${address?.let { "ws://$it:48765" } ?: "not connected"} · $latencyLabel",
                     fontSize = 10.5.sp,
                     fontFamily = FontFamily.Monospace,
                     color = colors.textMuted
@@ -123,12 +145,12 @@ fun FooterStatusBar(
 }
 
 @Composable
-private fun StubStatusRow(label: String) {
+private fun SubsystemStatusRow(label: String, connected: Boolean) {
     val colors = LocalHandoffColors.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(7.dp).background(colors.border, CircleShape))
+        Box(Modifier.size(7.dp).background(if (connected) colors.ok else colors.border, CircleShape))
         Text(
-            "$label (not available yet)",
+            label,
             fontSize = 11.5.sp,
             color = colors.textMuted
         )

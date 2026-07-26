@@ -22,6 +22,10 @@ data class Controller(
     val name: String? = null,
     val facility: Int? = null,
     val rating: Int? = null,
+    // VatSpy-sourced facility/airport display name (e.g. "Heathrow Tower") -- always null until
+    // that integration exists on the plugin side. Falls back to facilitySuffixName(callsign)
+    // client-side until then; see docs/protocol.md.
+    val stationName: String? = null,
     // Priority-ranking flags -- see docs/protocol.md. Not yet used for anything beyond
     // decoding: the list arrives pre-sorted by the plugin, so rendering it in order is all
     // that's needed for now; colour-coding by these flags is a follow-up.
@@ -84,6 +88,36 @@ data class RadioStateMessage(
     val transponderCode: Int? = null
 ) : ServerMessage
 
+@Serializable
+data class NearbyAircraft(
+    val callsign: String,
+    val aircraftType: String? = null,
+    val distanceNm: Double
+)
+
+@Serializable
+data class NearbyAircraftMessage(
+    val type: String = "nearbyAircraft",
+    val aircraft: List<NearbyAircraft>
+) : ServerMessage
+
+@Serializable
+data class SubsystemStatusMessage(
+    val type: String = "subsystemStatus",
+    val radioHostConnected: Boolean = false,
+    val simulatorConnected: Boolean = false,
+    val vatsimDataFeedConnected: Boolean = false,
+    val simbriefFetched: Boolean = false,
+    val pluginVersion: String? = null
+) : ServerMessage
+
+@Serializable
+data class PongMessage(
+    val type: String = "pong",
+    val clientTimestamp: Long,
+    val serverTimestamp: Long
+) : ServerMessage
+
 private val json = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true // the "type" discriminator field has a default value per subtype
@@ -99,6 +133,9 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "chat" -> json.decodeFromJsonElement<ChatMessage>(element)
         "radioState" -> json.decodeFromJsonElement<RadioStateMessage>(element)
         "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
+        "nearbyAircraft" -> json.decodeFromJsonElement<NearbyAircraftMessage>(element)
+        "subsystemStatus" -> json.decodeFromJsonElement<SubsystemStatusMessage>(element)
+        "pong" -> json.decodeFromJsonElement<PongMessage>(element)
         else -> null
     }
 }
@@ -198,4 +235,14 @@ data class ClearPinnedControllerCommand(
     val type: String = "clearPinnedController"
 ) : ClientCommand {
     override fun encode() = json.encodeToString(ClearPinnedControllerCommand.serializer(), this)
+}
+
+/** Latency probe for the footer's detail line -- the plugin echoes clientTimestamp back in a
+ *  PongMessage; latency is (time pong received) - clientTimestamp, computed client-side. */
+@Serializable
+data class PingCommand(
+    val type: String = "ping",
+    val clientTimestamp: Long
+) : ClientCommand {
+    override fun encode() = json.encodeToString(PingCommand.serializer(), this)
 }

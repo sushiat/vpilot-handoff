@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +20,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -107,7 +107,11 @@ fun ControllerList(
     // Column has no bounded height of its own, and the LazyColumn below's weight(1f) measures
     // against the wrong (much larger) constraint, crowding whatever comes after this composable
     // in the parent Column off the bottom of the screen.
-    Column(modifier.fillMaxWidth().background(colors.bg)) {
+    // The reference's frame background (t.bg -- oklch(97% 0.006 250), a pale blue-gray, not
+    // pure white) is what this inherited by design, but on the actual tablet display that
+    // reads as a visible off-white rather than matching the panel-colored top bar/footer --
+    // using colors.panel here instead, per the user's explicit call on the real device.
+    Column(modifier.fillMaxWidth().background(colors.panel)) {
         Text(
             "CONTROLLERS · ${controllers.size}",
             fontSize = 10.sp,
@@ -115,7 +119,14 @@ fun ControllerList(
             color = colors.textMuted,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)
         )
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;
+        // gap:6px` -- rows are individually rounded cards with their own border/gap between
+        // them, not a plain divided list (no HorizontalDivider in the reference at all).
+        LazyColumn(
+            Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             // Rendered in exactly the order the server sent it -- never re-sorted client-side.
             items(controllers, key = { it.callsign }) { controller ->
                 ControllerRow(
@@ -132,7 +143,6 @@ fun ControllerList(
                     onTuneCom2Standby = { onTuneCom2Standby(controller.frequency) },
                     onDismissSelcal = { onDismissSelcal(controller.callsign) }
                 )
-                HorizontalDivider(color = colors.border)
             }
         }
     }
@@ -169,12 +179,15 @@ private fun ControllerRow(
     val selcalPhaseA = rememberFlashPhaseA(ControllerBadge.SELCAL in badges)
     val selcalBackground = if (selcalPhaseA) FacilityColors.hazardYellow else oklch(0.58f, 0.16f, 10f)
 
+    // Reference rowStyle is `border-radius:10px;background:...;border:1.5px solid ...` -- rows
+    // are individually rounded cards, not a plain rectangular strip.
+    val rowShape = RoundedCornerShape(10.dp)
     Box {
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(background)
-                .border(1.5.dp, rowColors.border)
+                .background(background, rowShape)
+                .border(1.5.dp, rowColors.border, rowShape)
                 .clickable { menuOpen = true }
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -209,29 +222,62 @@ private fun ControllerRow(
                 modifier = Modifier.weight(1f)
             )
 
-            Column(horizontalAlignment = Alignment.End) {
-                val suffixName = facilitySuffixName(controller.callsign)
+            // Reference gap between these two lines is 1px -- Compose Text's default line
+            // height reserves extra ascent/descent padding beyond the glyphs themselves (legacy
+            // Android "font padding"), which reads as a much bigger gap than 1dp of Arrangement
+            // spacing alone would suggest; disabling it via PlatformTextStyle is what actually
+            // closes the gap up to match.
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                val suffixName = controller.stationName ?: facilitySuffixName(controller.callsign)
                 if (suffixName != null) {
-                    Text(suffixName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = text)
+                    Text(
+                        suffixName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = text,
+                        style = androidx.compose.ui.text.TextStyle(
+                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                        )
+                    )
                 }
                 Text(
                     controller.name ?: controller.cid?.toString() ?: "",
                     fontSize = 10.sp,
                     color = text.copy(alpha = 0.75f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    style = androidx.compose.ui.text.TextStyle(
+                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                    )
                 )
             }
 
-            controller.rating?.let { rating ->
-                ratingLabels[rating]?.let { label -> RatingBadge(label, text, badgeBackground) }
-            }
+            // The rating badge sits with the same tight 2px gap as the icon buttons themselves,
+            // not the row's own 10dp inter-section spacing -- grouped into one Row so
+            // Arrangement.spacedBy(10dp) on the outer Row only applies *before* this group, not
+            // between the badge and the icons.
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                controller.rating?.let { rating ->
+                    ratingLabels[rating]?.let { label -> RatingBadge(label, text, badgeBackground) }
+                }
 
-            IconButton(onClick = onTogglePin) {
-                Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text)
-            }
-            IconButton(onClick = onOpenChat) {
-                Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = text)
+                // Reference uses tight 30x30 buttons with a 2px gap between them
+                // (`display:flex;gap:2px` around pinBtnStyle/msgBtnStyle, both `width:30px;
+                // height:30px;padding:0`) -- Material3's IconButton (48dp min touch target, plus
+                // the row's own 10dp gap on top) was eating enough space that the frequency
+                // didn't fit on one line.
+                Box(
+                    Modifier.size(30.dp).clickable(onClick = onTogglePin),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text, modifier = Modifier.size(20.dp))
+                }
+                Box(
+                    Modifier.size(30.dp).clickable(onClick = onOpenChat),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Message, contentDescription = "Private chat", tint = text, modifier = Modifier.size(20.dp))
+                }
             }
         }
 
@@ -252,12 +298,25 @@ private fun ControllerRow(
 
 @Composable
 private fun BadgePill(label: String, contentColor: Color, background: Color) {
+    // Reference is `font:700 9px/1 Roboto;padding:3px 7px` -- line-height 1 (i.e. no extra
+    // leading beyond the glyphs). Compose Text's default line height reserves legacy Android
+    // font-padding above/below the glyphs on top of whatever box padding is applied, which read
+    // as a noticeably taller pill than the reference's tight 3px vertical padding suggests;
+    // disabling it via PlatformTextStyle is what actually closes the gap.
     Box(
         Modifier
             .background(background, RoundedCornerShape(5.dp))
             .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
-        Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = contentColor)
+        Text(
+            label,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = contentColor,
+            style = androidx.compose.ui.text.TextStyle(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+            )
+        )
     }
 }
 

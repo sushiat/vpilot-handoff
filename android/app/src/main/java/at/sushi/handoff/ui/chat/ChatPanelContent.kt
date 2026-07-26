@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -35,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +50,12 @@ import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 private const val RADIO_TAB = "radio"
+
+/** Which edge gets the reference's `border-left`/`border-right` (`chatPanelStyle`) -- always
+ *  the edge facing the controller list/main app: fullscreen always uses START (chat sits to the
+ *  right of the list), split/overlay mode uses whichever edge faces the app based on
+ *  [at.sushi.handoff.SplitSide]. */
+enum class ChatPanelBorderSide { START, END }
 
 /** The chat panel's actual content -- tab strip, bottom-anchored message list, compose bar. Used
  *  both as a fullscreen side panel and inside the split-screen overlay window (see
@@ -63,7 +73,8 @@ fun ChatPanelContent(
     onCloseTab: (String) -> Unit,
     onOpenNearbyDialog: () -> Unit,
     onCollapse: (() -> Unit)?,
-    onSend: (String) -> Unit
+    onSend: (String) -> Unit,
+    borderSide: ChatPanelBorderSide? = null
 ) {
     val colors = LocalHandoffColors.current
     var draft by remember { mutableStateOf("") }
@@ -84,7 +95,27 @@ fun ChatPanelContent(
     Column(
         Modifier
             .fillMaxSize()
+            // Reference's chatPanelStyle background is t.bg (oklch(97% 0.006 250), a pale
+            // blue-gray), which was correct-per-value but reads as a visible off-white on the
+            // real tablet display next to the panel-colored top bar/footer -- using colors.panel
+            // instead, per the user's explicit call on the real device (see ControllerList.kt's
+            // matching change).
             .background(colors.panel)
+            .then(
+                if (borderSide != null) {
+                    Modifier.drawBehind {
+                        val x = if (borderSide == ChatPanelBorderSide.START) 0f else size.width
+                        drawLine(
+                            color = colors.border,
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .windowInsetsPadding(WindowInsets.systemBars)
             .imePadding()
     ) {
@@ -144,17 +175,30 @@ fun ChatPanelContent(
             items(entries.reversed()) { entry -> MessageRow(entry) }
         }
 
+        // Reference has `border-top:1px solid t.border` on this bar -- missing entirely before.
+        // Height is pinned to 64dp (not just the content's natural size) to match the main
+        // panel's footer face row exactly (14dp horizontal / 8dp vertical padding around a
+        // 48dp-tall IconButton = 64dp total), so this border and the footer's own border-top
+        // land at the same height on screen, reading as one continuous line across both panels.
+        HorizontalDivider(color = colors.border)
         Row(
-            Modifier.fillMaxWidth().padding(8.dp),
+            Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Both controls share this explicit height instead of sizing from their own
+            // padding -- the earlier attempt (just growing HandoffTextField's internal padding)
+            // left it nearly filling the full 64dp row with almost no margin top/bottom (looked
+            // squeezed), and the button was never matched to it at all. 44dp inside a 64dp row
+            // leaves a comfortable 10dp margin above and below both.
+            val composeControlHeight = 44.dp
             HandoffTextField(
                 value = draft,
                 onValueChange = { draft = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).height(composeControlHeight),
                 fontSize = 12.5.sp,
                 horizontalPadding = 12.dp,
+                verticalPadding = 0.dp,
                 placeholder = if (activeTab == null) "Transmit on current frequency…" else "Message ${activeTab}…"
             )
             val send = {
@@ -164,9 +208,9 @@ fun ChatPanelContent(
                 }
             }
             if (activeTab == null) {
-                ComposeButton("TRANSMIT", Icons.Filled.Mic, onClick = send)
+                ComposeButton("TRANSMIT", Icons.Filled.Mic, Modifier.height(composeControlHeight), onClick = send)
             } else {
-                ComposeButton("SEND", Icons.AutoMirrored.Filled.Send, onClick = send)
+                ComposeButton("SEND", Icons.AutoMirrored.Filled.Send, Modifier.height(composeControlHeight), onClick = send)
             }
         }
     }
@@ -219,10 +263,15 @@ private fun MessageRow(entry: ChatEntry) {
 }
 
 @Composable
-private fun ComposeButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun ComposeButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val colors = LocalHandoffColors.current
     Row(
-        Modifier
+        modifier
             .background(colors.accent, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),

@@ -14,7 +14,11 @@ import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
+import at.sushi.handoff.protocol.NearbyAircraftMessage
+import at.sushi.handoff.protocol.PingCommand
+import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
+import at.sushi.handoff.protocol.SubsystemStatusMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -38,6 +42,7 @@ class HandoffConnectionService : Service() {
         private const val NotificationId = 1
         private const val MinBackoffMillis = 2_000L
         private const val MaxBackoffMillis = 30_000L
+        private const val PingIntervalMillis = 10_000L
 
         /** Same-process access for the UI to send commands / trigger a reconnect -- no
          *  bindService/Messenger needed since Service and Activity share the process. */
@@ -47,6 +52,7 @@ class HandoffConnectionService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob())
     private var connectionJob: Job? = null
+    private var pingJob: Job? = null
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
 
@@ -63,6 +69,9 @@ class HandoffConnectionService : Service() {
                     is ChatMessage -> HandoffState.update(message)
                     is RadioStateMessage -> HandoffState.update(message)
                     is FlightPlanMessage -> HandoffState.update(message)
+                    is NearbyAircraftMessage -> HandoffState.update(message)
+                    is SubsystemStatusMessage -> HandoffState.update(message)
+                    is PongMessage -> HandoffState.setLatencyMs(System.currentTimeMillis() - message.clientTimestamp)
                 }
             },
             onStateChanged = { connected -> onConnectionStateChanged(connected) }
@@ -75,6 +84,7 @@ class HandoffConnectionService : Service() {
 
     override fun onDestroy() {
         connectionJob?.cancel()
+        pingJob?.cancel()
         client.close()
         instance = null
         super.onDestroy()
@@ -142,6 +152,25 @@ class HandoffConnectionService : Service() {
     private fun onConnectionStateChanged(connected: Boolean) {
         HandoffState.setConnectionStatus(if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED)
         notificationManager.notify(NotificationId, buildNotification(if (connected) "Connected" else "Disconnected"))
+        if (connected) {
+            startPingLoop()
+        } else {
+            pingJob?.cancel()
+            HandoffState.setLatencyMs(null)
+        }
+    }
+
+    /** App-level ping/pong (docs/protocol.md) for the footer's latency readout -- distinct from
+     *  OkHttp's own WebSocket-protocol ping (HandoffWebSocketClient's pingInterval), which keeps
+     *  the connection alive but doesn't surface RTT through OkHttp's public listener API. */
+    private fun startPingLoop() {
+        pingJob?.cancel()
+        pingJob = scope.launch {
+            while (true) {
+                delay(PingIntervalMillis)
+                client.send(PingCommand(clientTimestamp = System.currentTimeMillis()))
+            }
+        }
     }
 
     private fun createNotificationChannel() {

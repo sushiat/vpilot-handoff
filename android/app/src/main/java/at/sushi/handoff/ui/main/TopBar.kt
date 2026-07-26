@@ -249,7 +249,7 @@ private fun RowScope.MsgButton(modifier: Modifier = Modifier, lastMessageLabel: 
                 color = colors.textMuted.copy(alpha = 0.7f)
             )
             Text(
-                lastMessageLabel ?: "--",
+                lastMessageLabel ?: "",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.text,

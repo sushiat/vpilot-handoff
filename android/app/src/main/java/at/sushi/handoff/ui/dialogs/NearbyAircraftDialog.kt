@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,17 +25,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import at.sushi.handoff.protocol.NearbyAircraft
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 /** "Private chat to callsign" dialog -- issue #13 screen 6, matching the reference's
  *  `nearbyDialog` object (340dp panel, a rounded-*square* confirm button -- not a circle). The
- *  nearby-aircraft list below the callsign field has no data source yet: the protocol has no
- *  message for it (needs a new server->client message with callsign/type/distance, likely
- *  VATSIM-data-feed + own-position derived -- see docs/protocol.md). The callsign field +
- *  confirm button work today; the list is a visible "not available yet" stub.
+ *  nearby-aircraft list is fed by the plugin's `nearbyAircraft` message (see docs/protocol.md);
+ *  it's empty (not a "not available yet" stub) whenever no traffic is within 20nm or ownship's
+ *  position isn't known yet.
  *
  *  [NearbyAircraftDialog] (a real system Dialog) is only safe to use when definitely hosted in
  *  the main Activity's own window (fullscreen mode). It's reachable from the chat panel's
@@ -45,28 +48,30 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
  *  within the chat overlay, rendered as plain content in whichever window already hosts it. */
 @Composable
 fun NearbyAircraftDialog(
+    aircraft: List<NearbyAircraft>,
     onDismiss: () -> Unit,
     onOpenChatWith: (String) -> Unit
 ) {
     SimpleDialogPanel(title = "Private chat to callsign", width = 340.dp, onDismiss = onDismiss) {
-        NearbyAircraftContent(onOpenChatWith = { onOpenChatWith(it); onDismiss() })
+        NearbyAircraftContent(aircraft = aircraft, onOpenChatWith = { onOpenChatWith(it); onDismiss() })
     }
 }
 
 @Composable
 fun InlineNearbyAircraftDialog(
+    aircraft: List<NearbyAircraft>,
     onDismiss: () -> Unit,
     onOpenChatWith: (String) -> Unit
 ) {
     InlineModalScrim(onDismiss = onDismiss) {
         SimpleDialogPanelChrome(title = "Private chat to callsign", width = 340.dp, onDismiss = onDismiss) {
-            NearbyAircraftContent(onOpenChatWith = { onOpenChatWith(it); onDismiss() })
+            NearbyAircraftContent(aircraft = aircraft, onOpenChatWith = { onOpenChatWith(it); onDismiss() })
         }
     }
 }
 
 @Composable
-private fun ColumnScope.NearbyAircraftContent(onOpenChatWith: (String) -> Unit) {
+private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, onOpenChatWith: (String) -> Unit) {
     var callsign by remember { mutableStateOf("") }
     val colors = LocalHandoffColors.current
 
@@ -111,18 +116,42 @@ private fun ColumnScope.NearbyAircraftContent(onOpenChatWith: (String) -> Unit) 
         Text("TYPE", fontSize = 9.sp, color = colors.textMuted)
         Text("DIST", fontSize = 9.sp, color = colors.textMuted)
     }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.panelAlt, RoundedCornerShape(10.dp))
-            .padding(vertical = 20.dp)
-            .padding(top = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            "Not available yet -- needs a new protocol message from the plugin",
-            fontSize = 11.sp,
-            color = colors.textMuted
-        )
+    if (aircraft.isEmpty()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.panelAlt, RoundedCornerShape(10.dp))
+                .padding(vertical = 20.dp)
+                .padding(top = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "No aircraft within 20nm",
+                fontSize = 11.sp,
+                color = colors.textMuted
+            )
+        }
+    } else {
+        LazyColumn(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 180.dp)
+                .background(colors.panelAlt, RoundedCornerShape(10.dp))
+                .padding(vertical = 4.dp)
+        ) {
+            items(aircraft, key = { it.callsign }) { entry ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenChatWith(entry.callsign) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(entry.callsign, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.text)
+                    Text(entry.aircraftType ?: "--", fontSize = 12.sp, color = colors.textMuted)
+                    Text("%.1fnm".format(entry.distanceNm), fontSize = 12.sp, color = colors.textMuted)
+                }
+            }
+        }
     }
 }

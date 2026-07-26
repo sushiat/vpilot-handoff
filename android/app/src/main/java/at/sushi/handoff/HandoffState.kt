@@ -3,7 +3,9 @@ package at.sushi.handoff
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
+import at.sushi.handoff.protocol.NearbyAircraftMessage
 import at.sushi.handoff.protocol.RadioStateMessage
+import at.sushi.handoff.protocol.SubsystemStatusMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +43,17 @@ object HandoffState {
 
     private val _flightPlan = MutableStateFlow(FlightPlanMessage())
     val flightPlan: StateFlow<FlightPlanMessage> = _flightPlan.asStateFlow()
+
+    private val _nearbyAircraft = MutableStateFlow(NearbyAircraftMessage(aircraft = emptyList()))
+    val nearbyAircraft: StateFlow<NearbyAircraftMessage> = _nearbyAircraft.asStateFlow()
+
+    private val _subsystemStatus = MutableStateFlow(SubsystemStatusMessage())
+    val subsystemStatus: StateFlow<SubsystemStatusMessage> = _subsystemStatus.asStateFlow()
+
+    // Round-trip time from the last ping/pong exchange (see HandoffConnectionService), null
+    // until the first pong arrives or after a disconnect.
+    private val _latencyMs = MutableStateFlow<Long?>(null)
+    val latencyMs: StateFlow<Long?> = _latencyMs.asStateFlow()
 
     // Locally-tracked UI settings -- never pushed by the server, persisted to SharedPreferences
     // by whatever screen changes them (SettingsDialog, ComTuningDialog's per-instance override).
@@ -82,6 +95,18 @@ object HandoffState {
 
     fun update(message: FlightPlanMessage) {
         _flightPlan.value = message
+    }
+
+    fun update(message: NearbyAircraftMessage) {
+        _nearbyAircraft.value = message
+    }
+
+    fun update(message: SubsystemStatusMessage) {
+        _subsystemStatus.value = message
+    }
+
+    fun setLatencyMs(millis: Long?) {
+        _latencyMs.value = millis
     }
 
     fun setTheme(mode: ThemeMode) {

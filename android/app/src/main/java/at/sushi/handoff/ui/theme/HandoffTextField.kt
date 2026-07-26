@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -30,7 +31,12 @@ fun HandoffTextField(
     singleLine: Boolean = true,
     fontSize: TextUnit = 13.sp,
     horizontalPadding: androidx.compose.ui.unit.Dp = 11.dp,
-    verticalPadding: androidx.compose.ui.unit.Dp = 9.dp
+    verticalPadding: androidx.compose.ui.unit.Dp = 9.dp,
+    // Only matters when the caller gives this a fixed/forced height (e.g. Modifier.height(...))
+    // rather than letting it size to its own padding+content -- otherwise the Box's default
+    // top-start alignment would leave the text sitting at the top of the extra space instead of
+    // centered in it.
+    contentAlignment: Alignment = Alignment.CenterStart
 ) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(8.dp)
@@ -38,7 +44,8 @@ fun HandoffTextField(
         modifier
             .background(colors.panelAlt, shape)
             .border(1.dp, colors.border, shape)
-            .padding(horizontal = horizontalPadding, vertical = verticalPadding)
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+        contentAlignment = contentAlignment
     ) {
         if (value.isEmpty() && placeholder != null) {
             Text(placeholder, fontSize = fontSize, color = colors.textMuted)

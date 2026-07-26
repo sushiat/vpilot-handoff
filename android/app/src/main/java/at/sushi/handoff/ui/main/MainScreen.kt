@@ -83,6 +83,9 @@ private fun MainScreenContent() {
     val theme by HandoffState.theme.collectAsState()
     val layoutMode by HandoffState.layoutMode.collectAsState()
     val splitSide by HandoffState.splitSide.collectAsState()
+    val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
+    val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
+    val latencyMs by HandoffState.latencyMs.collectAsState()
 
     var comDialogOpen by remember { mutableStateOf<Int?>(null) } // 1 or 2
     var xpdrDialogOpen by remember { mutableStateOf(false) }
@@ -140,10 +143,21 @@ private fun MainScreenContent() {
                     } else {
                         send(SendPrivateMessageCommand(to = tab, message = text))
                     }
+                },
+                // Reference's chatPanelStyle always has a border facing the controller list/app:
+                // fullscreen is always START (chat sits to the right of the list); split/overlay
+                // mode faces whichever edge is adjacent to the app based on splitSide.
+                borderSide = if (layoutMode == LayoutMode.FULLSCREEN) {
+                    at.sushi.handoff.ui.chat.ChatPanelBorderSide.START
+                } else if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
+                    at.sushi.handoff.ui.chat.ChatPanelBorderSide.START
+                } else {
+                    at.sushi.handoff.ui.chat.ChatPanelBorderSide.END
                 }
             )
             if (nearbyDialogOpen) {
                 InlineNearbyAircraftDialog(
+                    aircraft = nearbyAircraft.aircraft,
                     onDismiss = { nearbyDialogOpen = false },
                     onOpenChatWith = { callsign -> openChatWith(callsign) }
                 )
@@ -165,7 +179,10 @@ private fun MainScreenContent() {
         Column(Modifier.fillMaxHeight().let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }) {
             TopBar(
                 radioState = radioState,
-                lastMessageLabel = activeChatTab ?: "RADIO",
+                // Blank until there's actually been any chat activity -- defaulting to "RADIO"
+                // unconditionally (even with nothing ever received) was misleading.
+                lastMessageLabel = activeChatTab
+                    ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
                 onSwapCom1 = {
                     val active = radioState.com1Frequency
@@ -220,6 +237,8 @@ private fun MainScreenContent() {
                 origin = flightPlan.origin,
                 destination = flightPlan.destination,
                 address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
+                subsystemStatus = subsystemStatus,
+                latencyMs = latencyMs,
                 expanded = footerExpanded,
                 onToggleExpanded = { footerExpanded = !footerExpanded },
                 onRefresh = { send(RefreshFlightPlanCommand()) },
