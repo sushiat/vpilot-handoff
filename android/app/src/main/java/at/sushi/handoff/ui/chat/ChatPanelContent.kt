@@ -221,7 +221,7 @@ fun ChatPanelContent(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f).height(composeControlHeight),
-                fontSize = 12.5.sp,
+                fontSize = 14.5.sp,
                 horizontalPadding = 12.dp,
                 verticalPadding = 0.dp,
                 placeholder = if (activeTab == null) "Transmit on current frequency…" else "Message ${activeTab}…"
@@ -259,7 +259,7 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (selected) colors.text else colors.textMuted)
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) colors.text else colors.textMuted)
         if (unread > 0) {
             Box(Modifier.size(6.dp).background(colors.attention, CircleShape))
         }
@@ -322,13 +322,13 @@ private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
             ) {
                 Text(
                     metaText,
-                    fontSize = 9.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = RobotoMono,
                     color = colors.textMuted,
                     modifier = Modifier.padding(bottom = 2.dp)
                 )
-                Text(entry.text, fontSize = 12.5.sp, color = colors.text)
+                Text(entry.text, fontSize = 16.5.sp, color = colors.text)
             }
         }
     }

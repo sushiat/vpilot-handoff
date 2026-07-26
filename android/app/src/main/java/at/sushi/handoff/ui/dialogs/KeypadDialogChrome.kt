@@ -65,7 +65,7 @@ fun KeypadDialogPanel(
             ) {
                 Text(
                     title,
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.14f.em,
                     color = colors.textMuted

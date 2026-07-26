@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -84,6 +85,7 @@ private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, on
             value = callsign,
             onValueChange = { callsign = it.uppercase() },
             placeholder = "Callsign",
+            fontSize = 15.sp,
             modifier = Modifier.weight(1f)
         )
         val enabled = callsign.isNotBlank()
@@ -105,16 +107,21 @@ private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, on
 
     Text(
         "AIRCRAFT WITHIN 20NM · CLOSEST FIRST",
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.06f.em,
         color = colors.textMuted,
         modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)
     )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("CALLSIGN", fontSize = 9.sp, color = colors.textMuted)
-        Text("TYPE", fontSize = 9.sp, color = colors.textMuted)
-        Text("DIST", fontSize = 9.sp, color = colors.textMuted)
+    // Fixed-weight columns (not SpaceBetween, which just spaces each Text by its own natural
+    // width) shared with the data rows below -- SpaceBetween alone can't align a header to its
+    // column's data since "CALLSIGN" and e.g. "EDW89" are different widths, and it can't even
+    // keep rows aligned with each other since every callsign/type/distance string differs in
+    // width too. Horizontal padding also now matches the data rows' 12dp exactly.
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        Text("CALLSIGN", fontSize = 11.sp, color = colors.textMuted, modifier = Modifier.weight(1.4f))
+        Text("TYPE", fontSize = 11.sp, color = colors.textMuted, modifier = Modifier.weight(1f))
+        Text("DIST", fontSize = 11.sp, color = colors.textMuted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
     }
     if (aircraft.isEmpty()) {
         Box(
@@ -144,12 +151,11 @@ private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, on
                     Modifier
                         .fillMaxWidth()
                         .clickable { onOpenChatWith(entry.callsign) }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text(entry.callsign, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.text)
-                    Text(entry.aircraftType ?: "--", fontSize = 12.sp, color = colors.textMuted)
-                    Text("%.1fnm".format(entry.distanceNm), fontSize = 12.sp, color = colors.textMuted)
+                    Text(entry.callsign, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.text, modifier = Modifier.weight(1.4f))
+                    Text(entry.aircraftType ?: "--", fontSize = 12.sp, color = colors.textMuted, modifier = Modifier.weight(1f))
+                    Text("%.1fnm".format(entry.distanceNm), fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
                 }
             }
         }

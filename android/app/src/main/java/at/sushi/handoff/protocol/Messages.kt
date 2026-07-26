@@ -33,7 +33,12 @@ data class Controller(
     val isCurrent: Boolean = false,
     val isContactMe: Boolean = false,
     val isLikelyNextCandidate: Boolean = false,
-    val isApproaching: Boolean = false
+    val isApproaching: Boolean = false,
+    // A softer, no-badge "worth rendering full color" signal -- unlike isLikelyNextCandidate it
+    // never affects ranking order, and unlike isApproaching it isn't gated on nothing being
+    // tuned. Only ever set by the plugin for CTR (airborne + bounded range, pending real sector
+    // geometry) and ATIS (route-matched ICAO prefix) -- see docs/protocol.md.
+    val isHighlighted: Boolean = false
 )
 
 @Serializable

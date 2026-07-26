@@ -45,7 +45,7 @@ fun XpdrDialog(
     KeypadDialogPanel(title = "TRANSPONDER", onDismiss = onDismiss) {
         Text(
             "ENTRY",
-            fontSize = 8.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.14f.em,
             color = colors.textMuted,
@@ -136,7 +136,7 @@ fun XpdrDialog(
                 ) {
                     Text(
                         code.toString().padStart(4, '0'),
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         fontFamily = RobotoMono,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.text

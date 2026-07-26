@@ -121,7 +121,7 @@ fun ControllerList(
     Column(modifier.fillMaxWidth().background(colors.panel)) {
         Text(
             "CONTROLLERS · ${controllers.size}",
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textMuted,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)

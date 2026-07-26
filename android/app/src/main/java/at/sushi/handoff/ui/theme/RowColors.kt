@@ -141,7 +141,10 @@ fun controllerRowColors(
 
     val col = when {
         controller.isCurrent -> FacilityColors.fullColor(FacilityColors.TUNED_HUE)
-        contactMeActive || controller.isLikelyNextCandidate || controller.isApproaching -> when {
+        // isHighlighted is a no-badge signal -- it earns the same full-saturation treatment as a
+        // badged row (contact-me/next/approaching) but never adds anything to controllerBadges,
+        // and (unlike an unresolved contact-me row) never flashes -- see docs/protocol.md.
+        contactMeActive || controller.isLikelyNextCandidate || controller.isApproaching || controller.isHighlighted -> when {
             isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f)
             isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f)
             else -> FacilityColors.fullColor(hue)

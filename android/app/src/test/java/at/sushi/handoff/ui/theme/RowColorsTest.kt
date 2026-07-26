@@ -15,7 +15,8 @@ class RowColorsTest {
         isCurrent: Boolean = false,
         isContactMe: Boolean = false,
         isLikelyNextCandidate: Boolean = false,
-        isApproaching: Boolean = false
+        isApproaching: Boolean = false,
+        isHighlighted: Boolean = false
     ) = Controller(
         callsign = callsign,
         frequency = frequency,
@@ -25,7 +26,8 @@ class RowColorsTest {
         isCurrent = isCurrent,
         isContactMe = isContactMe,
         isLikelyNextCandidate = isLikelyNextCandidate,
-        isApproaching = isApproaching
+        isApproaching = isApproaching,
+        isHighlighted = isHighlighted
     )
 
     @Test
@@ -158,6 +160,26 @@ class RowColorsTest {
             ),
             badges
         )
+    }
+
+    @Test
+    fun controllerRowColors_isHighlightedGetsFullSaturationLikeABadgedRowButDoesNotFlash() {
+        val c = controller(callsign = "LON_CTR", facility = 6, isHighlighted = true)
+        val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
+        assertEquals(FacilityColors.fullColor(FacilityColors.CTR_HUE).bg, result.background)
+        assertFalse(result.isFlashing)
+    }
+
+    @Test
+    fun controllerBadges_isHighlightedNeverAddsABadge() {
+        val badges = controllerBadges(
+            controller(isHighlighted = true),
+            com1Active = null,
+            com2Active = null,
+            isPinned = false,
+            selcalActive = false
+        )
+        assertTrue(badges.isEmpty())
     }
 
     @Test

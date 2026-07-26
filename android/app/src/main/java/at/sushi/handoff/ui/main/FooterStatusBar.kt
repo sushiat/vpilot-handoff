@@ -135,7 +135,7 @@ fun FooterStatusBar(
                 degraded -> colors.attention
                 else -> colors.ok
             }
-            Box(Modifier.size(8.dp).background(dotColor, CircleShape))
+            Box(Modifier.size(10.dp).background(dotColor, CircleShape))
             // The doc's full sentence ("Connected to Handoff vPilot plugin, flying from...")
             // reads fine in the design mock's wide preview but wraps awkwardly mid-word next to
             // the refresh/settings icons on a real tablet -- shortened to status + route. Once
@@ -156,7 +156,7 @@ fun FooterStatusBar(
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     statusText,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = colors.text,
                     maxLines = 1,
                     softWrap = false,
@@ -172,36 +172,41 @@ fun FooterStatusBar(
                     )
                 }
             }
-            // Tight 30x30 boxes with a 2px gap, same pattern as ControllerList's pin/message
-            // icons -- Material3's IconButton reserves a 48dp touch target plus its own internal
-            // padding, which pushed these icons much further apart than intended.
+            // Tight boxes with a 2px gap, same pattern as ControllerList's pin/message icons --
+            // Material3's IconButton reserves a 48dp touch target plus its own internal padding,
+            // which pushed these icons much further apart than intended. Sized up while there's
+            // room for the full "Connected · route" label (showStatusLabel, same narrow-width
+            // threshold as everywhere else in this bar); once that drops, these shrink back to
+            // their original 30dp/20dp so they don't crowd the now-tighter row.
+            val iconBoxSize = if (showStatusLabel) 36.dp else 30.dp
+            val iconSize = if (showStatusLabel) 24.dp else 20.dp
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 // Toggle, not a dialog-opener -- tint reflects on/off state the same way the top
                 // bar's Mode C badge does, rather than opening anything. Default on: the primary
                 // use case is a tablet docked and wired into power in the cockpit for the whole
                 // flight, where Android's screen timeout is actively unwanted.
                 Box(
-                    Modifier.size(30.dp).clickable(onClick = onToggleKeepScreenAwake),
+                    Modifier.size(iconBoxSize).clickable(onClick = onToggleKeepScreenAwake),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.ScreenLockLandscape,
                         contentDescription = if (keepScreenAwake) "Keep screen awake: on" else "Keep screen awake: off",
                         tint = if (keepScreenAwake) colors.accent else colors.textMuted,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(iconSize)
                     )
                 }
                 Box(
-                    Modifier.size(30.dp).clickable(onClick = onRefresh),
+                    Modifier.size(iconBoxSize).clickable(onClick = onRefresh),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted, modifier = Modifier.size(iconSize))
                 }
                 Box(
-                    Modifier.size(30.dp).clickable(onClick = onOpenSettings),
+                    Modifier.size(iconBoxSize).clickable(onClick = onOpenSettings),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = colors.textMuted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = colors.textMuted, modifier = Modifier.size(iconSize))
                 }
             }
         }
@@ -257,15 +262,22 @@ fun FooterStatusBar(
             ) {
                 val versionLabel = subsystemStatus.pluginVersion?.let { "v$it" } ?: "v?"
                 val latencyLabel = latencyMs?.let { "${it}ms" } ?: "--ms"
-                Text(
-                    // Matches the doc's "vPilot plugin v1.4.2 · ws://host:port · 38ms" line
-                    // shape -- all three fields are now real data (subsystemStatus message +
-                    // persisted host pref + client-measured ping/pong RTT).
-                    "vPilot plugin $versionLabel · ${address?.let { "ws://$it:48765" } ?: "not connected"} · $latencyLabel",
-                    fontSize = 10.5.sp,
-                    fontFamily = RobotoMono,
-                    color = colors.textMuted
-                )
+                Column {
+                    // Split across two lines -- at the larger font size below, "vPilot plugin
+                    // vX.X.X · ws://host:port · Xms" all on one line ran past the row's right edge.
+                    Text(
+                        "vPilot plugin $versionLabel",
+                        fontSize = 14.5.sp,
+                        fontFamily = RobotoMono,
+                        color = colors.textMuted
+                    )
+                    Text(
+                        "${address?.let { "ws://$it:48765" } ?: "not connected"} · $latencyLabel",
+                        fontSize = 14.5.sp,
+                        fontFamily = RobotoMono,
+                        color = colors.textMuted
+                    )
+                }
             }
         }
     }
@@ -295,10 +307,10 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
 private fun SubsystemStatusRow(label: String, connected: Boolean) {
     val colors = LocalHandoffColors.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(7.dp).background(if (connected) colors.ok else colors.border, CircleShape))
+        Box(Modifier.size(10.dp).background(if (connected) colors.ok else colors.border, CircleShape))
         Text(
             label,
-            fontSize = 11.5.sp,
+            fontSize = 13.5.sp,
             color = colors.textMuted
         )
     }

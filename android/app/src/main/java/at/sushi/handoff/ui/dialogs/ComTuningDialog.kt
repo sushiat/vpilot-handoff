@@ -76,7 +76,7 @@ fun ComTuningDialog(
     KeypadDialogPanel(title = "COM$comNumber TUNE", onDismiss = onDismiss) {
         Text(
             "ENTRY",
-            fontSize = 8.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.14f.em,
             color = LocalHandoffColors.current.textMuted,

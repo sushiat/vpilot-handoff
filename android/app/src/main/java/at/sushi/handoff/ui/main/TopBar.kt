@@ -188,12 +188,12 @@ private fun AppHeaderRow() {
             tint = colors.textMuted,
             modifier = Modifier.size(18.dp)
         )
-        Text("Handover", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
-        Text("by sushi.at", fontSize = 10.sp, color = colors.textMuted.copy(alpha = 0.85f))
+        Text("Handover", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
+        Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
         Box(Modifier.weight(1f))
         Text(
             "v$versionName",
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = RobotoMono,
             color = colors.textMuted.copy(alpha = 0.6f)
