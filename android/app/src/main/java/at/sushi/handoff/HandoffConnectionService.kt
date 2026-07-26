@@ -208,6 +208,10 @@ class HandoffConnectionService : Service() {
                 if (host == null) {
                     HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
                 } else {
+                    // Only updated on a successful resolve -- a later resolution failure (e.g.
+                    // discovery briefly not answering) shouldn't blank out the last known-good
+                    // address, which is still useful to see while the app quietly retries.
+                    HandoffState.setResolvedHost(host)
                     client.connect(host)
                     // Wait for a disconnect/failure signal before retrying; onStateChanged
                     // drives HandoffState directly, this loop only owns the retry timing.

@@ -167,6 +167,7 @@ private fun MainScreenContent() {
     val splitSide by HandoffState.splitSide.collectAsState()
     val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
+    val resolvedHost by HandoffState.resolvedHost.collectAsState()
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
@@ -385,7 +386,7 @@ private fun MainScreenContent() {
                 vatsimOrigin = flightPlan.vatsimOrigin,
                 vatsimDestination = flightPlan.vatsimDestination,
                 vatsimMissing = vatsimMissing,
-                address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
+                address = resolvedHost,
                 subsystemStatus = subsystemStatus,
                 operationStatus = operationStatus,
                 operationFinished = operationFinished,

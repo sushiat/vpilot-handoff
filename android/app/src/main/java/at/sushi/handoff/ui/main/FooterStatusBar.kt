@@ -75,6 +75,9 @@ fun FooterStatusBar(
     vatsimOrigin: String?,
     vatsimDestination: String?,
     vatsimMissing: Boolean,
+    // The host actually used for the current/last connection attempt (HandoffState.resolvedHost)
+    // -- not the raw manual-IP preference, which stays null forever for anyone relying on UDP
+    // discovery instead of typing an IP in Settings, even while genuinely connected.
     address: String?,
     subsystemStatus: SubsystemStatusMessage,
     // Human-readable status text for an in-progress (or recently finished, still lingering)

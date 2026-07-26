@@ -41,6 +41,17 @@ object HandoffState {
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
 
+    // The host actually used for the current/last connection attempt -- may come from either
+    // the persisted manual-IP setting or HandoffDiscoveryClient's UDP broadcast (see
+    // HandoffConnectionService.resolveHost), so this is the only correct source for an "address
+    // in use" display; reading the manual-IP preference directly shows null forever for anyone
+    // relying on discovery, even while genuinely connected. Deliberately NOT cleared by
+    // clearLiveServerState() below -- unlike a flight plan or tuned frequency, this describes
+    // configuration ("where are we even trying to connect"), not live telemetry that goes stale
+    // the moment the link drops, so it stays useful to see even while disconnected.
+    private val _resolvedHost = MutableStateFlow<String?>(null)
+    val resolvedHost: StateFlow<String?> = _resolvedHost.asStateFlow()
+
     private val _controllers = MutableStateFlow(ControllersMessage(controllers = emptyList()))
     val controllers: StateFlow<ControllersMessage> = _controllers.asStateFlow()
 
@@ -111,6 +122,10 @@ object HandoffState {
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
+    }
+
+    fun setResolvedHost(host: String?) {
+        _resolvedHost.value = host
     }
 
     /** Resets every plugin-pushed snapshot back to its default the moment the WebSocket link is
