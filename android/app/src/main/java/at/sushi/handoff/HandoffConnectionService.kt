@@ -114,6 +114,22 @@ class HandoffConnectionService : Service() {
         notifier = HandoffNotifier(this)
         createConnectionNotificationChannel()
         notifier.createChannels()
+        // Static and silent -- Android requires an active notification for a foreground service
+        // to keep running at all (the WebSocket connection surviving backgrounding is the whole
+        // point of this being a service, see the class doc), but the user doesn't want it calling
+        // attention to itself or updating with connection status. MIN importance + no further
+        // notify() calls keeps it collapsed and silent in the shade.
+        //
+        // Must happen before addObserver below, not after -- ProcessLifecycleOwner dispatches
+        // the current state synchronously to a newly added observer, so on a cold launch (the
+        // process is typically already STARTED by the time this service initializes, racing
+        // MainActivity's own onStart) appVisibilityObserver.onStart fires immediately and calls
+        // stopForeground. If that ran before this startForeground call even happened, it'd be a
+        // no-op on a service that hasn't entered the foreground state yet -- and this call would
+        // then unconditionally post the notification right afterward with nothing left to hide
+        // it until the next real background/foreground transition, leaving it stuck showing on
+        // a fresh launch even though the app is already on screen.
+        startForeground(NotificationId, buildConnectionNotification())
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         HandoffState.setKeepScreenAwake(isCharging())
@@ -133,12 +149,6 @@ class HandoffConnectionService : Service() {
             },
             onStateChanged = { connected -> onConnectionStateChanged(connected) }
         )
-        // Static and silent -- Android requires an active notification for a foreground service
-        // to keep running at all (the WebSocket connection surviving backgrounding is the whole
-        // point of this being a service, see the class doc), but the user doesn't want it calling
-        // attention to itself or updating with connection status. MIN importance + no further
-        // notify() calls keeps it collapsed and silent in the shade.
-        startForeground(NotificationId, buildConnectionNotification())
         reconnectLoop()
     }
 
