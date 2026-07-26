@@ -107,6 +107,26 @@ object HandoffState {
 
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
+        if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
+    }
+
+    /** Resets every plugin-pushed snapshot back to its default the moment the WebSocket link is
+     *  confirmed gone (HandoffWebSocketClient's onClosed/onFailure) -- otherwise stale data (a
+     *  flight plan, tuned frequencies, the last known controller list) keeps rendering as
+     *  current indefinitely, with nothing on screen indicating it stopped being live. No extra
+     *  "has it been down a while" debounce -- connectionStatus itself already only reaches
+     *  DISCONNECTED once the socket is genuinely gone, so there's no flicker risk to guard
+     *  against. Chat history and the pinned-controller intent are deliberately left alone: chat
+     *  is a log worth keeping across a reconnect, and the pin is the pilot's own choice, not
+     *  server-pushed data that can go stale the same way. */
+    private fun clearLiveServerState() {
+        _controllers.value = ControllersMessage(controllers = emptyList())
+        _radioState.value = RadioStateMessage(modeCEnabled = false)
+        _flightPlan.value = FlightPlanMessage()
+        _nearbyAircraft.value = NearbyAircraftMessage(aircraft = emptyList())
+        _subsystemStatus.value = SubsystemStatusMessage()
+        _operationProgress.value = null
+        _latencyMs.value = null
     }
 
     fun update(message: ControllersMessage) {
