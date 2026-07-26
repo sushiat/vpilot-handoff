@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Handoff.Plugin
 {
     /// <summary>
@@ -12,16 +14,17 @@ namespace Handoff.Plugin
         public string Frequency { get; }
         public string Callsign { get; }
 
-        /// <summary>ICAO/FIR prefix this position belongs to (VATGlasses' "pre" field).</summary>
-        public string Prefix { get; }
+        /// <summary>ICAO/FIR prefixes this position belongs to (VATGlasses' "pre" field -- a
+        /// position can carry several, e.g. both an ICAO and an "-I" inbound-traffic variant).</summary>
+        public IReadOnlyList<string> Prefixes { get; }
 
-        public VatGlassesPosition(string id, string type, string frequency, string callsign, string prefix)
+        public VatGlassesPosition(string id, string type, string frequency, string callsign, IReadOnlyList<string> prefixes)
         {
             Id = id;
             Type = type;
             Frequency = frequency;
             Callsign = callsign;
-            Prefix = prefix;
+            Prefixes = prefixes;
         }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using RossCarlson.Vatsim.Vpilot.Plugins;
 
 namespace Handoff.Plugin
@@ -74,10 +75,21 @@ namespace Handoff.Plugin
 
             // Not tied to the VATSIM connection -- needed pre-connection the same way SimBrief
             // is, and generic enough (see issue #9) that other future startup operations can
-            // report through it too.
+            // report through it too. OperationProgressModel itself is just in-memory state (no
+            // I/O), safe to construct directly here.
             _operationProgress = new OperationProgressModel();
-            _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
-            _ = _vatGlassesData.SyncAsync();
+
+            // VatGlassesDataModel's construction does synchronous disk-cache I/O, and SyncAsync
+            // does network I/O -- both run on their own dedicated background thread (mirrors
+            // VatsimDataFeedModel's own PollLoop thread), never vPilot's Initialize-calling
+            // thread, so this can never add so much as a millisecond of delay to vPilot's own
+            // startup or its VATSIM network handling.
+            new Thread(() =>
+            {
+                _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
+                _vatGlassesData.SyncAsync().GetAwaiter().GetResult();
+            })
+            { Name = "VatGlassesDataModel.Startup", IsBackground = true }.Start();
 
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status

@@ -38,8 +38,8 @@ namespace Handoff.Plugin.Tests
                                 ""min"": 0,
                                 ""max"": 245,
                                 ""points"": [
-                                    {""lat"": ""475026"", ""lng"": ""0124429""},
-                                    {""lat"": ""474000"", ""lng"": ""0123000""}
+                                    [""475026"", ""0124429""],
+                                    [""474000"", ""0123000""]
                                 ]
                             }
                         ]
@@ -68,7 +68,7 @@ namespace Handoff.Plugin.Tests
                 ""airports"": {},
                 ""airspace"": [],
                 ""positions"": {
-                    ""VCL"": {""type"": ""APP"", ""frequency"": ""127.900"", ""callsign"": ""Innsbruck Radar"", ""pre"": ""LOWI""}
+                    ""VCL"": {""type"": ""APP"", ""frequency"": ""127.900"", ""callsign"": ""Innsbruck Radar"", ""pre"": [""LOWI""]}
                 }
             }";
 
@@ -78,7 +78,23 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("APP", position.Type);
             Assert.Equal("127.900", position.Frequency);
             Assert.Equal("Innsbruck Radar", position.Callsign);
-            Assert.Equal("LOWI", position.Prefix);
+            Assert.Equal(new[] { "LOWI" }, position.Prefixes);
+        }
+
+        [Fact]
+        public void ParseRegionFile_ParsesPositionWithMultiplePrefixes()
+        {
+            var json = @"{
+                ""airports"": {},
+                ""airspace"": [],
+                ""positions"": {
+                    ""L"": {""type"": ""CTR"", ""frequency"": ""127.430"", ""callsign"": ""London Control"", ""pre"": [""EGTT"", ""EGTT-I"", ""LON"", ""LON-I""]}
+                }
+            }";
+
+            var position = VatGlassesDataClient.ParseRegionFile(json).Positions["L"];
+
+            Assert.Equal(new[] { "EGTT", "EGTT-I", "LON", "LON-I" }, position.Prefixes);
         }
 
         [Fact]

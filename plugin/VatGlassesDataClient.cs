@@ -16,11 +16,12 @@ namespace Handoff.Plugin
     /// caller. Parsing is a separate pure method (ParseRegionFile) for unit testability against
     /// fixture JSON, same reasoning as VatsimDataFeedClient's ParseControllers/ParsePilots.
     ///
-    /// NOTE: the "data" directory path and "main" branch below are taken from a look at the
-    /// repo's layout, not confirmed against a pinned commit -- verify empirically per
-    /// CLAUDE.md's "Open items to verify empirically" convention before relying on this. Same
-    /// caveat applies to the exact field names used in ParseRegionFile (VATGlasses has no
-    /// published schema doc) -- they're taken from issue #9's description of the data.
+    /// NOTE: the "data" directory path, "main" branch, and ParseRegionFile's field shapes have
+    /// been confirmed against a live file (data/eg.json, fetched 2026-07-26) -- 155 files, one
+    /// "ei" entry is itself a subdirectory rather than a flat file and is silently skipped by
+    /// ListDataFilesAsync's file-only filter (a coverage gap, not a bug). Not re-verified against
+    /// a pinned commit, so a future upstream schema change could still break this -- VATGlasses
+    /// has no published schema doc to pin against.
     /// </summary>
     public static class VatGlassesDataClient
     {
@@ -153,8 +154,11 @@ namespace Handoff.Plugin
                     {
                         foreach (var sector in sectorsArray)
                         {
+                            // Each point is a raw 2-element [lat, lon] array (DMS strings), not
+                            // an {lat, lng} object -- confirmed against a live region file
+                            // (data/eg.json), not just the issue's prose description.
                             var points = (sector["points"] as JArray)?
-                                .Select(p => new VatGlassesPoint((string)p["lat"], (string)p["lng"]))
+                                .Select(p => new VatGlassesPoint((string)p[0], (string)p[1]))
                                 .ToList() ?? new List<VatGlassesPoint>();
                             levels.Add(new VatGlassesSectorLevel((double?)sector["min"], (double?)sector["max"], points));
                         }
@@ -170,12 +174,16 @@ namespace Handoff.Plugin
                 foreach (var property in positionsObj.Properties())
                 {
                     var value = property.Value;
+                    // "pre" is always an array (confirmed against a live region file), even
+                    // when a position only carries one prefix -- e.g. ["LON"], or
+                    // ["EGTT", "EGTT-I", "LON", "LON-I"] for one that carries several.
+                    var prefixes = (value["pre"] as JArray)?.Select(p => (string)p).ToList() ?? new List<string>();
                     positions[property.Name] = new VatGlassesPosition(
                         id: property.Name,
                         type: (string)value["type"],
                         frequency: (string)value["frequency"],
                         callsign: (string)value["callsign"],
-                        prefix: (string)value["pre"]);
+                        prefixes: prefixes);
                 }
             }
 
