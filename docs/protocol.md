@@ -62,7 +62,8 @@ VATSIM facility conventions).
       "isCurrent": true,
       "isContactMe": false,
       "isLikelyNextCandidate": false,
-      "isApproaching": false
+      "isApproaching": false,
+      "isHighlighted": false
     }
   ]
 }
@@ -92,6 +93,18 @@ The boolean fields are what clients actually consume, each driving its own badge
   contact next.
 - `isApproaching`: only ever `true` when nothing is currently tuned/pinned (flying uncontrolled)
   -- the pilot is closing in on this station's range.
+- `isHighlighted`: a softer, no-badge-implied "worth rendering prominently" signal -- unlike
+  `isLikelyNextCandidate` it never affects ranking order, and unlike `isApproaching` it isn't
+  gated on nothing being tuned. **Currently only ever set for two tiers, nothing else:**
+  - **CTR**: gated on being airborne and within a bounded range (no real sector geometry exists
+    yet -- issue #11 -- so this is a rough proximity cutoff, not a modeled FIR boundary).
+  - **ATIS**: gated on the callsign's ICAO prefix matching the route airport (origin
+    pre-departure, destination after takeoff) -- the same route-match logic used for
+    DEL/GND/TWR/APP/DEP elsewhere, just applied to a tier (`Other`) that both
+    `isLikelyNextCandidate`'s tier walk and `isApproaching` otherwise skip entirely.
+  
+  Every other tier already gets equivalent treatment through `isLikelyNextCandidate` or
+  `isApproaching`, so `isHighlighted` is always `false` for them.
 
 ### `chat`
 

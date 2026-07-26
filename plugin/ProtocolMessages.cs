@@ -40,7 +40,8 @@ namespace Handoff.Plugin
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
                     isLikelyNextCandidate = c.IsLikelyNextCandidate,
-                    isApproaching = c.IsApproaching
+                    isApproaching = c.IsApproaching,
+                    isHighlighted = c.IsHighlighted
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);

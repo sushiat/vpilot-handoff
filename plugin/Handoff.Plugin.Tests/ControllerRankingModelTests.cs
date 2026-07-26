@@ -285,6 +285,103 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public async Task Ctr_NeverFlaggedNextViaProximity_RegardlessOfPhaseOrDistance()
+        {
+            // CTR only ever earns IsLikelyNextCandidate via a genuine route match (rare for FIR
+            // callsigns) -- never via proximity, on the ground or airborne, close or far. See
+            // IsHighlighted for the softer, gated signal that replaces the old proximity fallback.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDM_HOF_CTR", 12345, 49.11, 16.57); // ~60nm north of LOWW
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 48.11, 16.57, DateTimeOffset.Now); // LOWW, on ground
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDM_HOF_CTR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task CtrHighlighted_WhileOnGround_NeverAppliesRegardlessOfDistance()
+        {
+            // Regression: sitting at the gate at LOWW (not even pushed back), a CTR is connected
+            // nearby (~60nm -- comfortably within IsHighlighted's range gate). On the ground
+            // there's always at least one more tier (GND/TWR/DEP) still ahead of CTR, so it must
+            // never be highlighted yet regardless of how close it is.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDM_HOF_CTR", 12345, 49.11, 16.57); // ~60nm north of LOWW
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 48.11, 16.57, DateTimeOffset.Now); // LOWW, on ground
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDM_HOF_CTR").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task CtrHighlighted_Airborne_BeyondMaxRange_NotHighlighted()
+        {
+            // Regression: airborne, but the only online CTR is well outside any plausible sector
+            // range (4 degrees of latitude away, ~240nm) -- a pilot heading the opposite direction
+            // should never see it highlighted just for being the closest one connected right now.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDF_CTR", 12345, 52.11, 16.57); // ~240nm north of LOWW
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 90, 48.11, 16.57, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDF_CTR").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task CtrHighlighted_Airborne_WithinMaxRange_IsHighlighted()
+        {
+            // Sanity check alongside the two regressions above: airborne and genuinely close
+            // (~60nm) does get highlighted -- this isn't just a blanket "never highlight CTR"
+            // change, and it never affects IsLikelyNextCandidate either way.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDM_HOF_CTR", 12345, 49.11, 16.57); // ~60nm north of LOWW
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 0, 48.11, 16.57, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            var ranked = model.Current.Single(c => c.Callsign == "EDDM_HOF_CTR");
+            Assert.True(ranked.IsHighlighted);
+            Assert.False(ranked.IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task AtisHighlighted_RouteMatchesDeparture_PreDeparture()
+        {
+            // ATIS parses to ControllerTier.Other, which both IsLikelyNextCandidate's tier walk
+            // and IsApproaching entirely skip -- without IsHighlighted an airport's own ATIS
+            // would never render any differently than a wholly unrelated one.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LOWW_ATIS", 12800);
+            var model = CreateModel(flightPlan);
+
+            var ranked = model.Current.Single(c => c.Callsign == "LOWW_ATIS");
+            Assert.True(ranked.IsHighlighted);
+            Assert.False(ranked.IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task AtisHighlighted_UnrelatedAirport_NotHighlighted()
+        {
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDM_ATIS", 12800);
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDM_ATIS").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task AtisHighlighted_RouteMatchesDestination_AfterTakeoff()
+        {
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LOWI_ATIS", 12800);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 90, 48.5, 16.9, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWI_ATIS").IsHighlighted);
+        }
+
+        [Fact]
         public async Task MomentaryOnGroundFlicker_WhileParked_DoesNotLatchHasTakenOff()
         {
             // Regression: a single spurious OnGround==false sample at ~0ft AGL (squat-switch
@@ -348,23 +445,29 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public async Task NextTierCandidate_Ctr_NoRouteMatch_AlwaysFallsBackToClosest()
+        public async Task NextTierCandidate_Ctr_NoRouteMatch_NeverFlaggedNext_ButInRangeOneIsHighlighted()
         {
-            // CTR is the exception even with a flight plan loaded: FIR callsigns (e.g. "VIE_CTR")
-            // routinely don't share an airport's ICAO prefix, so proximity always applies there.
+            // CTR never earns IsLikelyNextCandidate via proximity (FIR callsigns like "VIE_CTR"
+            // routinely don't share an airport's ICAO prefix, and without real sector geometry --
+            // issue #11 -- a "closest CTR" guess isn't confident enough to pull it to the top of
+            // the ranked list). It still gets the softer IsHighlighted treatment when in range,
+            // though -- and BRA_CTR (~570nm away here) is deliberately far enough out to show that
+            // isn't unconditional either.
             var flightPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
             AddController("VIE_CTR", 20000, 0, 0);
-            AddController("BRA_CTR", 20100, 0, 1);
+            AddController("BRA_CTR", 20100, 0, 10);
             AddController("LOWW_APP", 12100, 0, 0);
             _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0.4, DateTimeOffset.Now); // VIE closer
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0.4, DateTimeOffset.Now); // VIE close, BRA far
             var model = CreateModel(flightPlan);
 
             _radio.RaiseChanged();
 
             var ranked = model.Current;
-            Assert.True(ranked.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
+            Assert.False(ranked.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
             Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsLikelyNextCandidate);
+            Assert.True(ranked.Single(c => c.Callsign == "VIE_CTR").IsHighlighted);
+            Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsHighlighted);
         }
 
         /// <summary>Starts a real VatsimDataFeedModel with a canned single-poll snapshot containing

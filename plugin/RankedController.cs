@@ -36,7 +36,20 @@ namespace Handoff.Plugin
         // deferred to issue #11).
         public bool IsApproaching { get; }
 
-        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching, string stationName = null)
+        // A softer, no-badge-implied "this one's plausible, render it prominently" signal --
+        // unlike IsLikelyNextCandidate it never affects ranking order, and unlike IsApproaching
+        // it isn't gated on nothing being tuned (it's not a "you're on UNICOM, get ready" alert,
+        // just "worth a glance"). Currently only ever set for two tiers, each excluded from
+        // IsLikelyNextCandidate/IsApproaching for its own reason:
+        //   - CTR: without real sector geometry (issue #11) a "closest CTR" guess isn't
+        //     confident enough to justify pulling it to the top of the list or claiming
+        //     APPROACHING's specific meaning, but it's still more useful highlighted than flat.
+        //   - ATIS: parses to ControllerTier.Other, which both of those entirely skip, so an
+        //     airport's own ATIS otherwise never renders any differently than an unrelated one
+        //     even when its callsign plainly matches the route.
+        public bool IsHighlighted { get; }
+
+        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching, bool isHighlighted, string stationName = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -51,6 +64,7 @@ namespace Handoff.Plugin
             IsContactMe = isContactMe;
             IsLikelyNextCandidate = isLikelyNextCandidate;
             IsApproaching = isApproaching;
+            IsHighlighted = isHighlighted;
             StationName = stationName;
         }
     }

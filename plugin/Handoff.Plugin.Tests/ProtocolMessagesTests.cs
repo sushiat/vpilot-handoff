@@ -21,7 +21,7 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false)
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false, false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
@@ -40,6 +40,7 @@ namespace Handoff.Plugin.Tests
             Assert.False((bool)controller["isContactMe"]);
             Assert.True((bool)controller["isLikelyNextCandidate"]);
             Assert.False((bool)controller["isApproaching"]);
+            Assert.False((bool)controller["isHighlighted"]);
             Assert.Equal(JTokenType.Null, controller["stationName"].Type);
         }
 
@@ -48,7 +49,7 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false)
+                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false, false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));

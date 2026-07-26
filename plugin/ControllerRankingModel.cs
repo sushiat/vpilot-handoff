@@ -28,12 +28,17 @@ namespace Handoff.Plugin
     ///      walking upward from the current tier, the first tier with an actually-relevant
     ///      controller gets IsLikelyNextCandidate on just that controller (or all of them, if
     ///      several route-match). "Relevant" means route-matching the flight-plan airport where
-    ///      one's loaded; for CTR, or when no flight plan is loaded at all, the single distance
-    ///      leader counts as relevant instead. A tier whose only online members don't route-match
-    ///      (some other airport's DEL/GND/TWR/APP/DEP, e.g. while nothing's tuned and the search
-    ///      starts from the bottom of the chain) is skipped entirely rather than shadowing a real
-    ///      match further up the chain -- the search isn't "the lowest tier present anywhere on
-    ///      the network," it's "the lowest tier with something to do with this flight."
+    ///      one's loaded; when no flight plan is loaded at all, any non-CTR tier's single
+    ///      distance leader counts as relevant instead. CTR's proximity fallback is further
+    ///      gated on being airborne (there's always at least one more tier still ahead of CTR
+    ///      while on the ground) and within CtrNextCandidateMaxNauticalMiles -- otherwise the
+    ///      single closest CTR controller *anywhere on the network* would qualify, regardless of
+    ///      whether it has anything to do with the route. A tier whose only online members don't
+    ///      route-match (some other airport's DEL/GND/TWR/APP/DEP, e.g. while nothing's tuned and
+    ///      the search starts from the bottom of the chain) is skipped entirely rather than
+    ///      shadowing a real match further up the chain -- the search isn't "the lowest tier
+    ///      present anywhere on the network," it's "the lowest tier with something to do with
+    ///      this flight."
     ///   6. Within a tier: route match (callsign ICAO prefix vs flight-plan origin/destination).
     ///   7. Within a tier, no route match: distance to ownship, closest first. ATIS (tier Other,
     ///      via ControllerTier.ParseControllerTier) never route-matches or gets a next-candidate
@@ -65,6 +70,11 @@ namespace Handoff.Plugin
         private const double AppOmnidirectionalNauticalMiles = 40;
         private const double AppOuterNauticalMiles = 50;
         private const double AppHeadingToleranceDegrees = 45;
+
+        // Rough placeholder for CTR's IsHighlighted proximity gate -- no real sector geometry
+        // exists yet (issue #11), so this isn't a modeled FIR boundary, just a sanity cutoff
+        // wide enough for a typical European Center sector without being unbounded.
+        private const double CtrHighlightMaxNauticalMiles = 200;
 
         private readonly object _gate = new object();
         private readonly ControllerStateModel _controllerState;
@@ -193,9 +203,9 @@ namespace Handoff.Plugin
             // nothing tuned that's nearly always Delivery somewhere in the world, which would
             // permanently shadow a real, relevant Tower/Ground at the current airport. Instead
             // walk the chain upward from the current tier and stop at the first tier that has an
-            // actually-relevant controller (route-matched, or the CTR/no-flight-plan proximity
-            // fallback) -- skipping tiers whose only online members belong to some other airport
-            // entirely.
+            // actually-relevant controller (route-matched, or the no-flight-plan proximity
+            // fallback below CTR) -- skipping tiers whose only online members belong to some
+            // other airport entirely.
             var nextCandidateCallsigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var startRank = currentTier.HasValue ? (int)currentTier.Value : -1;
             foreach (var tier in orderedByTier.Keys.Where(t => t != ControllerTier.Other && (int)t > startRank).OrderBy(t => (int)t))
@@ -205,15 +215,27 @@ namespace Handoff.Plugin
                 // Below CTR, callsign ICAO prefix reliably identifies "your" airport (matches
                 // the flight plan), so once a flight plan exists, a tier with no route match
                 // means every station in it genuinely belongs to a different airport -- skip past
-                // it rather than either flagging it or stopping the search there. CTR is always
-                // the exception: FIR callsigns (e.g. "VIE_CTR") routinely don't share an
-                // airport's ICAO prefix at all, so proximity is the only usable signal there
-                // regardless. Without a flight plan at all there's no route data to trust either
-                // way, so every tier falls back to proximity same as CTR.
+                // it rather than either flagging it or stopping the search there. Without a
+                // flight plan at all there's no route data to trust either way, so a non-CTR tier
+                // falls back to proximity. CTR deliberately gets NO proximity fallback here at
+                // all (only ever earns IsLikelyNextCandidate via a genuine route match, rare as
+                // that is for FIR callsigns) -- without real sector geometry (issue #11) a
+                // "closest CTR" guess isn't reliable enough to justify pulling it to the top of
+                // the ranked list, ahead of every other remaining controller (see IsApproaching
+                // below for the softer, purely-cosmetic version of this same signal for CTR).
                 List<Controller> nextCandidates;
-                if (routeMatched.Count > 0) nextCandidates = routeMatched;
-                else if (tier == ControllerTier.Center || string.IsNullOrEmpty(routeAirport)) nextCandidates = new List<Controller> { orderedTier[0] };
-                else continue;
+                if (routeMatched.Count > 0)
+                {
+                    nextCandidates = routeMatched;
+                }
+                else if (tier != ControllerTier.Center && string.IsNullOrEmpty(routeAirport))
+                {
+                    nextCandidates = new List<Controller> { orderedTier[0] };
+                }
+                else
+                {
+                    continue;
+                }
 
                 foreach (var c in nextCandidates) nextCandidateCallsigns.Add(c.Callsign);
                 break;
@@ -266,6 +288,7 @@ namespace Handoff.Plugin
                 var tier = c.Callsign.ParseControllerTier();
                 var isNextCandidate = !isCurrent && nextCandidateCallsigns.Contains(c.Callsign);
                 var isApproaching = !isCurrent && IsApproaching(c, tier, hasCurrent, telemetry);
+                var isHighlighted = !isCurrent && (IsCtrHighlighted(c, tier, telemetry) || IsAtisHighlighted(c, routeAirport));
 
                 return new RankedController(
                     callsign: c.Callsign,
@@ -281,6 +304,7 @@ namespace Handoff.Plugin
                     isContactMe: isContactMe,
                     isLikelyNextCandidate: isNextCandidate,
                     isApproaching: isApproaching,
+                    isHighlighted: isHighlighted,
                     stationName: null);
             }).ToList();
 
@@ -364,6 +388,35 @@ namespace Handoff.Plugin
 
         private static double DistanceNm(Controller controller, OwnshipTelemetry telemetry) =>
             GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
+
+        /// <summary>
+        /// CTR-only, no-badge-implied "worth rendering prominently" signal -- see
+        /// RankedController.IsHighlighted. Unlike IsApproaching this doesn't require nothing to
+        /// be tuned (it's not a UNICOM alert, just a plausibility cue), but it does require
+        /// confirmed-airborne (on the ground there's always at least one more tier -- GND/TWR/DEP
+        /// -- still ahead of CTR) and a bounded range (CtrHighlightMaxNauticalMiles -- a rough
+        /// placeholder pending real sector geometry, issue #11).
+        /// </summary>
+        private static bool IsCtrHighlighted(Controller controller, ControllerTier tier, OwnshipTelemetry telemetry)
+        {
+            if (tier != ControllerTier.Center) return false;
+            if (telemetry.OnGround != false) return false;
+            if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return false;
+            return DistanceNm(controller, telemetry) <= CtrHighlightMaxNauticalMiles;
+        }
+
+        /// <summary>
+        /// ATIS's contribution to IsHighlighted -- ATIS parses to ControllerTier.Other (see
+        /// ParseControllerTier), which the next-candidate walk and IsApproaching both entirely
+        /// skip, so without this an airport's own ATIS never renders any differently than a
+        /// wholly unrelated one. No proximity gating needed here the way CTR needs one -- an
+        /// ICAO-prefix match against the route airport is exactly as reliable a signal as it is
+        /// for DEL/GND/TWR/APP/DEP route matching elsewhere in this class.
+        /// </summary>
+        private static bool IsAtisHighlighted(Controller controller, string routeAirport) =>
+            controller.Callsign.EndsWith("_ATIS", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrEmpty(routeAirport) &&
+            controller.Callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase);
 
         private List<Controller> ApplyDistanceHysteresis(ControllerTier tier, List<Controller> controllers, OwnshipTelemetry telemetry)
         {
