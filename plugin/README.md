@@ -98,11 +98,18 @@ to heading if the route can't be resolved -- waypoint lat/lon resolution from th
 string isn't implemented, only SimBrief's own `navlog.fix[]` gives that directly).
 
 Prints the sequence of sector containment/approach-prediction transitions for the flight, to be
-cross-checked by eye against the live map at vatglasses.uk. Deliberately geometry-only: VATSIM's
-public data feed (and vataware's archive of it) carries no per-pilot tuned-COM-frequency
-history — that's only ever broadcast live via the separate AFV transceivers feed, which nobody
-archives — so there's no ground truth available here to check ownership-resolution/ranking
-against, only whether the sector/altitude-band math picks the polygon a human would expect.
+cross-checked by eye against the live map at vatglasses.uk. Also self-checks each
+approach-prediction against what ownship actually flew into next (no external ground truth
+needed for this part — did the sector predicted as "approaching" become the next `IN:` sector?),
+printing `[OK]`/`[MISS]` verdicts and a final tally; a `[MISS]` right after a wide gap between
+position samples usually just means the predicted sector was briefly transited between samples,
+not a real prediction failure — the gap duration is printed alongside each miss to help tell
+the two apart. Deliberately geometry-only otherwise: VATSIM's public data feed (and vataware's
+archive of it) carries no per-pilot tuned-COM-frequency history — that's only ever broadcast
+live via the separate AFV transceivers feed, which nobody archives — so there's no ground truth
+available to check ownership-resolution/ranking against (i.e. whether the sector that ends up
+"approaching"/"IN:" would actually have anyone online on live VATSIM, only that the
+sector/altitude-band geometry itself picks the polygon a human would expect).
 
 ## Debugging
 

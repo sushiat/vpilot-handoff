@@ -94,17 +94,51 @@ namespace Handoff.ReplayTool
         {
             string lastContainmentSummary = null;
             string lastApproachSummary = null;
+            var previousContainingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string pendingPredictionKey = null;
+            string pendingPredictionLabel = null;
+            var confirmedCount = 0;
+            var missedCount = 0;
+            DateTimeOffset? previousTimestamp = null;
 
             foreach (var p in positions.OrderBy(p => p.Timestamp))
             {
                 var pressureAltitudeFl = p.Altitude / 100.0;
 
                 var containing = VatGlassesSectorLookup.FindContainingSectors(regions, p.Latitude, p.Longitude, pressureAltitudeFl, null);
+                var containingKeys = new HashSet<string>(containing.Select(MatchKey), StringComparer.OrdinalIgnoreCase);
                 var summary = string.Join(", ", containing.Select(m => DescribeMatch(m, regions)));
                 if (summary != lastContainmentSummary)
                 {
+                    // Self-consistency check (no external ground truth needed): did the sector
+                    // most recently predicted as "approaching" actually become the next one
+                    // ownship entered? Confirms the prediction geometry is sound independent of
+                    // any online-controller/frequency data this tool doesn't have.
+                    if (pendingPredictionKey != null)
+                    {
+                        var newlyEntered = containingKeys.Except(previousContainingKeys).ToList();
+                        if (newlyEntered.Count > 0)
+                        {
+                            if (newlyEntered.Contains(pendingPredictionKey, StringComparer.OrdinalIgnoreCase))
+                            {
+                                Console.WriteLine($"    [OK] prediction confirmed: entered {pendingPredictionLabel} as predicted");
+                                confirmedCount++;
+                            }
+                            else
+                            {
+                                var gapSeconds = previousTimestamp.HasValue ? (p.Timestamp - previousTimestamp.Value).TotalSeconds : (double?)null;
+                                var gapNote = gapSeconds.HasValue ? $" (gap since previous sample: {gapSeconds:F0}s -- a wide gap likely means the predicted sector was briefly transited between samples, not a real miss)" : "";
+                                Console.WriteLine($"    [MISS] predicted {pendingPredictionLabel}, but entered {string.Join(", ", newlyEntered)} instead{gapNote}");
+                                missedCount++;
+                            }
+                            pendingPredictionKey = null;
+                            pendingPredictionLabel = null;
+                        }
+                    }
+
                     Console.WriteLine($"[{p.Timestamp:HH:mm:ss}] alt={p.Altitude,-6:F0}ft lat={p.Latitude,9:F4} lon={p.Longitude,9:F4} hdg={p.Heading,3:F0}  IN: {(summary.Length == 0 ? "(none)" : summary)}");
                     lastContainmentSummary = summary;
+                    previousContainingKeys = containingKeys;
                 }
 
                 IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approaching;
@@ -131,8 +165,22 @@ namespace Handoff.ReplayTool
                     Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {approachSummary}");
                 }
                 lastApproachSummary = approachSummary;
+
+                if (closest != null)
+                {
+                    pendingPredictionKey = MatchKey(closest.Match);
+                    pendingPredictionLabel = DescribeMatch(closest.Match, regions);
+                }
+
+                previousTimestamp = p.Timestamp;
             }
+
+            Console.WriteLine();
+            Console.WriteLine($"Prediction check: {confirmedCount} confirmed, {missedCount} missed (predictions never checked because the flight ended, or no prediction existed yet, don't count either way).");
         }
+
+        private static string MatchKey(VatGlassesSectorLookup.VatGlassesSectorMatch match) =>
+            $"{match.Sector.Id}@{match.RegionFileName}";
 
         /// <summary>
         /// Labels a sector match with its first owner chain entry's callsign/frequency, for
