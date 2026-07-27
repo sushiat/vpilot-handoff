@@ -46,6 +46,9 @@ namespace Handoff.ReplayTool
         /// <summary>Deliberate delay between vataware.net requests in batch mode, respecting their "use reasonably" rate-limit policy (see plugin/README.md).</summary>
         private const int BatchRequestDelayMs = 500;
 
+        /// <summary>Cap on distinct flights taken from any one airport on the first pass of --random-test discovery -- keeps the sample geographically spread rather than a handful of busy hubs dominating it. The backpocket (see DiscoverRandomFlightsAsync) can still exceed this per airport as a fallback if the target count isn't otherwise reached.</summary>
+        private const int MaxFlightsPerAirport = 3;
+
         private static async Task<int> Main(string[] args)
         {
             // VATGlasses sector names include non-ASCII characters (e.g. "Nördlingen") --
@@ -377,24 +380,31 @@ namespace Handoff.ReplayTool
         {
             // UK & Ireland
             "EGLL", "EGKK", "EGCC", "EGGD", "EGPH", "EGPF", "EGBB", "EGNX", "EGSS", "EGGW", "EGAA", "EIDW", "EICK",
+            "EGPD", "EGHI", "EGLC", "EGTE", "EGHH", "EGNT", "EGBJ", "EGPK", "EGNS",
             // France
             "LFPG", "LFPO", "LFPB", "LFMN", "LFBO", "LFRS", "LFML", "LFLL", "LFLS", "LFST", "LFBD", "LFRB",
+            "LFMD", "LFTW", "LFRN", "LFOB", "LFBZ", "LFMK", "LFKJ", "LFBH",
             // Germany
             "EDDF", "EDDM", "EDDB", "EDDL", "EDDH", "EDDK", "EDDS", "EDDN", "EDDW", "EDDP",
+            "EDDC", "EDDR", "EDDV", "EDDG", "EDDT", "EDLW", "EDLN",
             // Benelux
-            "EBBR", "EBAW", "EHAM", "EHRD", "EHGG", "ELLX",
+            "EBBR", "EBAW", "EHAM", "EHRD", "EHGG", "ELLX", "EBLG", "EBOS", "EHEH", "EHBK",
             // Scandinavia
             "EKCH", "EKBI", "ENGM", "ENBR", "ENZV", "ESSA", "ESGG", "ESMS", "EFHK", "EFTU", "BIKF",
+            "EKYT", "EKAH", "ENTC", "ENVA", "ESNU", "ESOK", "EFOU", "EFRO",
             // Iberia
             "LPPT", "LPPR", "LEMD", "LEBL", "LEZL", "LEVC", "LEMG", "LEPA", "GCLP", "GCTS",
+            "LEAL", "LEBB", "LEZG", "LEIB", "LEXJ", "LPFR", "LEAS", "LEVX",
             // Italy & Switzerland & Austria
             "LIRF", "LIMC", "LIML", "LIME", "LICC", "LIRN", "LIPZ", "LSZH", "LSGG", "LSZB", "LOWW", "LOWS", "LOWI", "LOWL", "LOWG",
+            "LIRQ", "LIPE", "LIBR", "LICJ", "LIPY", "LIRA", "LSMD", "LOAG",
             // Greece, Cyprus, Malta
-            "LGAV", "LGTS", "LCLK", "LCPH", "LMML",
+            "LGAV", "LGTS", "LCLK", "LCPH", "LMML", "LGIR", "LGRP", "LGKO", "LGKR",
             // Central/Eastern Europe
             "LKPR", "LZIB", "LHBP", "EPWA", "EPKK", "EPGD", "LJLJ", "LDZA", "LDSP", "LROP", "LRCL",
+            "EPPO", "EPKT", "EPRZ", "LKMT", "LKTB", "LZKZ", "LHDC", "LRTM", "LRSB",
             // Baltics & Balkans
-            "EYVI", "EYKA", "EVRA", "EETN", "LBSF", "LYBE",
+            "EYVI", "EYKA", "EVRA", "EETN", "LBSF", "LYBE", "LWSK", "LYPG", "LATI", "BKPR", "LQSA",
         };
 
         // A confirmed real AIRAC effective date (Australian Airservices' published 2026
@@ -417,28 +427,42 @@ namespace Handoff.ReplayTool
         }
 
         /// <summary>
-        /// Picks up to count random European airports (via EuropeanAirports, shuffled with a
-        /// seeded Random for reproducibility), one recent arrival/departure from each -- only
-        /// considering flights that departed within the current AIRAC cycle (see
-        /// CurrentAiracCycle) -- until count distinct flights are found or the airport pool is
-        /// exhausted. Uses vataware's direct positions_url/flightplans_url from the airport
-        /// listing rather than re-deriving them from a flight ID -- one fewer request/redirect
-        /// per flight.
+        /// Single pass over every EuropeanAirports entry (shuffled with a seeded Random for
+        /// reproducibility) -- one request per airport, no re-fetching. Only considers flights
+        /// that departed within the current AIRAC cycle and have actually landed (see
+        /// CurrentAiracCycle). Takes up to MaxFlightsPerAirport per airport to keep the sample
+        /// geographically spread; every other eligible-but-unused candidate from that airport is
+        /// kept in a "backpocket" instead of discarded. Many European airports have zero eligible
+        /// flights at any given moment (not every field is busy), so a flat one-per-airport pass
+        /// alone often falls well short of count -- once the main pass is done, the shortfall is
+        /// topped up straight from the backpocket (no extra network calls) rather than declaring
+        /// defeat with whatever the strict per-airport cap happened to yield. Uses vataware's
+        /// direct positions_url/flightplans_url from the airport listing rather than re-deriving
+        /// them from a flight ID -- one fewer request/redirect per flight either way.
         /// </summary>
         private static async Task<List<RandomTestFlight>> DiscoverRandomFlightsAsync(HttpClient http, int count, int seed)
         {
-            var (cycleStart, cycleEnd) = CurrentAiracCycle(DateTime.UtcNow);
-            Console.WriteLine($"Restricting to flights departed within the current AIRAC cycle: {cycleStart:yyyy-MM-dd} to {cycleEnd:yyyy-MM-dd}.");
+            var nowForBanner = DateTime.UtcNow;
+            var (cycleStart, cycleEnd) = CurrentAiracCycle(nowForBanner);
+            var dayOfCycle = (int)(nowForBanner.Date - cycleStart).TotalDays + 1;
+            // No verified source for this cycle's official AIRAC number (only confirmed real
+            // effective *dates* -- see AiracAnchorDate's doc comment), so this deliberately
+            // prints the date range and where "now" sits within it, not a fabricated cycle
+            // number, so it's easy to sanity-check "is today actually near a cycle boundary"
+            // (e.g. day 1 or day 28) against an implausible-looking result like an empty EGLL.
+            Console.WriteLine("========================================================================");
+            Console.WriteLine($"Current AIRAC cycle: {cycleStart:yyyy-MM-dd} to {cycleEnd.AddDays(-1):yyyy-MM-dd} (day {dayOfCycle} of {AiracCycleDays})");
+            Console.WriteLine("Only flights that departed within this window are eligible.");
+            Console.WriteLine("========================================================================");
 
             var rng = new Random(seed);
             var shuffledAirports = EuropeanAirports.OrderBy(_ => rng.Next()).ToList();
             var picked = new List<RandomTestFlight>();
+            var backpocket = new List<RandomTestFlight>();
             var seenFlightIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var icao in shuffledAirports)
             {
-                if (picked.Count >= count) break;
-
                 await Task.Delay(BatchRequestDelayMs);
                 try
                 {
@@ -456,11 +480,12 @@ namespace Handoff.ReplayTool
                     // an ETA). So both lists are pooled together and filtered directly on the
                     // actual timestamps instead: in the current AIRAC cycle (departure_time) AND
                     // actually landed by now (arrival_time in the past) -- self-correcting
-                    // against whichever list/state quirk is in play, from either source.
-                    // Cast straight to DateTimeOffset rather than via (string): Newtonsoft
-                    // auto-detects ISO date-like JSON strings as Date tokens during JObject.Parse,
-                    // so a (string) cast round-trips through DateTime.ToString() in the current
-                    // culture (losing the UTC offset) instead of returning the original text.
+                    // against whichever list/state quirk is in play, from either source. Cast
+                    // straight to DateTimeOffset rather than via (string): Newtonsoft
+                    // auto-detects ISO date-like JSON strings as Date tokens during
+                    // JObject.Parse, so a (string) cast round-trips through DateTime.ToString()
+                    // in the current culture (losing the UTC offset) instead of returning the
+                    // original text.
                     var nowUtc = DateTime.UtcNow;
                     var eligible = candidates
                         .Where(c => c["departure_time"] != null && c["departure_time"].Type == JTokenType.Date
@@ -471,6 +496,8 @@ namespace Handoff.ReplayTool
                             var arr = ((DateTimeOffset)c["arrival_time"]).UtcDateTime;
                             return dep >= cycleStart && dep < cycleEnd && arr <= nowUtc;
                         })
+                        .Where(c => (string)c["id"] != null && seenFlightIds.Add((string)c["id"]))
+                        .OrderBy(_ => rng.Next())
                         .ToList();
                     if (eligible.Count == 0)
                     {
@@ -478,24 +505,23 @@ namespace Handoff.ReplayTool
                         continue;
                     }
 
-                    // Shuffle this airport's own candidates too, then take the first not already
-                    // picked via some other airport's listing (a flight can appear at both its
-                    // departure and arrival airport).
-                    var shuffledCandidates = eligible.OrderBy(_ => rng.Next()).ToList();
-                    var chosen = shuffledCandidates.FirstOrDefault(c => (string)c["id"] != null && seenFlightIds.Add((string)c["id"]));
-                    if (chosen == null)
-                    {
-                        Console.WriteLine($"  [{icao}] all eligible candidate flights already picked elsewhere, skipping.");
-                        continue;
-                    }
-
-                    picked.Add(new RandomTestFlight(
+                    var toFlight = new Func<JToken, RandomTestFlight>(chosen => new RandomTestFlight(
                         icao,
                         (string)chosen["id"],
                         (string)chosen["callsign"],
                         (string)chosen["positions_url"],
                         (string)chosen["flightplans_url"]));
-                    Console.WriteLine($"  [{icao}] picked {(string)chosen["callsign"]} ({(string)chosen["id"]}).");
+
+                    foreach (var chosen in eligible.Take(MaxFlightsPerAirport))
+                    {
+                        var flight = toFlight(chosen);
+                        picked.Add(flight);
+                        Console.WriteLine($"  [{icao}] picked {flight.Callsign} ({flight.FlightId}).");
+                    }
+                    foreach (var overflow in eligible.Skip(MaxFlightsPerAirport))
+                    {
+                        backpocket.Add(toFlight(overflow));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -503,7 +529,23 @@ namespace Handoff.ReplayTool
                 }
             }
 
-            return picked;
+            if (picked.Count < count && backpocket.Count > 0)
+            {
+                var topUp = backpocket.OrderBy(_ => rng.Next()).Take(count - picked.Count).ToList();
+                Console.WriteLine($"Main pass found {picked.Count}/{count} -- topping up with {topUp.Count} more from airports that had extras.");
+                foreach (var flight in topUp)
+                {
+                    picked.Add(flight);
+                    Console.WriteLine($"  [{flight.Icao}] picked {flight.Callsign} ({flight.FlightId}) from backpocket.");
+                }
+            }
+
+            if (picked.Count < count)
+            {
+                Console.WriteLine($"Only found {picked.Count}/{count} eligible completed flights across the whole airport pool for this AIRAC cycle.");
+            }
+
+            return picked.Count > count ? picked.Take(count).ToList() : picked;
         }
 
         private static async Task RunRandomTestAsync(HttpClient http, int count, int seed, string outDir)
