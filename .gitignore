@@ -5,8 +5,8 @@ obj/
 *.suo
 .vs/
 
-# --- Handoff.ReplayTool --random-test default output (plugin/README.md) ---
-plugin/replay-results/
+# --- Handoff.ReplayTool --random-test default output (see run-replay-tests.bat) ---
+/ReplayTests/
 
 # --- Android / Gradle (android/) ---
 *.iml

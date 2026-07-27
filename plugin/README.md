@@ -93,10 +93,16 @@ dotnet build Handoff.ReplayTool/Handoff.ReplayTool.csproj
 Handoff.ReplayTool/bin/Debug/net48/Handoff.ReplayTool.exe <vataware-flight-id> [--route]
 
 # Batch: up to <count> random European airports, one completed flight from each,
-# replayed and collated -- writes replay-results/<timestamp>/summary.txt (one line per
-# flight) plus a full detail file per flight for review.
+# replayed and collated -- writes ReplayTests/<timestamp>/summary.txt (one line per
+# flight) plus a full detail file per flight for review. Omitting --seed uses a fresh
+# random seed each run (Environment.TickCount) -- pass --seed <n> for a reproducible run.
 Handoff.ReplayTool/bin/Debug/net48/Handoff.ReplayTool.exe --random-test <count> [--seed <n>] [--out <dir>]
 ```
+
+From the repo root, `run-replay-tests.bat` builds and runs the batch mode in one step,
+defaulting to 100 flights: `run-replay-tests.bat [count] [--seed <n>] [--out <dir>]`. Output
+always lands in `ReplayTests\` at the repo root (git-ignored) regardless of where it's invoked
+from.
 
 Find a single flight ID via `https://vataware.net/airports/<ICAO>` (send
 `Accept: application/json`, e.g. via `curl`) — arrivals/departures list each flight's ULID.
