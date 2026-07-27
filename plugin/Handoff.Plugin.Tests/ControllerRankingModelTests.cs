@@ -20,6 +20,12 @@ namespace Handoff.Plugin.Tests
         private readonly ContactMeModel _contactMe;
         private readonly SelcalActiveModel _selcalActive;
         private readonly PilotSessionModel _pilotSession = new PilotSessionModel();
+        // Nonexistent cache directory -> VatGlassesDataModel.LoadFromDiskCache is a no-op ->
+        // Regions stays empty, so existing (pre-issue-#9-phase-2) tests keep exercising the
+        // distance/route-match fallback path unchanged. VatGlasses-specific coverage lives in
+        // its own test methods below, which construct a model with real region data instead.
+        private readonly VatGlassesDataModel _vatGlassesData = new VatGlassesDataModel(
+            new OperationProgressModel(), cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
 
         public ControllerRankingModelTests()
         {
@@ -34,8 +40,8 @@ namespace Handoff.Plugin.Tests
             if (File.Exists(_configPath)) File.Delete(_configPath);
         }
 
-        private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null) =>
-            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, _pilotSession, now: now);
+        private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null, VatGlassesDataModel vatGlassesData = null) =>
+            new ControllerRankingModel(_controllers, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _contactMe, _selcalActive, _pilotSession, vatGlassesData ?? _vatGlassesData, now: now);
 
         private FlightPlanModel NoOpFlightPlan() =>
             new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
@@ -328,18 +334,20 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public async Task CtrHighlighted_Airborne_WithinMaxRange_IsHighlighted()
+        public async Task CtrHighlighted_Airborne_CloseButNoVatGlassesCoverage_NotHighlighted()
         {
-            // Sanity check alongside the two regressions above: airborne and genuinely close
-            // (~60nm) does get highlighted -- this isn't just a blanket "never highlight CTR"
-            // change, and it never affects IsLikelyNextCandidate either way.
+            // Issue #9 phase 2 removed the old fixed-radius CTR IsHighlighted heuristic entirely
+            // -- a CTR only stands out now if VATGlasses geometry resolves it as the owning
+            // sector (see the VatGlasses-specific tests below), which promotes it straight to
+            // IsLikelyNextCandidate rather than the old purely-cosmetic IsHighlighted. Airborne
+            // and close (~60nm) is no longer sufficient on its own without VATGlasses coverage.
             var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
             AddController("EDDM_HOF_CTR", 12345, 49.11, 16.57); // ~60nm north of LOWW
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 0, 48.11, 16.57, DateTimeOffset.Now);
             var model = CreateModel(flightPlan);
 
             var ranked = model.Current.Single(c => c.Callsign == "EDDM_HOF_CTR");
-            Assert.True(ranked.IsHighlighted);
+            Assert.False(ranked.IsHighlighted);
             Assert.False(ranked.IsLikelyNextCandidate);
         }
 
@@ -445,14 +453,13 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public async Task NextTierCandidate_Ctr_NoRouteMatch_NeverFlaggedNext_ButInRangeOneIsHighlighted()
+        public async Task NextTierCandidate_Ctr_NoRouteMatch_NeverFlaggedNext()
         {
             // CTR never earns IsLikelyNextCandidate via proximity (FIR callsigns like "VIE_CTR"
-            // routinely don't share an airport's ICAO prefix, and without real sector geometry --
-            // issue #11 -- a "closest CTR" guess isn't confident enough to pull it to the top of
-            // the ranked list). It still gets the softer IsHighlighted treatment when in range,
-            // though -- and BRA_CTR (~570nm away here) is deliberately far enough out to show that
-            // isn't unconditional either.
+            // routinely don't share an airport's ICAO prefix) or via IsHighlighted (that CTR
+            // distance heuristic was removed in issue #9 phase 2 -- CTR now only stands out at
+            // all when VATGlasses geometry resolves it, which this fixture has no coverage data
+            // for, so both stay unflagged regardless of proximity).
             var flightPlan = await CreateFlightPlanAsync("LOWW", "LZIB");
             AddController("VIE_CTR", 20000, 0, 0);
             AddController("BRA_CTR", 20100, 0, 10);
@@ -466,7 +473,7 @@ namespace Handoff.Plugin.Tests
             var ranked = model.Current;
             Assert.False(ranked.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
             Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsLikelyNextCandidate);
-            Assert.True(ranked.Single(c => c.Callsign == "VIE_CTR").IsHighlighted);
+            Assert.False(ranked.Single(c => c.Callsign == "VIE_CTR").IsHighlighted);
             Assert.False(ranked.Single(c => c.Callsign == "BRA_CTR").IsHighlighted);
         }
 
@@ -499,7 +506,7 @@ namespace Handoff.Plugin.Tests
             AddController("EDDF_CTR", 12100);
             AddController("LZIB_CTR", 12200);
 
-            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession);
+            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession, _vatGlassesData);
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 90, 48.5, 16.9, DateTimeOffset.Now);
             _radio.RaiseChanged();
 
@@ -525,7 +532,7 @@ namespace Handoff.Plugin.Tests
             AddController("LOWW_DEL", 12100);
             AddController("LZIB_DEL", 12200);
 
-            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession);
+            var model = new ControllerRankingModel(_controllers, _radio, simbriefPlan, vatsimFeed, _contactMe, _selcalActive, _pilotSession, _vatGlassesData);
 
             var delTier = model.Current.Where(c => c.Callsign.EndsWith("_DEL")).ToList();
             Assert.Equal("LOWW_DEL", delTier[0].Callsign);
@@ -605,15 +612,18 @@ namespace Handoff.Plugin.Tests
         }
 
         [Theory]
-        [InlineData(5, true)]  // within 10nm
-        [InlineData(15, false)] // beyond 10nm
-        public void Approaching_Ground_OnlyWhileOnGroundAndWithinThreshold(double nauticalMiles, bool expected)
+        [InlineData(5)]  // within old 10nm threshold
+        [InlineData(15)] // beyond it
+        public void Approaching_Ground_NeverFlagged_RegardlessOfProximity(double nauticalMiles)
         {
+            // Bug fix (issue #9 phase 2): Tower is meant to be the lowest tier IsApproaching
+            // applies to -- a UNICOM aircraft taxiing isn't "approaching" Ground, it's already
+            // there. Ground's old fixed-radius case is removed entirely, not just re-thresholded.
             AddController("EGLL_GND", 21800, 0, nauticalMiles / 60.0);
             _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 90, 0, 0, DateTimeOffset.Now);
             var model = CreateModel();
 
-            Assert.Equal(expected, model.Current.Single().IsApproaching);
+            Assert.False(model.Current.Single().IsApproaching);
         }
 
         [Fact]
@@ -721,6 +731,114 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel();
 
             Assert.All(model.Current, c => Assert.False(c.IsApproaching));
+        }
+
+        // A ~2x3 degree rectangle (47-49N, 15-18E) around LOWW (48.11N, 16.57E), FL0-660,
+        // owned by a CTR position ("WIEN") -- issue #9 phase 2's containment resolution.
+        private const string VatGlassesSectorRegionJson = @"{
+            ""airports"": {},
+            ""airspace"": [
+                {
+                    ""id"": ""S1"",
+                    ""group"": ""CTR"",
+                    ""owner"": [""POS_CTR""],
+                    ""sectors"": [
+                        { ""min"": 0, ""max"": 660, ""points"": [[""470000"",""0150000""],[""470000"",""0180000""],[""490000"",""0180000""],[""490000"",""0150000""]] }
+                    ]
+                }
+            ],
+            ""positions"": {
+                ""POS_CTR"": { ""type"": ""CTR"", ""frequency"": ""133.500"", ""callsign"": ""WIEN_CTR"", ""pre"": [""WIEN""] }
+            }
+        }";
+
+        // No airspace at all -- isolates the airport-topdown fallback path. LOWW's topdown
+        // chain resolves to a remote DEL position whose callsign doesn't share LOWW's ICAO
+        // prefix (the "who covers this if nobody local is online" scenario issue #9 targets).
+        private const string VatGlassesAirportRegionJson = @"{
+            ""airports"": {
+                ""LOWW"": { ""topdown"": [""POS_REMOTE_DEL""] }
+            },
+            ""airspace"": [],
+            ""positions"": {
+                ""POS_REMOTE_DEL"": { ""type"": ""DEL"", ""frequency"": ""121.900"", ""callsign"": ""EDDM_DEL"", ""pre"": [""EDDM""] }
+            }
+        }";
+
+        private static VatGlassesDataModel CreateVatGlassesDataModel(string regionJson) =>
+            CreateVatGlassesDataModelAsync(regionJson).GetAwaiter().GetResult();
+
+        private static async Task<VatGlassesDataModel> CreateVatGlassesDataModelAsync(string regionJson)
+        {
+            var model = new VatGlassesDataModel(
+                new OperationProgressModel(),
+                cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
+                fetchLatestSha: () => Task.FromResult("sha1"),
+                listFiles: () => Task.FromResult<IReadOnlyList<VatGlassesDataFile>>(new List<VatGlassesDataFile> { new VatGlassesDataFile("test.json", "http://test/test.json") }),
+                fetchFile: url => Task.FromResult(regionJson));
+            await model.SyncAsync();
+            return model;
+        }
+
+        [Fact]
+        public void VatGlasses_SectorContainment_ResolvesOnlineControllerAheadOfCloserUnrelatedOne()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var vatGlasses = CreateVatGlassesDataModel(VatGlassesSectorRegionJson);
+            // WIEN_CTR is the sector's resolved owner (per VATGlasses geometry) despite being far
+            // away; VIE_CTR is physically closer but has no VATGlasses relationship to this
+            // sector at all -- the geometric resolution must win over proximity.
+            AddController("WIEN_CTR", 13350, 10, 10);
+            AddController("VIE_CTR", 13360, 48.12, 16.58);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 48.11, 16.57, now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(now: () => now, vatGlassesData: vatGlasses);
+
+            // First tick only starts the hysteresis window -- not committed yet.
+            Assert.False(model.Current.Single(c => c.Callsign == "WIEN_CTR").IsLikelyNextCandidate);
+
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "WIEN_CTR").IsLikelyNextCandidate);
+            Assert.False(model.Current.Single(c => c.Callsign == "VIE_CTR").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task VatGlasses_AirportTopdown_ResolvesRemoteCoverage_WhenLocalTierIsEmpty()
+        {
+            // No LOWW_DEL is online at all, so the pre-#9 route-match logic would skip Delivery
+            // entirely (EDDM_DEL doesn't share LOWW's ICAO prefix, so it never route-matches).
+            // VATGlasses' precomputed topdown chain knows EDDM covers LOWW's Delivery when
+            // nobody local is online, and should surface it as the next candidate instead.
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var vatGlasses = CreateVatGlassesDataModel(VatGlassesAirportRegionJson);
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EDDM_DEL", 12190, 48.35, 11.79);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 48.11, 16.57, now);
+            var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDM_DEL").IsLikelyNextCandidate);
+
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "EDDM_DEL").IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public void VatGlasses_NoCoverage_FallsBackToDistanceRouteMatchBehavior()
+        {
+            // Sanity check: with the default empty-coverage _vatGlassesData (see field doc
+            // comment), VATGlasses containment/topdown resolution contributes nothing and every
+            // existing distance/route-match test elsewhere in this file keeps passing unchanged
+            // -- this just makes that fallback explicit for a VATGlasses-flavoured scenario.
+            AddController("EGKK_TWR", 20000, 51.15, -0.19);
+            AddController("EGLC_TWR", 20100, 51.505, 0.0489);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 51.4775, -0.4614, DateTimeOffset.Now, pressureAltitudeFeet: 2000);
+            var model = CreateModel();
+
+            var twrTier = model.Current.Where(c => c.Callsign.EndsWith("_TWR")).ToList();
+            Assert.Equal("EGLC_TWR", twrTier[0].Callsign);
         }
     }
 }

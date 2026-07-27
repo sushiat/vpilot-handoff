@@ -26,19 +26,19 @@ namespace Handoff.Plugin
     ///      chain) must not outrank the one actually flagged as next for this flight.
     ///   5. Chain tier (DEL -&gt; GND -&gt; TWR -&gt; APP/DEP -&gt; CTR), relative to the current tier --
     ///      walking upward from the current tier, the first tier with an actually-relevant
-    ///      controller gets IsLikelyNextCandidate on just that controller (or all of them, if
-    ///      several route-match). "Relevant" means route-matching the flight-plan airport where
-    ///      one's loaded; when no flight plan is loaded at all, any non-CTR tier's single
-    ///      distance leader counts as relevant instead. CTR's proximity fallback is further
-    ///      gated on being airborne (there's always at least one more tier still ahead of CTR
-    ///      while on the ground) and within CtrNextCandidateMaxNauticalMiles -- otherwise the
-    ///      single closest CTR controller *anywhere on the network* would qualify, regardless of
-    ///      whether it has anything to do with the route. A tier whose only online members don't
-    ///      route-match (some other airport's DEL/GND/TWR/APP/DEP, e.g. while nothing's tuned and
-    ///      the search starts from the bottom of the chain) is skipped entirely rather than
-    ///      shadowing a real match further up the chain -- the search isn't "the lowest tier
-    ///      present anywhere on the network," it's "the lowest tier with something to do with
-    ///      this flight."
+    ///      controller gets IsLikelyNextCandidate on just that controller. "Relevant" is, in
+    ///      priority order: (a) VATGlasses sector/airport-topdown geometric resolution, when
+    ///      coverage exists for the current position (issue #9 phase 2 -- see
+    ///      docs/controller-ranking.md); (b) route-matching the flight-plan airport where one's
+    ///      loaded; (c) when no flight plan is loaded at all, any non-CTR tier's single distance
+    ///      leader. (b)/(c) are the pre-#9 fallback used wherever VATGlasses has no coverage --
+    ///      CTR never got a no-flight-plan proximity fallback under (c) either way, since a
+    ///      "closest CTR anywhere on the network" guess isn't reliable enough on its own. A tier
+    ///      whose only online members don't route-match (some other airport's DEL/GND/TWR/APP/DEP,
+    ///      e.g. while nothing's tuned and the search starts from the bottom of the chain) is
+    ///      skipped entirely rather than shadowing a real match further up the chain -- the search
+    ///      isn't "the lowest tier present anywhere on the network," it's "the lowest tier with
+    ///      something to do with this flight."
     ///   6. Within a tier: route match (callsign ICAO prefix vs flight-plan origin/destination).
     ///   7. Within a tier, no route match: distance to ownship, closest first. ATIS (tier Other,
     ///      via ControllerTier.ParseControllerTier) never route-matches or gets a next-candidate
@@ -48,8 +48,15 @@ namespace Handoff.Plugin
     /// Distance-based ordering (step 7) is the one prone to sensor-noise flapping (a momentary
     /// taxiway stop, pattern work), so a challenger only displaces the tier's committed leader
     /// once it's been strictly closer for the full hysteresis window -- see
-    /// ApplyDistanceHysteresis. Tier bucketing and route-match are deterministic and not
+    /// ApplyDistanceHysteresis. The VATGlasses resolution in step 5(a) gets the same treatment via
+    /// ApplyVatGlassesHysteresis. Tier bucketing and route-match are deterministic and not
     /// hysteresis-gated.
+    ///
+    /// IsLikelyNextCandidate (above) and IsApproaching are two different kinds of signal, not the
+    /// same thing at different thresholds -- IsLikelyNextCandidate is the rough estimate,
+    /// IsApproaching is the predictive, geometry-driven one (heading/route + sustained
+    /// climb/descent trend converging on a VATGlasses sector not yet entered). See
+    /// FindApproachingVatGlassesCallsigns and docs/controller-ranking.md for the full breakdown.
     /// </summary>
     public sealed class ControllerRankingModel
     {
@@ -57,24 +64,29 @@ namespace Handoff.Plugin
 
         // "Approaching" distance/heading thresholds -- see IsApproaching. Only meaningful when
         // nothing is currently tuned/pinned (e.g. flying uncontrolled and about to enter a
-        // station's range). DEL isn't covered (already well-served by route match); CTR isn't
-        // covered either (a single lat/lon can't represent a FIR's real shape -- needs actual
-        // sector geometry, deferred to issue #11).
+        // station's range). DEL isn't covered (already well-served by route match); GND isn't
+        // covered either -- Tower is the lowest tier this flag applies to (a UNICOM aircraft
+        // taxiing has no useful "approaching" signal for Ground the way it does for Tower/App on
+        // the way in). CTR/APP get a VATGlasses-geometry-driven version instead when coverage
+        // exists (see VatGlassesSectorLookup, IsApproachingVatGlassesSector) -- this fixed-radius
+        // heuristic is now purely the fallback for uncovered regions.
         // Minimum AGL required alongside OnGround==false before latching _hasTakenOffThisSession
         // -- well above squat-switch flicker (a few feet at most from a ramp bump) but well
         // below a real rotation, which clears the wheels by tens of feet within seconds.
         private const double TakeoffAglThresholdFeet = 50;
 
-        private const double GroundApproachingNauticalMiles = 10;
         private const double TowerApproachingNauticalMiles = 20;
         private const double AppOmnidirectionalNauticalMiles = 40;
         private const double AppOuterNauticalMiles = 50;
         private const double AppHeadingToleranceDegrees = 45;
 
-        // Rough placeholder for CTR's IsHighlighted proximity gate -- no real sector geometry
-        // exists yet (issue #11), so this isn't a modeled FIR boundary, just a sanity cutoff
-        // wide enough for a typical European Center sector without being unbounded.
-        private const double CtrHighlightMaxNauticalMiles = 200;
+        // VATGlasses approach-prediction parameters -- see issue #9 phase 2 /
+        // docs/controller-ranking.md for the full lateral/vertical/heading breakdown.
+        private const double LateralApproachMaxNauticalMiles = 100;
+        private const double RouteApproachMaxNauticalMiles = 150;
+        private const double VerticalTrendThresholdFpm = 500;
+        private static readonly TimeSpan VerticalTrendSustainWindow = TimeSpan.FromSeconds(5);
+        private const double VerticalApproachThresholdFeet = 2000;
 
         private readonly object _gate = new object();
         private readonly ControllerStateModel _controllerState;
@@ -84,6 +96,7 @@ namespace Handoff.Plugin
         private readonly ContactMeModel _contactMe;
         private readonly SelcalActiveModel _selcalActive;
         private readonly PilotSessionModel _pilotSession;
+        private readonly VatGlassesDataModel _vatGlassesData;
         private readonly Action<string> _logDebug;
         private readonly Func<DateTimeOffset> _now;
 
@@ -91,13 +104,27 @@ namespace Handoff.Plugin
         private readonly Dictionary<ControllerTier, string> _pendingChallenger = new Dictionary<ControllerTier, string>();
         private readonly Dictionary<ControllerTier, DateTimeOffset> _pendingSince = new Dictionary<ControllerTier, DateTimeOffset>();
 
+        // Hysteresis for the VATGlasses-resolved next-candidate (§5/§4) -- a single committed
+        // value (not per-tier) since at most one sector/airport-chain resolution is relevant at
+        // a time. Debounces flapping right at a sector's lateral or vertical boundary the same
+        // way _committedLeader debounces the distance tiebreak.
+        private string _committedVatGlassesCallsign;
+        private string _pendingVatGlassesChallenger;
+        private DateTimeOffset _pendingVatGlassesSince;
+
+        // Sustained climb/descent trend for VATGlasses vertical-convergence prediction (see
+        // IsApproachingVatGlassesSector) -- ownship-level, not per-tier. -1 descending, 0 level,
+        // +1 climbing; only "sustained" (held for VerticalTrendSustainWindow) counts as a signal.
+        private int _verticalTrendSign;
+        private DateTimeOffset _verticalTrendSince;
+
         private IReadOnlyList<RankedController> _current = new List<RankedController>();
         private string _pinnedCallsign;
         private bool _hasTakenOffThisSession;
 
         public event EventHandler Changed;
 
-        public ControllerRankingModel(ControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, ContactMeModel contactMe, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
+        public ControllerRankingModel(ControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, ContactMeModel contactMe, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, VatGlassesDataModel vatGlassesData, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
         {
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _radioState = radioState ?? throw new ArgumentNullException(nameof(radioState));
@@ -106,6 +133,7 @@ namespace Handoff.Plugin
             _contactMe = contactMe ?? throw new ArgumentNullException(nameof(contactMe));
             _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
+            _vatGlassesData = vatGlassesData ?? throw new ArgumentNullException(nameof(vatGlassesData));
             _logDebug = logDebug;
             _now = now ?? (() => DateTimeOffset.Now);
 
@@ -116,6 +144,7 @@ namespace Handoff.Plugin
             _contactMe.Changed += (s, e) => Recompute();
             _selcalActive.Changed += (s, e) => Recompute();
             _pilotSession.Changed += (s, e) => Recompute();
+            _vatGlassesData.Changed += (s, e) => Recompute();
 
             Recompute();
         }
@@ -189,6 +218,43 @@ namespace Handoff.Plugin
             var destination = vatsimPilot?.Arrival ?? flightPlan.Destination;
             var routeAirport = _hasTakenOffThisSession ? destination : origin;
 
+            UpdateVerticalTrend(telemetry);
+
+            var onlineCallsigns = new HashSet<string>(controllers.Select(c => c.Callsign), StringComparer.OrdinalIgnoreCase);
+            var pressureAltitudeFl = telemetry.PressureAltitudeFeet / 100.0;
+            var qnhTrueAltitudeFl = telemetry.PressureAltitudeFeet.HasValue && telemetry.SeaLevelPressureHpa.HasValue
+                ? PressureAltitude.QnhTrueAltitudeFeet(telemetry.PressureAltitudeFeet.Value, telemetry.SeaLevelPressureHpa.Value) / 100.0
+                : (double?)null;
+
+            // VATGlasses sector/airport-topdown resolution -- see issue #9 phase 2 /
+            // docs/controller-ranking.md. Exact geometric containment against ownship's current
+            // position (sector polygons) takes priority; on the ground (or once airborne with no
+            // sector match), the route airport's precomputed topdown[] fallback chain is tried
+            // instead. Either way this is the *rough estimate* replacement -- see
+            // IsApproachingVatGlassesSector below for the predictive counterpart.
+            var containingMatches = telemetry.Latitude.HasValue && telemetry.Longitude.HasValue
+                ? VatGlassesSectorLookup.FindContainingSectors(_vatGlassesData.Regions, telemetry.Latitude.Value, telemetry.Longitude.Value, pressureAltitudeFl, qnhTrueAltitudeFl)
+                : new List<VatGlassesSectorLookup.VatGlassesSectorMatch>();
+
+            Controller vatGlassesNaturalResolved = null;
+            foreach (var match in containingMatches)
+            {
+                if (!_vatGlassesData.Regions.TryGetValue(match.RegionFileName, out var matchRegion)) continue;
+                vatGlassesNaturalResolved = VatGlassesOwnershipResolver.ResolveOnlineController(match.Sector.Owner, matchRegion.Positions, controllers);
+                if (vatGlassesNaturalResolved != null) break;
+            }
+
+            if (vatGlassesNaturalResolved == null && !string.IsNullOrEmpty(routeAirport))
+            {
+                var airportRegion = FindRegionForAirport(_vatGlassesData.Regions, routeAirport, out var airport);
+                if (airportRegion != null)
+                {
+                    vatGlassesNaturalResolved = VatGlassesOwnershipResolver.ResolveOnlineController(airport.Topdown, airportRegion.Positions, controllers);
+                }
+            }
+
+            var committedVatGlassesCallsign = ApplyVatGlassesHysteresis(vatGlassesNaturalResolved?.Callsign, onlineCallsigns);
+
             var remaining = controllers.Where(c => !string.Equals(c.Callsign, currentCallsign, StringComparison.OrdinalIgnoreCase)).ToList();
             var orderedRemaining = new List<Controller>();
             var orderedByTier = new Dictionary<ControllerTier, List<Controller>>();
@@ -199,47 +265,64 @@ namespace Handoff.Plugin
                 orderedByTier[tierGroup.Key] = orderedTier;
             }
 
-            // "Next tier" isn't just the lowest tier present anywhere on the network -- with
-            // nothing tuned that's nearly always Delivery somewhere in the world, which would
-            // permanently shadow a real, relevant Tower/Ground at the current airport. Instead
-            // walk the chain upward from the current tier and stop at the first tier that has an
-            // actually-relevant controller (route-matched, or the no-flight-plan proximity
-            // fallback below CTR) -- skipping tiers whose only online members belong to some
-            // other airport entirely.
             var nextCandidateCallsigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var startRank = currentTier.HasValue ? (int)currentTier.Value : -1;
-            foreach (var tier in orderedByTier.Keys.Where(t => t != ControllerTier.Other && (int)t > startRank).OrderBy(t => (int)t))
+            if (committedVatGlassesCallsign != null && !string.Equals(committedVatGlassesCallsign, currentCallsign, StringComparison.OrdinalIgnoreCase))
             {
-                var orderedTier = orderedByTier[tier];
-                var routeMatched = RouteMatched(orderedTier, routeAirport);
-                // Below CTR, callsign ICAO prefix reliably identifies "your" airport (matches
-                // the flight plan), so once a flight plan exists, a tier with no route match
-                // means every station in it genuinely belongs to a different airport -- skip past
-                // it rather than either flagging it or stopping the search there. Without a
-                // flight plan at all there's no route data to trust either way, so a non-CTR tier
-                // falls back to proximity. CTR deliberately gets NO proximity fallback here at
-                // all (only ever earns IsLikelyNextCandidate via a genuine route match, rare as
-                // that is for FIR callsigns) -- without real sector geometry (issue #11) a
-                // "closest CTR" guess isn't reliable enough to justify pulling it to the top of
-                // the ranked list, ahead of every other remaining controller (see IsApproaching
-                // below for the softer, purely-cosmetic version of this same signal for CTR).
-                List<Controller> nextCandidates;
-                if (routeMatched.Count > 0)
-                {
-                    nextCandidates = routeMatched;
-                }
-                else if (tier != ControllerTier.Center && string.IsNullOrEmpty(routeAirport))
-                {
-                    nextCandidates = new List<Controller> { orderedTier[0] };
-                }
-                else
-                {
-                    continue;
-                }
-
-                foreach (var c in nextCandidates) nextCandidateCallsigns.Add(c.Callsign);
-                break;
+                // A precise geometric answer takes priority over the tier-walk guess below for
+                // whichever tier it belongs to -- "smarter path where VATGlasses coverage
+                // exists, automatic fallback otherwise" (issue #9).
+                nextCandidateCallsigns.Add(committedVatGlassesCallsign);
             }
+            else
+            {
+                // "Next tier" isn't just the lowest tier present anywhere on the network -- with
+                // nothing tuned that's nearly always Delivery somewhere in the world, which would
+                // permanently shadow a real, relevant Tower/Ground at the current airport. Instead
+                // walk the chain upward from the current tier and stop at the first tier that has an
+                // actually-relevant controller (route-matched, or the no-flight-plan proximity
+                // fallback below CTR) -- skipping tiers whose only online members belong to some
+                // other airport entirely.
+                var startRank = currentTier.HasValue ? (int)currentTier.Value : -1;
+                foreach (var tier in orderedByTier.Keys.Where(t => t != ControllerTier.Other && (int)t > startRank).OrderBy(t => (int)t))
+                {
+                    var orderedTier = orderedByTier[tier];
+                    var routeMatched = RouteMatched(orderedTier, routeAirport);
+                    // Below CTR, callsign ICAO prefix reliably identifies "your" airport (matches
+                    // the flight plan), so once a flight plan exists, a tier with no route match
+                    // means every station in it genuinely belongs to a different airport -- skip past
+                    // it rather than either flagging it or stopping the search there. Without a
+                    // flight plan at all there's no route data to trust either way, so a non-CTR tier
+                    // falls back to proximity. CTR deliberately gets NO proximity fallback here at
+                    // all (only ever earns IsLikelyNextCandidate via a genuine route match, rare as
+                    // that is for FIR callsigns, or the VATGlasses resolution above) -- without
+                    // coverage there, a "closest CTR" guess isn't reliable enough to justify pulling
+                    // it to the top of the ranked list, ahead of every other remaining controller.
+                    List<Controller> nextCandidates;
+                    if (routeMatched.Count > 0)
+                    {
+                        nextCandidates = routeMatched;
+                    }
+                    else if (tier != ControllerTier.Center && string.IsNullOrEmpty(routeAirport))
+                    {
+                        nextCandidates = new List<Controller> { orderedTier[0] };
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    foreach (var c in nextCandidates) nextCandidateCallsigns.Add(c.Callsign);
+                    break;
+                }
+            }
+
+            // Predictive VATGlasses counterpart to the rough-estimate resolution above -- see
+            // IsApproachingVatGlassesSector for the lateral (heading/route) + vertical
+            // (sustained climb/descent trend) convergence check. Excludes anything already
+            // resolved as the current/next-candidate match, since that's containment ("in it"),
+            // not prediction ("headed toward it").
+            var approachingVatGlassesCallsigns = FindApproachingVatGlassesCallsigns(
+                telemetry, flightPlan, containingMatches, controllers, pressureAltitudeFl, qnhTrueAltitudeFl, currentCallsign, committedVatGlassesCallsign);
 
             var contactMeOrdered = orderedRemaining
                 .Where(c => contactMeCallsigns.Contains(c.Callsign))
@@ -287,8 +370,8 @@ namespace Handoff.Plugin
                 var isContactMe = !isCurrent && requestsContactMe;
                 var tier = c.Callsign.ParseControllerTier();
                 var isNextCandidate = !isCurrent && nextCandidateCallsigns.Contains(c.Callsign);
-                var isApproaching = !isCurrent && IsApproaching(c, tier, hasCurrent, telemetry);
-                var isHighlighted = !isCurrent && (IsCtrHighlighted(c, tier, telemetry) || IsAtisHighlighted(c, routeAirport));
+                var isApproaching = !isCurrent && (IsApproaching(c, tier, hasCurrent, telemetry) || approachingVatGlassesCallsigns.Contains(c.Callsign));
+                var isHighlighted = !isCurrent && IsAtisHighlighted(c, routeAirport);
 
                 return new RankedController(
                     callsign: c.Callsign,
@@ -351,11 +434,14 @@ namespace Handoff.Plugin
         /// <summary>
         /// Distance/heading heuristic for "closing in on this station," only meaningful when
         /// nothing is currently tuned/pinned -- e.g. flying uncontrolled (UNICOM) and about to
-        /// enter a TWR/APP's range. GND only counts while on the ground; TWR/APP only while
-        /// airborne. APP additionally requires ownship's heading to be within
-        /// AppHeadingToleranceDegrees of the bearing to the station once past the
-        /// omnidirectional inner radius -- close in, any heading counts; farther out, only a
-        /// converging heading does.
+        /// enter a TWR/APP's range. Tower is the lowest tier this applies to (Ground never had a
+        /// useful "approaching" signal the way Tower/App on the way in do -- a UNICOM aircraft
+        /// taxiing isn't "approaching" Ground, it's already there). APP additionally requires
+        /// ownship's heading to be within AppHeadingToleranceDegrees of the bearing to the
+        /// station once past the omnidirectional inner radius -- close in, any heading counts;
+        /// farther out, only a converging heading does. This is the fallback for regions/tiers
+        /// with no VATGlasses coverage -- see IsApproachingVatGlassesSector for the geometry-
+        /// driven version used when coverage exists.
         /// </summary>
         private static bool IsApproaching(Controller controller, ControllerTier tier, bool hasCurrent, OwnshipTelemetry telemetry)
         {
@@ -364,9 +450,6 @@ namespace Handoff.Plugin
 
             switch (tier)
             {
-                case ControllerTier.Ground:
-                    return telemetry.OnGround.Value && DistanceNm(controller, telemetry) <= GroundApproachingNauticalMiles;
-
                 case ControllerTier.Tower:
                     return !telemetry.OnGround.Value && DistanceNm(controller, telemetry) <= TowerApproachingNauticalMiles;
 
@@ -380,8 +463,8 @@ namespace Handoff.Plugin
                     return GeoDistance.AngularDifferenceDegrees(telemetry.HeadingDegrees.Value, bearing) <= AppHeadingToleranceDegrees;
 
                 default:
-                    // DEL: already well-served by route match. CTR/Other: needs real sector
-                    // geometry, deferred to issue #11.
+                    // DEL: already well-served by route match. GND: see above. CTR: no
+                    // fixed-radius fallback exists (see IsApproachingVatGlassesSector instead).
                     return false;
             }
         }
@@ -390,33 +473,211 @@ namespace Handoff.Plugin
             GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
 
         /// <summary>
-        /// CTR-only, no-badge-implied "worth rendering prominently" signal -- see
-        /// RankedController.IsHighlighted. Unlike IsApproaching this doesn't require nothing to
-        /// be tuned (it's not a UNICOM alert, just a plausibility cue), but it does require
-        /// confirmed-airborne (on the ground there's always at least one more tier -- GND/TWR/DEP
-        /// -- still ahead of CTR) and a bounded range (CtrHighlightMaxNauticalMiles -- a rough
-        /// placeholder pending real sector geometry, issue #11).
-        /// </summary>
-        private static bool IsCtrHighlighted(Controller controller, ControllerTier tier, OwnshipTelemetry telemetry)
-        {
-            if (tier != ControllerTier.Center) return false;
-            if (telemetry.OnGround != false) return false;
-            if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return false;
-            return DistanceNm(controller, telemetry) <= CtrHighlightMaxNauticalMiles;
-        }
-
-        /// <summary>
         /// ATIS's contribution to IsHighlighted -- ATIS parses to ControllerTier.Other (see
         /// ParseControllerTier), which the next-candidate walk and IsApproaching both entirely
         /// skip, so without this an airport's own ATIS never renders any differently than a
-        /// wholly unrelated one. No proximity gating needed here the way CTR needs one -- an
-        /// ICAO-prefix match against the route airport is exactly as reliable a signal as it is
-        /// for DEL/GND/TWR/APP/DEP route matching elsewhere in this class.
+        /// wholly unrelated one. No proximity gating needed here the way CTR needed before
+        /// VATGlasses (see issue #9 phase 2) -- an ICAO-prefix match against the route airport is
+        /// exactly as reliable a signal as it is for DEL/GND/TWR/APP/DEP route matching
+        /// elsewhere in this class.
         /// </summary>
         private static bool IsAtisHighlighted(Controller controller, string routeAirport) =>
             controller.Callsign.EndsWith("_ATIS", StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrEmpty(routeAirport) &&
             controller.Callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Finds the region file whose Airports map contains icao, along with the matching entry -- an airport's topdown[] chain references position IDs local to that same region file, so both must come from the same source.</summary>
+        private static VatGlassesRegionData FindRegionForAirport(IReadOnlyDictionary<string, VatGlassesRegionData> regions, string icao, out VatGlassesAirport airport)
+        {
+            foreach (var region in regions.Values)
+            {
+                if (region.Airports.TryGetValue(icao, out airport)) return region;
+            }
+            airport = null;
+            return null;
+        }
+
+        /// <summary>
+        /// Debounces the VATGlasses-resolved next-candidate callsign the same way
+        /// ApplyDistanceHysteresis debounces the per-tier distance leader -- a single committed
+        /// value (not per-tier, since at most one sector/airport-chain resolution is relevant at
+        /// a time) that only changes after the new value has been consistently returned for the
+        /// full HysteresisWindow. Also clears the commitment immediately if the committed
+        /// callsign has gone offline entirely (not just "no longer the natural match").
+        /// </summary>
+        private string ApplyVatGlassesHysteresis(string naturalCallsign, HashSet<string> onlineCallsigns)
+        {
+            lock (_gate)
+            {
+                if (_committedVatGlassesCallsign != null && !onlineCallsigns.Contains(_committedVatGlassesCallsign))
+                {
+                    _committedVatGlassesCallsign = null;
+                    _pendingVatGlassesChallenger = null;
+                }
+
+                if (string.Equals(_committedVatGlassesCallsign, naturalCallsign, StringComparison.OrdinalIgnoreCase))
+                {
+                    _pendingVatGlassesChallenger = null;
+                    return _committedVatGlassesCallsign;
+                }
+
+                if (!string.Equals(_pendingVatGlassesChallenger, naturalCallsign, StringComparison.OrdinalIgnoreCase))
+                {
+                    _pendingVatGlassesChallenger = naturalCallsign;
+                    _pendingVatGlassesSince = _now();
+                }
+                else if (_now() - _pendingVatGlassesSince >= HysteresisWindow)
+                {
+                    _committedVatGlassesCallsign = naturalCallsign;
+                    _pendingVatGlassesChallenger = null;
+                }
+
+                return _committedVatGlassesCallsign;
+            }
+        }
+
+        /// <summary>Updates the sustained climb/descent trend used by IsApproachingVatGlassesSector's vertical-convergence check -- see the _verticalTrendSign/_verticalTrendSince field docs.</summary>
+        private void UpdateVerticalTrend(OwnshipTelemetry telemetry)
+        {
+            var vs = telemetry.VerticalSpeedFpm;
+            var sign = vs.HasValue && vs.Value >= VerticalTrendThresholdFpm ? 1
+                : vs.HasValue && vs.Value <= -VerticalTrendThresholdFpm ? -1
+                : 0;
+
+            lock (_gate)
+            {
+                if (sign != _verticalTrendSign)
+                {
+                    _verticalTrendSign = sign;
+                    _verticalTrendSince = _now();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The predictive VATGlasses counterpart to the containment resolution above --
+        /// "not there yet, but the geometry says you're headed toward it" (see
+        /// docs/controller-ranking.md's design principle: IsLikelyNextCandidate is the rough
+        /// estimate, IsApproaching is the data-driven prediction). Lateral convergence prefers
+        /// the remaining SimBrief route (steadier through a turn shortly before the boundary)
+        /// over the current heading, falling back to heading when no route is loaded. Vertical
+        /// convergence requires a sustained climb/descent trend bringing ownship within
+        /// VerticalApproachThresholdFeet of the band edge it's headed toward. Already-contained
+        /// sectors and the already-resolved next-candidate callsign are excluded -- this flag is
+        /// about what's still ahead, not what's already current.
+        /// </summary>
+        private HashSet<string> FindApproachingVatGlassesCallsigns(
+            OwnshipTelemetry telemetry,
+            FlightPlan flightPlan,
+            IReadOnlyList<VatGlassesSectorLookup.VatGlassesSectorMatch> containingMatches,
+            IReadOnlyCollection<Controller> onlineControllers,
+            double? pressureAltitudeFl,
+            double? qnhTrueAltitudeFl,
+            string currentCallsign,
+            string committedVatGlassesCallsign)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
+
+            IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approachMatches;
+            var remainingWaypoints = RemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
+            if (remainingWaypoints.Count > 0)
+            {
+                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(
+                    _vatGlassesData.Regions, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, RouteApproachMaxNauticalMiles);
+            }
+            else if (telemetry.HeadingDegrees.HasValue)
+            {
+                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(
+                    _vatGlassesData.Regions, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, LateralApproachMaxNauticalMiles);
+            }
+            else
+            {
+                return result;
+            }
+
+            int verticalTrendSign;
+            DateTimeOffset verticalTrendSince;
+            lock (_gate) { verticalTrendSign = _verticalTrendSign; verticalTrendSince = _verticalTrendSince; }
+            var sustainedTrend = verticalTrendSign != 0 && _now() - verticalTrendSince >= VerticalTrendSustainWindow;
+
+            foreach (var approach in approachMatches)
+            {
+                if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue;
+                if (!IsVerticallySatisfiedOrConverging(approach.Match.Level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend)) continue;
+
+                if (!_vatGlassesData.Regions.TryGetValue(approach.Match.RegionFileName, out var region)) continue;
+                var owner = VatGlassesOwnershipResolver.ResolveOnlineController(approach.Match.Sector.Owner, region.Positions, onlineControllers);
+                if (owner == null) continue;
+                if (string.Equals(owner.Callsign, currentCallsign, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(owner.Callsign, committedVatGlassesCallsign, StringComparison.OrdinalIgnoreCase)) continue;
+
+                result.Add(owner.Callsign);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// True if ownship's altitude is already inside level's band (satisfied), or outside it
+        /// but a sustained climb/descent trend brings it within VerticalApproachThresholdFeet of
+        /// the edge it's headed toward (converging). Uses whichever of pressureAltitudeFl/
+        /// qnhTrueAltitudeFl the band's own containment check would use (QNH-true below
+        /// VatGlassesSectorLookup.TransitionLevelFallbackFl, pressure altitude at/above it).
+        /// </summary>
+        private static bool IsVerticallySatisfiedOrConverging(VatGlassesSectorLevel level, double? pressureAltitudeFl, double? qnhTrueAltitudeFl, int verticalTrendSign, bool sustainedTrend)
+        {
+            var useQnh = level.MaxFlightLevel.HasValue && level.MaxFlightLevel.Value <= VatGlassesSectorLookup.TransitionLevelFallbackFl;
+            var altitudeFl = useQnh ? qnhTrueAltitudeFl : pressureAltitudeFl;
+            if (!altitudeFl.HasValue) return false;
+
+            var min = level.MinFlightLevel;
+            var max = level.MaxFlightLevel;
+            var insideBand = (!min.HasValue || altitudeFl.Value >= min.Value) && (!max.HasValue || altitudeFl.Value <= max.Value);
+            if (insideBand) return true;
+
+            if (!sustainedTrend) return false;
+
+            var altitudeFeet = altitudeFl.Value * 100.0;
+            if (verticalTrendSign < 0 && max.HasValue)
+            {
+                var maxFeet = max.Value * 100.0;
+                return altitudeFeet > maxFeet && altitudeFeet - maxFeet <= VerticalApproachThresholdFeet;
+            }
+            if (verticalTrendSign > 0 && min.HasValue)
+            {
+                var minFeet = min.Value * 100.0;
+                return altitudeFeet < minFeet && minFeet - altitudeFeet <= VerticalApproachThresholdFeet;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The nearest SimBrief waypoint to ownship's current position, plus everything after it
+        /// in route order -- the "remaining planned track" used by the route-projected approach
+        /// check (VatGlassesSectorLookup.FindApproachingSectorsAlongRoute). No persistent "last
+        /// passed waypoint" state -- recomputed fresh every tick, safe in practice since
+        /// point-to-point routes don't double back near an earlier waypoint.
+        /// </summary>
+        private static List<FlightPlanWaypoint> RemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
+        {
+            var all = flightPlan.Waypoints;
+            if (all == null || all.Count == 0) return new List<FlightPlanWaypoint>();
+
+            var nearestIndex = 0;
+            var nearestDistance = double.MaxValue;
+            for (var i = 0; i < all.Count; i++)
+            {
+                var d = GeoDistance.NauticalMiles(lat, lon, all[i].Latitude, all[i].Longitude);
+                if (d < nearestDistance)
+                {
+                    nearestDistance = d;
+                    nearestIndex = i;
+                }
+            }
+
+            return all.Skip(nearestIndex).ToList();
+        }
 
         private List<Controller> ApplyDistanceHysteresis(ControllerTier tier, List<Controller> controllers, OwnshipTelemetry telemetry)
         {

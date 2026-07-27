@@ -276,7 +276,7 @@ namespace Handoff.Plugin
                             }
                             else if (message.Type == RadioIpcMessage.TypeOwnshipTelemetry)
                             {
-                                var next = new OwnshipTelemetry(message.OnGround, message.GroundSpeedKnots, message.AltitudeAboveGroundFeet, message.VerticalSpeedFpm, message.HeadingDegrees, message.Latitude, message.Longitude, DateTimeOffset.Now);
+                                var next = new OwnshipTelemetry(message.OnGround, message.GroundSpeedKnots, message.AltitudeAboveGroundFeet, message.VerticalSpeedFpm, message.HeadingDegrees, message.Latitude, message.Longitude, DateTimeOffset.Now, message.PressureAltitudeFeet, message.SeaLevelPressureHpa);
                                 lock (_gate) { _telemetry = next; }
                                 Changed?.Invoke(this, EventArgs.Empty);
                             }

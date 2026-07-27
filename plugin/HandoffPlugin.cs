@@ -70,25 +70,28 @@ namespace Handoff.Plugin
             _broker.NetworkDisconnected += (sender, e) => _vatsimDataFeed.Stop();
             _broker.SessionEnded += (sender, e) => _vatsimDataFeed.Stop();
 
+            // VatGlassesDataModel's constructor only does synchronous *disk-cache* I/O (reading
+            // whatever's already cached locally) -- fast and bounded, unlike SyncAsync's network
+            // fetch, so it's fine to construct here on vPilot's Initialize-calling thread.
+            // ControllerRankingModel needs a live instance to resolve sector/airport ownership
+            // against (issue #9 phase 2), so this has to exist before it, not just before the
+            // WebSocket server.
+            _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
+
             _contactMe = new ContactMeModel(_chatModel, _controllerState);
             _selcalActive = new SelcalActiveModel(_chatModel, _controllerState);
-            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _selcalActive, _pilotSession, _broker.PostDebugMessage);
+            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _selcalActive, _pilotSession, _vatGlassesData, _broker.PostDebugMessage);
 
             // Nearby-aircraft events aren't tied to the VATSIM connection either (wiring is just
             // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
             // won't raise them until connected.
             _nearbyAircraft = new NearbyAircraftModel(_broker, _radioState);
 
-            // VatGlassesDataModel's construction does synchronous disk-cache I/O, and SyncAsync
-            // does network I/O -- both run on their own dedicated background thread (mirrors
+            // SyncAsync does network I/O -- runs on its own dedicated background thread (mirrors
             // VatsimDataFeedModel's own PollLoop thread), never vPilot's Initialize-calling
             // thread, so this can never add so much as a millisecond of delay to vPilot's own
             // startup or its VATSIM network handling.
-            new Thread(() =>
-            {
-                _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
-                _vatGlassesData.SyncAsync().GetAwaiter().GetResult();
-            })
+            new Thread(() => _vatGlassesData.SyncAsync().GetAwaiter().GetResult())
             { Name = "VatGlassesDataModel.Startup", IsBackground = true }.Start();
 
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
