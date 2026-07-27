@@ -101,7 +101,7 @@ namespace Handoff.ReplayTool
                 var pressureAltitudeFl = p.Altitude / 100.0;
 
                 var containing = VatGlassesSectorLookup.FindContainingSectors(regions, p.Latitude, p.Longitude, pressureAltitudeFl, null);
-                var summary = string.Join(", ", containing.Select(m => $"{m.Sector.Id}({m.Sector.Group})@{m.RegionFileName}"));
+                var summary = string.Join(", ", containing.Select(m => DescribeMatch(m, regions)));
                 if (summary != lastContainmentSummary)
                 {
                     Console.WriteLine($"[{p.Timestamp:HH:mm:ss}] alt={p.Altitude,-6:F0}ft lat={p.Latitude,9:F4} lon={p.Longitude,9:F4} hdg={p.Heading,3:F0}  IN: {(summary.Length == 0 ? "(none)" : summary)}");
@@ -128,9 +128,33 @@ namespace Handoff.ReplayTool
                 {
                     var key = $"{a.Match.Sector.Id}@{a.Match.RegionFileName}";
                     approachSeen.Add(key);
-                    Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {key} in {a.DistanceNauticalMiles:F0}nm");
+                    Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {DescribeMatch(a.Match, regions)} in {a.DistanceNauticalMiles:F0}nm");
                 }
             }
+        }
+
+        /// <summary>
+        /// Labels a sector match with its first owner chain entry's callsign/frequency, for
+        /// readers more used to thinking in frequencies than VATGlasses sector names. Best-effort
+        /// only -- this is always the *first* entry in the sector's Owner chain, not necessarily
+        /// who'd actually be online at the historical moment being replayed (this tool has no
+        /// online-controller data at all -- see the class doc comment), so it's "the sector's
+        /// primary/nominal owner," not a claim about who was really working it that day.
+        /// </summary>
+        private static string DescribeMatch(VatGlassesSectorLookup.VatGlassesSectorMatch match, IReadOnlyDictionary<string, VatGlassesRegionData> regions)
+        {
+            var label = $"{match.Sector.Id}({match.Sector.Group})@{match.RegionFileName}";
+
+            if (regions.TryGetValue(match.RegionFileName, out var region))
+            {
+                var ownerId = match.Sector.Owner.FirstOrDefault();
+                if (ownerId != null && region.Positions.TryGetValue(ownerId, out var position))
+                {
+                    label += $" [{position.Callsign} {position.Frequency}]";
+                }
+            }
+
+            return label;
         }
 
         private static List<FlightPlanWaypoint> RemainingWaypoints(IReadOnlyList<FlightPlanWaypoint> all, double lat, double lon)
