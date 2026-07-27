@@ -79,6 +79,31 @@ the first time so its integrated terminal picks it up.
 Check the Plugins folder for any stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml`
 copies first — a known FSLabs-installer bug drops these there and breaks plugin loading.
 
+## VATGlasses sector-ranking replay tool (dev-only, not deployed)
+
+`Handoff.ReplayTool/` validates `VatGlassesSectorLookup`'s geometry against real recorded VATSIM
+flights, pulled from [vataware.net](https://vataware.net)'s free, no-auth flight history API
+(see issue #9). Not part of the plugin/RadioHost deploy — a standalone console app for manual
+sanity-checking.
+
+```
+dotnet build Handoff.ReplayTool/Handoff.ReplayTool.csproj
+Handoff.ReplayTool/bin/Debug/net48/Handoff.ReplayTool.exe <vataware-flight-id> [--route]
+```
+
+Find a flight ID via `https://vataware.net/airports/<ICAO>` (send `Accept: application/json`,
+e.g. via `curl`) — arrivals/departures list each flight's ULID. `--route` uses the filed
+route's waypoints for lateral approach-prediction instead of instantaneous heading (falls back
+to heading if the route can't be resolved -- waypoint lat/lon resolution from the raw route
+string isn't implemented, only SimBrief's own `navlog.fix[]` gives that directly).
+
+Prints the sequence of sector containment/approach-prediction transitions for the flight, to be
+cross-checked by eye against the live map at vatglasses.uk. Deliberately geometry-only: VATSIM's
+public data feed (and vataware's archive of it) carries no per-pilot tuned-COM-frequency
+history — that's only ever broadcast live via the separate AFV transceivers feed, which nobody
+archives — so there's no ground truth available here to check ownership-resolution/ranking
+against, only whether the sector/altitude-band math picks the polygon a human would expect.
+
 ## Debugging
 
 vPilot doesn't show plugin `PostDebugMessage` output anywhere by default. Launch it with the

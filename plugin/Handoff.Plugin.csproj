@@ -24,6 +24,7 @@
          need excluding/explicit linking. -->
     <Compile Remove="Handoff.Plugin.Tests\**\*.cs" />
     <Compile Remove="Handoff.RadioHost\**\*.cs" />
+    <Compile Remove="Handoff.ReplayTool\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
