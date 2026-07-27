@@ -564,7 +564,10 @@ namespace Handoff.Plugin
         /// convergence requires a sustained climb/descent trend bringing ownship within
         /// VerticalApproachThresholdFeet of the band edge it's headed toward. Already-contained
         /// sectors and the already-resolved next-candidate callsign are excluded -- this flag is
-        /// about what's still ahead, not what's already current.
+        /// about what's still ahead, not what's already current. Only the single closest
+        /// qualifying sector is ever flagged (candidates are walked nearest-first, first match
+        /// wins) -- flying straight across a whole FIR must flag whichever sector is genuinely
+        /// next, not every sector within the lookahead cap at once.
         /// </summary>
         private HashSet<string> FindApproachingVatGlassesCallsigns(
             OwnshipTelemetry telemetry,
@@ -601,6 +604,12 @@ namespace Handoff.Plugin
             lock (_gate) { verticalTrendSign = _verticalTrendSign; verticalTrendSince = _verticalTrendSince; }
             var sustainedTrend = verticalTrendSign != 0 && _now() - verticalTrendSince >= VerticalTrendSustainWindow;
 
+            // approachMatches is already sorted nearest-first -- only the single closest
+            // qualifying match counts as "approaching," not every sector within the cap. A route
+            // straight across a whole FIR (e.g. north to south over Austria) would otherwise
+            // flag both the near and far sector simultaneously, when in reality only one of them
+            // is genuinely "next": real airspace is a sequence of adjacent sectors along the
+            // path, not a pile of equally-relevant candidates.
             foreach (var approach in approachMatches)
             {
                 if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue;
@@ -613,6 +622,7 @@ namespace Handoff.Plugin
                 if (string.Equals(owner.Callsign, committedVatGlassesCallsign, StringComparison.OrdinalIgnoreCase)) continue;
 
                 result.Add(owner.Callsign);
+                break;
             }
 
             return result;

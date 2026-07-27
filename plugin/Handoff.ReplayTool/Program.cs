@@ -26,7 +26,6 @@ namespace Handoff.ReplayTool
     {
         private const double HeadingApproachMaxNauticalMiles = 100;
         private const double RouteApproachMaxNauticalMiles = 150;
-        private const int MaxApproachLinesPerTick = 8;
 
         private static async Task<int> Main(string[] args)
         {
@@ -94,7 +93,7 @@ namespace Handoff.ReplayTool
             IReadOnlyDictionary<string, VatGlassesRegionData> regions)
         {
             string lastContainmentSummary = null;
-            var approachSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string lastApproachSummary = null;
 
             foreach (var p in positions.OrderBy(p => p.Timestamp))
             {
@@ -119,17 +118,19 @@ namespace Handoff.ReplayTool
                     approaching = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, p.Latitude, p.Longitude, p.Heading, HeadingApproachMaxNauticalMiles);
                 }
 
-                // Each tick's own list is sorted nearest-first, but silent ticks (no containment
-                // change, so no "IN:" divider above) print back-to-back with no separator --
-                // capped and timestamped per line so a dense run of ticks doesn't read as one
-                // giant jumbled block.
-                var newThisTick = approaching.Where(a => !approachSeen.Contains($"{a.Match.Sector.Id}@{a.Match.RegionFileName}")).Take(MaxApproachLinesPerTick).ToList();
-                foreach (var a in newThisTick)
+                // Mirrors ControllerRankingModel.FindApproachingVatGlassesCallsigns: candidates
+                // are sorted nearest-first, and only the single closest one not already contained
+                // counts as "approaching" -- flying straight across a whole FIR shouldn't show
+                // both the near and far sector at once. (This tool has no online-controller data
+                // to filter by, unlike the real model, so it's "closest not-yet-entered sector,"
+                // not "closest one someone's actually staffing.")
+                var closest = approaching.FirstOrDefault(a => !containing.Any(c => ReferenceEquals(c.Level, a.Match.Level)));
+                var approachSummary = closest != null ? $"{DescribeMatch(closest.Match, regions)} in {closest.DistanceNauticalMiles:F0}nm" : null;
+                if (approachSummary != null && approachSummary != lastApproachSummary)
                 {
-                    var key = $"{a.Match.Sector.Id}@{a.Match.RegionFileName}";
-                    approachSeen.Add(key);
-                    Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {DescribeMatch(a.Match, regions)} in {a.DistanceNauticalMiles:F0}nm");
+                    Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {approachSummary}");
                 }
+                lastApproachSummary = approachSummary;
             }
         }
 

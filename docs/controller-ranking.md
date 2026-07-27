@@ -32,7 +32,7 @@ it isn't a prediction, it already happened.
 | `IsApproaching` | GND | Always `false` | Ground never gets this flag -- Tower is the lowest tier it applies to (a UNICOM aircraft taxiing isn't "approaching" Ground, it's already there). |
 | `IsApproaching` | TWR | Airborne, within `TowerApproachingNauticalMiles` (20nm) | |
 | `IsApproaching` | APP/DEP | Airborne, <= `AppOmnidirectionalNauticalMiles` (40nm) any heading, or <= `AppOuterNauticalMiles` (50nm) with heading within `AppHeadingToleranceDegrees` (45 degrees) of bearing to station -- OR a VATGlasses convergence match (see below) when coverage exists | VATGlasses convergence is preferred when it produces a result, but the fixed-radius heuristic still applies independently as a fallback. |
-| `IsApproaching` | CTR | VATGlasses lateral+vertical convergence against a resolved-online sector -- not already contained (that's `IsLikelyNextCandidate` instead) AND both axes satisfied-or-converging AND at least one actually converging | No fallback for uncovered regions -- stays `false` there. |
+| `IsApproaching` | CTR | VATGlasses lateral+vertical convergence against a resolved-online sector -- not already contained (that's `IsLikelyNextCandidate` instead) AND both axes satisfied-or-converging AND at least one actually converging. Only the single *closest* qualifying sector is ever flagged, not every sector within the lookahead cap. | No fallback for uncovered regions -- stays `false` there. |
 | `IsApproaching` | DEL/Other | Always `false` | |
 | `IsApproaching` (any tier) | -- | Always `false` whenever something is already `IsCurrent` (tuned/pinned) | This flag only means something pre-contact. |
 | `IsHighlighted` | `_ATIS` (parses to `Other`) | Callsign ICAO-prefix-matches the route airport | |
@@ -73,6 +73,11 @@ one and central to the other.
 - **Combining:** a sector counts as `IsApproaching` when it is not already the resolved
   current/next-candidate match AND both axes are at least "satisfied-or-converging" AND at least
   one axis is actually in the *converging* (not-yet-inside) state.
+- **Closest-next-wins:** candidate sectors are walked nearest-first, and only the single closest
+  qualifying one is ever flagged -- not every sector within the lookahead cap. Flying straight
+  across a whole FIR (e.g. north to south over Austria) would otherwise flag both the near and
+  far sector at once; real airspace is a sequence of adjacent sectors along the path, so only one
+  is ever genuinely "next."
 
 ### Pressure altitude and QNH
 

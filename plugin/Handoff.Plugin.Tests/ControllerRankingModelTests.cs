@@ -825,6 +825,55 @@ namespace Handoff.Plugin.Tests
             Assert.True(model.Current.Single(c => c.Callsign == "EDDM_DEL").IsLikelyNextCandidate);
         }
 
+        // Two sequential, non-overlapping CTR sectors along a due-north heading -- NEAR closer,
+        // FAR further out but still within the 100nm approach cap. Both FL0-660 so containment/
+        // approach checks are satisfied by altitude alone, no vertical convergence needed.
+        private const string VatGlassesTwoSequentialSectorsRegionJson = @"{
+            ""airports"": {},
+            ""airspace"": [
+                {
+                    ""id"": ""S_NEAR"",
+                    ""group"": ""CTR"",
+                    ""owner"": [""POS_NEAR""],
+                    ""sectors"": [
+                        { ""min"": 0, ""max"": 660, ""points"": [[""093000"",""0151800""],[""093000"",""0154200""],[""094200"",""0154200""],[""094200"",""0151800""]] }
+                    ]
+                },
+                {
+                    ""id"": ""S_FAR"",
+                    ""group"": ""CTR"",
+                    ""owner"": [""POS_FAR""],
+                    ""sectors"": [
+                        { ""min"": 0, ""max"": 660, ""points"": [[""100000"",""0151800""],[""100000"",""0154200""],[""101200"",""0154200""],[""101200"",""0151800""]] }
+                    ]
+                }
+            ],
+            ""positions"": {
+                ""POS_NEAR"": { ""type"": ""CTR"", ""frequency"": ""133.500"", ""callsign"": ""NEAR_CTR"", ""pre"": [""NEAR""] },
+                ""POS_FAR"": { ""type"": ""CTR"", ""frequency"": ""134.500"", ""callsign"": ""FAR_CTR"", ""pre"": [""FAR""] }
+            }
+        }";
+
+        [Fact]
+        public void VatGlasses_Approaching_OnlyClosestSectorFlagged_NotEveryOneWithinCap()
+        {
+            // Regression for the "flying north to south over Austria" scenario: with two
+            // sequential sectors both within the approach lookahead cap, only the nearer one
+            // (NEAR) should ever be flagged IsApproaching -- not both simultaneously, which
+            // would misrepresent real airspace as a pile of equally-relevant candidates instead
+            // of a sequence you pass through one at a time.
+            var vatGlasses = CreateVatGlassesDataModel(VatGlassesTwoSequentialSectorsRegionJson);
+            AddController("NEAR_CTR", 13350, 5, 5);
+            AddController("FAR_CTR", 13450, 5, 5);
+            // South of both rectangles, heading due north (0 degrees) -- NEAR (~9.5N) is closer
+            // than FAR (~10.0N), both within the 100nm heading-approach cap.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 9.0, 15.5, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "NEAR_CTR").IsApproaching);
+            Assert.False(model.Current.Single(c => c.Callsign == "FAR_CTR").IsApproaching);
+        }
+
         [Fact]
         public void VatGlasses_NoCoverage_FallsBackToDistanceRouteMatchBehavior()
         {
