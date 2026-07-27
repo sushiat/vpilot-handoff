@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -12,20 +13,38 @@ namespace Handoff.ReplayTool
     /// <summary>
     /// Standalone dev tool (not shipped with the plugin) for validating VatGlassesSectorLookup's
     /// geometry against real recorded VATSIM flights, pulled from vataware.net's free, no-auth
-    /// flight history API. Prints the sequence of sector containment/approach-prediction
-    /// transitions for a given flight so they can be cross-checked by eye against the live
-    /// VATGlasses map (vatglasses.uk). See issue #9.
+    /// flight history API. Two modes:
     ///
-    /// Deliberately geometry-only: VATSIM's public data feed (and vataware's archive of it)
-    /// carries no per-pilot tuned-COM-frequency history -- that's only ever broadcast live via
-    /// the separate AFV transceivers feed, which nobody archives -- so there's no ground truth
-    /// to check ownership-resolution/ranking against here, only "does the sector/altitude-band
-    /// math pick the polygon a human would expect."
+    ///   - Single flight: `Handoff.ReplayTool &lt;vataware-flight-id&gt; [--route]` -- prints the
+    ///     sequence of sector containment/approach-prediction transitions to the console.
+    ///   - Batch: `Handoff.ReplayTool --random-test &lt;count&gt; [--seed N] [--out dir]` -- picks
+    ///     up to &lt;count&gt; random European airports, one recent flight from each, replays all
+    ///     of them, and writes a summary.txt plus one detail file per flight for review.
+    ///
+    /// Both self-check each approach-prediction against what ownship actually flew into next
+    /// (see Replay/ReplayResult) -- no external ground truth needed for that part. Deliberately
+    /// geometry-only otherwise: VATSIM's public data feed (and vataware's archive of it) carries
+    /// no per-pilot tuned-COM-frequency history -- that's only ever broadcast live via the
+    /// separate AFV transceivers feed, which nobody archives -- so there's no ground truth to
+    /// check ownership-resolution/ranking against here. See issue #9.
     /// </summary>
     internal static class Program
     {
         private const double HeadingApproachMaxNauticalMiles = 100;
         private const double RouteApproachMaxNauticalMiles = 150;
+
+        /// <summary>
+        /// A miss right after a gap at/above this is treated as inconclusive (excluded from the
+        /// confirmed/missed tally) rather than a real prediction failure -- vataware's position
+        /// samples run roughly 30s apart even during dense phases of flight, so a wide gap means
+        /// the predicted sector could easily have been entered and exited between two samples,
+        /// never observed at all. A rough heuristic, not a scientifically derived cutoff -- just
+        /// comfortably above the typical sample cadence seen in real data so far.
+        /// </summary>
+        private const double GapExclusionThresholdSeconds = 45;
+
+        /// <summary>Deliberate delay between vataware.net requests in batch mode, respecting their "use reasonably" rate-limit policy (see plugin/README.md).</summary>
+        private const int BatchRequestDelayMs = 500;
 
         private static async Task<int> Main(string[] args)
         {
@@ -35,18 +54,37 @@ namespace Handoff.ReplayTool
 
             if (args.Length < 1)
             {
-                Console.WriteLine("Usage: Handoff.ReplayTool <vataware-flight-id> [--route]");
-                Console.WriteLine("Flight IDs: browse https://vataware.net/airports/<ICAO> with an 'Accept: application/json' header.");
+                PrintUsage();
                 return 1;
             }
 
-            var flightId = args[0];
-            var useRoute = args.Any(a => string.Equals(a, "--route", StringComparison.OrdinalIgnoreCase));
-
             using (var http = CreateHttpClient())
             {
+                if (string.Equals(args[0], "--random-test", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (args.Length < 2 || !int.TryParse(args[1], out var count) || count <= 0)
+                    {
+                        Console.WriteLine("Usage: Handoff.ReplayTool --random-test <count> [--seed <n>] [--out <dir>]");
+                        return 1;
+                    }
+
+                    var seed = TryGetOptionValue(args, "--seed", out var seedText) && int.TryParse(seedText, out var parsedSeed)
+                        ? parsedSeed
+                        : Environment.TickCount;
+                    var outDir = TryGetOptionValue(args, "--out", out var outDirValue)
+                        ? outDirValue
+                        : Path.Combine("replay-results", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+
+                    await RunRandomTestAsync(http, count, seed, outDir);
+                    return 0;
+                }
+
+                var flightId = args[0];
+                var useRoute = args.Any(a => string.Equals(a, "--route", StringComparison.OrdinalIgnoreCase));
+
                 Console.WriteLine($"Fetching position history for flight {flightId}...");
-                var positions = await FetchPositionsAsync(http, flightId);
+                var json = await http.GetStringAsync($"https://vataware.net/flights/{flightId}/positions");
+                var positions = ParsePositionsJson(json);
                 Console.WriteLine($"Loaded {positions.Count} position samples.");
 
                 if (positions.Count == 0)
@@ -72,10 +110,35 @@ namespace Handoff.ReplayTool
                 Console.WriteLine($"{vatGlasses.Regions.Count} region files loaded.");
                 Console.WriteLine();
 
-                Replay(positions, waypoints, vatGlasses.Regions);
+                var result = Replay(positions, waypoints, vatGlasses.Regions, Console.Out);
+                Console.WriteLine();
+                Console.WriteLine(result.Describe());
             }
 
             return 0;
+        }
+
+        private static void PrintUsage()
+        {
+            Console.WriteLine("Usage:");
+            Console.WriteLine("  Handoff.ReplayTool <vataware-flight-id> [--route]");
+            Console.WriteLine("  Handoff.ReplayTool --random-test <count> [--seed <n>] [--out <dir>]");
+            Console.WriteLine();
+            Console.WriteLine("Flight IDs: browse https://vataware.net/airports/<ICAO> with an 'Accept: application/json' header.");
+        }
+
+        private static bool TryGetOptionValue(string[] args, string option, out string value)
+        {
+            for (var i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], option, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = args[i + 1];
+                    return true;
+                }
+            }
+            value = null;
+            return false;
         }
 
         private static HttpClient CreateHttpClient()
@@ -87,18 +150,34 @@ namespace Handoff.ReplayTool
             return client;
         }
 
-        private static void Replay(
+        /// <summary>Tallies from one flight's Replay() run -- see GapExclusionThresholdSeconds for why Excluded exists separately from Missed.</summary>
+        private sealed class ReplayResult
+        {
+            public int Confirmed;
+            public int Missed;
+            public int Excluded;
+
+            public int Conclusive => Confirmed + Missed;
+            public double? ConfirmedRate => Conclusive > 0 ? (double?)(100.0 * Confirmed / Conclusive) : null;
+
+            public string Describe() =>
+                $"Prediction check: {Confirmed}/{Conclusive} confirmed" +
+                (ConfirmedRate.HasValue ? $" ({ConfirmedRate.Value:F0}%)" : "") +
+                $", {Excluded} excluded (inconclusive -- sample gap >= {GapExclusionThresholdSeconds:F0}s).";
+        }
+
+        private static ReplayResult Replay(
             IReadOnlyList<VatawarePosition> positions,
             IReadOnlyList<FlightPlanWaypoint> waypoints,
-            IReadOnlyDictionary<string, VatGlassesRegionData> regions)
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            TextWriter output)
         {
+            var result = new ReplayResult();
             string lastContainmentSummary = null;
             string lastApproachSummary = null;
             var previousContainingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string pendingPredictionKey = null;
             string pendingPredictionLabel = null;
-            var confirmedCount = 0;
-            var missedCount = 0;
             DateTimeOffset? previousTimestamp = null;
 
             foreach (var p in positions.OrderBy(p => p.Timestamp))
@@ -113,30 +192,39 @@ namespace Handoff.ReplayTool
                     // Self-consistency check (no external ground truth needed): did the sector
                     // most recently predicted as "approaching" actually become the next one
                     // ownship entered? Confirms the prediction geometry is sound independent of
-                    // any online-controller/frequency data this tool doesn't have.
+                    // any online-controller/frequency data this tool doesn't have. A miss right
+                    // after a wide sample gap is inconclusive, not a real failure -- see
+                    // GapExclusionThresholdSeconds.
                     if (pendingPredictionKey != null)
                     {
                         var newlyEntered = containingKeys.Except(previousContainingKeys).ToList();
                         if (newlyEntered.Count > 0)
                         {
+                            var gapSeconds = previousTimestamp.HasValue ? (p.Timestamp - previousTimestamp.Value).TotalSeconds : (double?)null;
+
                             if (newlyEntered.Contains(pendingPredictionKey, StringComparer.OrdinalIgnoreCase))
                             {
-                                Console.WriteLine($"    [OK] prediction confirmed: entered {pendingPredictionLabel} as predicted");
-                                confirmedCount++;
+                                output.WriteLine($"    [OK] prediction confirmed: entered {pendingPredictionLabel} as predicted");
+                                result.Confirmed++;
+                            }
+                            else if (gapSeconds.HasValue && gapSeconds.Value >= GapExclusionThresholdSeconds)
+                            {
+                                output.WriteLine($"    [SKIP] predicted {pendingPredictionLabel}, entered {string.Join(", ", newlyEntered)} instead -- excluded, {gapSeconds:F0}s gap since previous sample likely swallowed an intermediate sector");
+                                result.Excluded++;
                             }
                             else
                             {
-                                var gapSeconds = previousTimestamp.HasValue ? (p.Timestamp - previousTimestamp.Value).TotalSeconds : (double?)null;
-                                var gapNote = gapSeconds.HasValue ? $" (gap since previous sample: {gapSeconds:F0}s -- a wide gap likely means the predicted sector was briefly transited between samples, not a real miss)" : "";
-                                Console.WriteLine($"    [MISS] predicted {pendingPredictionLabel}, but entered {string.Join(", ", newlyEntered)} instead{gapNote}");
-                                missedCount++;
+                                var gapNote = gapSeconds.HasValue ? $" ({gapSeconds:F0}s since previous sample)" : "";
+                                output.WriteLine($"    [MISS] predicted {pendingPredictionLabel}, but entered {string.Join(", ", newlyEntered)} instead{gapNote}");
+                                result.Missed++;
                             }
+
                             pendingPredictionKey = null;
                             pendingPredictionLabel = null;
                         }
                     }
 
-                    Console.WriteLine($"[{p.Timestamp:HH:mm:ss}] alt={p.Altitude,-6:F0}ft lat={p.Latitude,9:F4} lon={p.Longitude,9:F4} hdg={p.Heading,3:F0}  IN: {(summary.Length == 0 ? "(none)" : summary)}");
+                    output.WriteLine($"[{p.Timestamp:HH:mm:ss}] alt={p.Altitude,-6:F0}ft lat={p.Latitude,9:F4} lon={p.Longitude,9:F4} hdg={p.Heading,3:F0}  IN: {(summary.Length == 0 ? "(none)" : summary)}");
                     lastContainmentSummary = summary;
                     previousContainingKeys = containingKeys;
                 }
@@ -162,7 +250,7 @@ namespace Handoff.ReplayTool
                 var approachSummary = closest != null ? $"{DescribeMatch(closest.Match, regions)} in {closest.DistanceNauticalMiles:F0}nm" : null;
                 if (approachSummary != null && approachSummary != lastApproachSummary)
                 {
-                    Console.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {approachSummary}");
+                    output.WriteLine($"    [{p.Timestamp:HH:mm:ss}] -> approaching {approachSummary}");
                 }
                 lastApproachSummary = approachSummary;
 
@@ -175,8 +263,7 @@ namespace Handoff.ReplayTool
                 previousTimestamp = p.Timestamp;
             }
 
-            Console.WriteLine();
-            Console.WriteLine($"Prediction check: {confirmedCount} confirmed, {missedCount} missed (predictions never checked because the flight ended, or no prediction existed yet, don't count either way).");
+            return result;
         }
 
         private static string MatchKey(VatGlassesSectorLookup.VatGlassesSectorMatch match) =>
@@ -223,23 +310,37 @@ namespace Handoff.ReplayTool
         }
 
         /// <summary>
-        /// vataware.net's positions endpoint 301-redirects to archive.vataware.net (a CDN-backed
-        /// static file) -- HttpClient follows the redirect automatically; the body is plain JSON
-        /// wrapped as {"positions": [...]}, gzip-negotiated transparently via
-        /// HttpClientHandler.AutomaticDecompression, not a literal .gz file to unwrap by hand.
+        /// Individual position records have been observed with a null field (e.g. heading while
+        /// stationary) -- one bad record shouldn't cost the whole flight's replay, so anything
+        /// missing a value this tool actually needs (timestamp/altitude/lat/lon/heading) is
+        /// skipped rather than thrown on; elevation/speed default to 0 since they're much less
+        /// critical (elevation is informational, speed isn't used by the geometry at all).
         /// </summary>
-        private static async Task<List<VatawarePosition>> FetchPositionsAsync(HttpClient http, string flightId)
+        private static List<VatawarePosition> ParsePositionsJson(string json)
         {
-            var json = await http.GetStringAsync($"https://vataware.net/flights/{flightId}/positions");
             var array = (JArray)JObject.Parse(json)["positions"];
-            return array.Select(t => new VatawarePosition(
-                (DateTimeOffset)t["timestamp"],
-                (double)t["altitude"],
-                t["elevation"] != null ? (double)t["elevation"] : 0,
-                t["speed"] != null ? (double)t["speed"] : 0,
-                (double)t["latitude"],
-                (double)t["longitude"],
-                (double)t["heading"])).ToList();
+            if (array == null) return new List<VatawarePosition>();
+
+            var positions = new List<VatawarePosition>();
+            foreach (var t in array)
+            {
+                if (t["timestamp"] == null || t["timestamp"].Type == JTokenType.Null) continue;
+                if (t["altitude"] == null || t["altitude"].Type == JTokenType.Null) continue;
+                if (t["latitude"] == null || t["latitude"].Type == JTokenType.Null) continue;
+                if (t["longitude"] == null || t["longitude"].Type == JTokenType.Null) continue;
+                if (t["heading"] == null || t["heading"].Type == JTokenType.Null) continue;
+
+                positions.Add(new VatawarePosition(
+                    (DateTimeOffset)t["timestamp"],
+                    (double)t["altitude"],
+                    t["elevation"] != null && t["elevation"].Type != JTokenType.Null ? (double)t["elevation"] : 0,
+                    t["speed"] != null && t["speed"].Type != JTokenType.Null ? (double)t["speed"] : 0,
+                    (double)t["latitude"],
+                    (double)t["longitude"],
+                    (double)t["heading"]));
+            }
+
+            return positions;
         }
 
         /// <summary>
@@ -265,6 +366,241 @@ namespace Handoff.ReplayTool
             {
                 Console.WriteLine("Failed to fetch/parse route (falling back to heading-based prediction): " + ex.Message);
                 return new List<FlightPlanWaypoint>();
+            }
+        }
+
+        // A spread of European ICAO codes across busy and quieter fields, for --random-test's
+        // airport pool -- not exhaustive, just diverse enough geographically (and across
+        // VATGlasses' actual coverage: strong in Europe per issue #9) to give a meaningful random
+        // sample. Extend freely if a region needs better representation.
+        private static readonly string[] EuropeanAirports =
+        {
+            // UK & Ireland
+            "EGLL", "EGKK", "EGCC", "EGGD", "EGPH", "EGPF", "EGBB", "EGNX", "EGSS", "EGGW", "EGAA", "EIDW", "EICK",
+            // France
+            "LFPG", "LFPO", "LFPB", "LFMN", "LFBO", "LFRS", "LFML", "LFLL", "LFLS", "LFST", "LFBD", "LFRB",
+            // Germany
+            "EDDF", "EDDM", "EDDB", "EDDL", "EDDH", "EDDK", "EDDS", "EDDN", "EDDW", "EDDP",
+            // Benelux
+            "EBBR", "EBAW", "EHAM", "EHRD", "EHGG", "ELLX",
+            // Scandinavia
+            "EKCH", "EKBI", "ENGM", "ENBR", "ENZV", "ESSA", "ESGG", "ESMS", "EFHK", "EFTU", "BIKF",
+            // Iberia
+            "LPPT", "LPPR", "LEMD", "LEBL", "LEZL", "LEVC", "LEMG", "LEPA", "GCLP", "GCTS",
+            // Italy & Switzerland & Austria
+            "LIRF", "LIMC", "LIML", "LIME", "LICC", "LIRN", "LIPZ", "LSZH", "LSGG", "LSZB", "LOWW", "LOWS", "LOWI", "LOWL", "LOWG",
+            // Greece, Cyprus, Malta
+            "LGAV", "LGTS", "LCLK", "LCPH", "LMML",
+            // Central/Eastern Europe
+            "LKPR", "LZIB", "LHBP", "EPWA", "EPKK", "EPGD", "LJLJ", "LDZA", "LDSP", "LROP", "LRCL",
+            // Baltics & Balkans
+            "EYVI", "EYKA", "EVRA", "EETN", "LBSF", "LYBE",
+        };
+
+        // A confirmed real AIRAC effective date (Australian Airservices' published 2026
+        // schedule) -- AIRAC cycles are a fixed, globally-synchronized 28-day cadence published
+        // years in advance, so any one confirmed date anchors the whole schedule going forward
+        // (and backward) via simple modular arithmetic. Used to keep --random-test's flight
+        // pool within the *current* cycle, so the real-world airspace structure a replayed
+        // flight flew through is reasonably likely to still match today's cached VATGlasses
+        // data (which isn't itself formally AIRAC-versioned, but real sector/boundary changes
+        // track real-world AIRAC updates regardless).
+        private static readonly DateTime AiracAnchorDate = new DateTime(2026, 7, 9);
+        private const int AiracCycleDays = 28;
+
+        private static (DateTime Start, DateTime End) CurrentAiracCycle(DateTime asOfUtc)
+        {
+            var daysSinceAnchor = (asOfUtc.Date - AiracAnchorDate).TotalDays;
+            var cyclesSinceAnchor = Math.Floor(daysSinceAnchor / AiracCycleDays);
+            var start = AiracAnchorDate.AddDays(cyclesSinceAnchor * AiracCycleDays);
+            return (start, start.AddDays(AiracCycleDays));
+        }
+
+        /// <summary>
+        /// Picks up to count random European airports (via EuropeanAirports, shuffled with a
+        /// seeded Random for reproducibility), one recent arrival/departure from each -- only
+        /// considering flights that departed within the current AIRAC cycle (see
+        /// CurrentAiracCycle) -- until count distinct flights are found or the airport pool is
+        /// exhausted. Uses vataware's direct positions_url/flightplans_url from the airport
+        /// listing rather than re-deriving them from a flight ID -- one fewer request/redirect
+        /// per flight.
+        /// </summary>
+        private static async Task<List<RandomTestFlight>> DiscoverRandomFlightsAsync(HttpClient http, int count, int seed)
+        {
+            var (cycleStart, cycleEnd) = CurrentAiracCycle(DateTime.UtcNow);
+            Console.WriteLine($"Restricting to flights departed within the current AIRAC cycle: {cycleStart:yyyy-MM-dd} to {cycleEnd:yyyy-MM-dd}.");
+
+            var rng = new Random(seed);
+            var shuffledAirports = EuropeanAirports.OrderBy(_ => rng.Next()).ToList();
+            var picked = new List<RandomTestFlight>();
+            var seenFlightIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var icao in shuffledAirports)
+            {
+                if (picked.Count >= count) break;
+
+                await Task.Delay(BatchRequestDelayMs);
+                try
+                {
+                    var json = await http.GetStringAsync($"https://vataware.net/airports/{icao}");
+                    var root = JObject.Parse(json);
+                    var candidates = new List<JToken>();
+                    if (root["recent_arrivals"] is JArray arrivals) candidates.AddRange(arrivals);
+                    if (root["recent_departures"] is JArray departures) candidates.AddRange(departures);
+
+                    // Two independent, observed vataware quirks mean neither list nor the
+                    // "state" field can be trusted alone: "recent_arrivals" has been seen frozen
+                    // on the exact same ~9-month-old date across many different airports (a
+                    // site-wide staleness bug, not randomness), while "recent_departures" is
+                    // reliably current but mostly still-airborne (state=3, arrival_time is just
+                    // an ETA). So both lists are pooled together and filtered directly on the
+                    // actual timestamps instead: in the current AIRAC cycle (departure_time) AND
+                    // actually landed by now (arrival_time in the past) -- self-correcting
+                    // against whichever list/state quirk is in play, from either source.
+                    // Cast straight to DateTimeOffset rather than via (string): Newtonsoft
+                    // auto-detects ISO date-like JSON strings as Date tokens during JObject.Parse,
+                    // so a (string) cast round-trips through DateTime.ToString() in the current
+                    // culture (losing the UTC offset) instead of returning the original text.
+                    var nowUtc = DateTime.UtcNow;
+                    var eligible = candidates
+                        .Where(c => c["departure_time"] != null && c["departure_time"].Type == JTokenType.Date
+                                 && c["arrival_time"] != null && c["arrival_time"].Type == JTokenType.Date)
+                        .Where(c =>
+                        {
+                            var dep = ((DateTimeOffset)c["departure_time"]).UtcDateTime;
+                            var arr = ((DateTimeOffset)c["arrival_time"]).UtcDateTime;
+                            return dep >= cycleStart && dep < cycleEnd && arr <= nowUtc;
+                        })
+                        .ToList();
+                    if (eligible.Count == 0)
+                    {
+                        Console.WriteLine($"  [{icao}] no completed flights within the current AIRAC cycle, skipping.");
+                        continue;
+                    }
+
+                    // Shuffle this airport's own candidates too, then take the first not already
+                    // picked via some other airport's listing (a flight can appear at both its
+                    // departure and arrival airport).
+                    var shuffledCandidates = eligible.OrderBy(_ => rng.Next()).ToList();
+                    var chosen = shuffledCandidates.FirstOrDefault(c => (string)c["id"] != null && seenFlightIds.Add((string)c["id"]));
+                    if (chosen == null)
+                    {
+                        Console.WriteLine($"  [{icao}] all eligible candidate flights already picked elsewhere, skipping.");
+                        continue;
+                    }
+
+                    picked.Add(new RandomTestFlight(
+                        icao,
+                        (string)chosen["id"],
+                        (string)chosen["callsign"],
+                        (string)chosen["positions_url"],
+                        (string)chosen["flightplans_url"]));
+                    Console.WriteLine($"  [{icao}] picked {(string)chosen["callsign"]} ({(string)chosen["id"]}).");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  [{icao}] failed to fetch airport listing: {ex.Message}");
+                }
+            }
+
+            return picked;
+        }
+
+        private static async Task RunRandomTestAsync(HttpClient http, int count, int seed, string outDir)
+        {
+            Directory.CreateDirectory(outDir);
+            Console.WriteLine($"Random test: up to {count} flights across random European airports (seed={seed})...");
+            Console.WriteLine();
+
+            var flights = await DiscoverRandomFlightsAsync(http, count, seed);
+            Console.WriteLine();
+            Console.WriteLine($"Found {flights.Count} candidate flights.");
+
+            Console.WriteLine("Loading VATGlasses data from local cache...");
+            var vatGlasses = new VatGlassesDataModel(new OperationProgressModel(), null);
+            if (vatGlasses.Regions.Count == 0)
+            {
+                Console.WriteLine("No cached VATGlasses data found locally -- syncing now (this can take a while on first run)...");
+                await vatGlasses.SyncAsync();
+            }
+            Console.WriteLine($"{vatGlasses.Regions.Count} region files loaded.");
+            Console.WriteLine();
+
+            var summaryLines = new List<string> { $"Random test run -- seed={seed}, {flights.Count} flights", "" };
+            var overall = new ReplayResult();
+
+            foreach (var flight in flights)
+            {
+                Console.WriteLine($"Replaying {flight.Callsign} ({flight.FlightId}, via {flight.Icao})...");
+                try
+                {
+                    await Task.Delay(BatchRequestDelayMs);
+                    var positionsJson = await http.GetStringAsync(flight.PositionsUrl);
+                    var positions = ParsePositionsJson(positionsJson);
+
+                    if (positions.Count == 0)
+                    {
+                        summaryLines.Add($"{flight.FlightId}\t{flight.Callsign}\tSKIPPED (no positions)");
+                        continue;
+                    }
+
+                    var detailPath = Path.Combine(outDir, $"{flight.FlightId}.txt");
+                    using (var writer = new StreamWriter(detailPath, false, System.Text.Encoding.UTF8))
+                    {
+                        writer.WriteLine($"Flight {flight.Callsign} ({flight.FlightId}), discovered via {flight.Icao}");
+                        writer.WriteLine($"{positions.Count} position samples.");
+                        writer.WriteLine();
+
+                        // Batch mode is heading-only (no --route) -- waypoint lat/lon resolution
+                        // from vataware's raw route string isn't implemented (see
+                        // FetchRouteWaypointsAsync), so it wouldn't add anything here either.
+                        var result = Replay(positions, new List<FlightPlanWaypoint>(), vatGlasses.Regions, writer);
+                        writer.WriteLine();
+                        writer.WriteLine(result.Describe());
+
+                        overall.Confirmed += result.Confirmed;
+                        overall.Missed += result.Missed;
+                        overall.Excluded += result.Excluded;
+
+                        summaryLines.Add($"{flight.FlightId}\t{flight.Callsign}\t{result.Confirmed}/{result.Conclusive}" +
+                            (result.ConfirmedRate.HasValue ? $" ({result.ConfirmedRate.Value:F0}%)" : "") +
+                            $"\texcluded={result.Excluded}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    summaryLines.Add($"{flight.FlightId}\t{flight.Callsign}\tERROR: {ex.Message}");
+                    Console.WriteLine($"  ERROR: {ex.Message}");
+                }
+            }
+
+            summaryLines.Add("");
+            summaryLines.Add($"TOTAL: {overall.Describe()}");
+
+            var summaryPath = Path.Combine(outDir, "summary.txt");
+            File.WriteAllLines(summaryPath, summaryLines, System.Text.Encoding.UTF8);
+
+            Console.WriteLine();
+            Console.WriteLine(overall.Describe());
+            Console.WriteLine($"Summary written to {summaryPath}");
+            Console.WriteLine($"Per-flight detail files in {outDir}");
+        }
+
+        private sealed class RandomTestFlight
+        {
+            public string Icao { get; }
+            public string FlightId { get; }
+            public string Callsign { get; }
+            public string PositionsUrl { get; }
+            public string FlightPlansUrl { get; }
+
+            public RandomTestFlight(string icao, string flightId, string callsign, string positionsUrl, string flightPlansUrl)
+            {
+                Icao = icao;
+                FlightId = flightId;
+                Callsign = callsign;
+                PositionsUrl = positionsUrl;
+                FlightPlansUrl = flightPlansUrl;
             }
         }
     }
