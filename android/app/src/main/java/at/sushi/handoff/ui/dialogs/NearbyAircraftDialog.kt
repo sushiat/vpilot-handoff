@@ -142,7 +142,10 @@ private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, on
         LazyColumn(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 180.dp)
+                // Row-count based, not an arbitrary dp bump: the original 180dp cap fit exactly
+                // 4 rows (45dp each, from this row's 8dp+8dp vertical padding plus its text line
+                // height), so 6 rows (2 more) is 270dp.
+                .heightIn(max = 270.dp)
                 .background(colors.panelAlt, RoundedCornerShape(10.dp))
                 .padding(vertical = 4.dp)
         ) {
