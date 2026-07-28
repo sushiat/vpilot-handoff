@@ -1044,5 +1044,43 @@ namespace Handoff.Plugin.Tests
             var twrTier = model.Current.Where(c => c.Callsign.EndsWith("_TWR")).ToList();
             Assert.Equal("EGLC_TWR", twrTier[0].Callsign);
         }
+
+        [Fact]
+        public async Task Diversion_DestinationChange_DropsStaleRouteForApproachPrediction()
+        {
+            // Regression (issue #17 flight-test feedback): after a controller-issued diversion
+            // changes the effective destination, the previously-loaded SimBrief route must stop
+            // being used for the VATGlasses route-projected IsApproaching check -- it no longer
+            // has anything to do with where the flight is actually going. No heading is set here,
+            // so the *only* way NEAR_CTR can be flagged approaching at all is via the route
+            // projection -- once the stale route is dropped (with no heading fallback available
+            // either), the flag must disappear entirely rather than keep matching the old route.
+            var vatGlasses = CreateVatGlassesDataModel(VatGlassesTwoSequentialSectorsRegionJson);
+            AddController("NEAR_CTR", 13350, 9.6, 15.5);
+
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("WP1", 8.5, 15.5),
+                new FlightPlanWaypoint("WP2", 9.0, 15.5),
+                new FlightPlanWaypoint("WP3", 11.0, 15.5)
+            };
+            var plan = new Plugin.FlightPlan("BAW123", "YYYY", "ZZZZ", null, waypoints);
+            var flightPlanModel = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(plan), configPath: _configPath);
+            flightPlanModel.SetSimbriefCredentials("1", null);
+            await flightPlanModel.RefreshAsync();
+
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 9.0, 15.5, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = new ControllerRankingModel(_controllers, _radio, flightPlanModel, _vatsimFeed, _contactMe, _selcalActive, _pilotSession, vatGlasses);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "NEAR_CTR").IsApproaching);
+
+            // Simulate a controller-issued diversion: the effective destination changes.
+            plan = new Plugin.FlightPlan("BAW123", "YYYY", "WWWW", null, waypoints);
+            await flightPlanModel.RefreshAsync();
+            _radio.RaiseChanged();
+
+            Assert.False(model.Current.Single(c => c.Callsign == "NEAR_CTR").IsApproaching);
+        }
     }
 }
