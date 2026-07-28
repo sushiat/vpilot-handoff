@@ -24,7 +24,7 @@ it isn't a prediction, it already happened.
 
 | Flag | Tier(s) | Trigger criteria | Notes |
 |---|---|---|---|
-| `IsCurrent` | any | Tuned COM1/COM2 frequency matches, or manually pinned via `SetPinnedController` | Always rank 0. |
+| `IsCurrent` | any | Tuned COM1 or COM2 frequency matches | Always ranked first. Since issue #17, COM1 and COM2 can each independently match a different real online station -- both get `IsCurrent` simultaneously, not just whichever a single lookup found first. Manual pin (`SetPinnedController`) no longer sets this (see "Sort order" below) -- it used to, but pinning a controller while a different one was genuinely tuned wrongly stole `IsCurrent`/TUNED status from the real one. |
 | `IsContactMe` | any | Callsign present in `ContactMeModel.ActiveCallsigns` | Ranked below current, above SELCAL/next-candidate. |
 | (SELCAL ordering, no dedicated flag) | any | Callsign present in `SelcalActiveModel.ActiveCallsigns` | Ranked below contact-me, above next-candidate. |
 | `IsLikelyNextCandidate` | DEL/GND/TWR/APP/DEP | Priority order: (1) VATGlasses sector/airport-topdown resolution -- ownship's lat/lon + altitude falls inside a VATGlasses sector polygon (or, on the ground, the flight-plan airport's `topdown[]` chain) whose resolved online controller is in this tier; (2) else callsign-prefix route match against origin (pre-takeoff)/destination (post-takeoff); (3) else, only when no flight plan is loaded at all, the tier's single closest-by-distance controller | Only the *first* qualifying tier walking up the chain from current tier gets flagged. |
@@ -34,23 +34,50 @@ it isn't a prediction, it already happened.
 | `IsApproaching` | APP/DEP | Airborne, <= `AppOmnidirectionalNauticalMiles` (40nm) any heading, or <= `AppOuterNauticalMiles` (50nm) with heading within `AppHeadingToleranceDegrees` (45 degrees) of bearing to station -- OR a VATGlasses convergence match (see below) when coverage exists | VATGlasses convergence is preferred when it produces a result, but the fixed-radius heuristic still applies independently as a fallback. |
 | `IsApproaching` | CTR | VATGlasses lateral+vertical convergence against a resolved-online sector -- not already contained (that's `IsLikelyNextCandidate` instead) AND both axes satisfied-or-converging AND at least one actually converging. Only the single *closest* qualifying sector is ever flagged, not every sector within the lookahead cap. | No fallback for uncovered regions -- stays `false` there. |
 | `IsApproaching` | DEL/Other | Always `false` | |
-| `IsApproaching` (any tier) | -- | Always `false` whenever something is already `IsCurrent` (tuned/pinned) | This flag only means something pre-contact. |
+| `IsApproaching` (any tier) | -- | Always `false` whenever something is already `IsCurrent` (tuned) | This flag only means something pre-contact. |
 | `IsHighlighted` | `_ATIS` (parses to `Other`) | Callsign ICAO-prefix-matches the route airport | Since issue #17, `IsHighlighted` (like `IsApproaching`) is also pulled ahead of unrelated stations in the sort order, regardless of tier -- see "Sort order" below. |
 | `IsHighlighted` (any other tier) | -- | Always `false` | The old fixed-radius CTR highlight heuristic was removed entirely (issue #9) -- a CTR only stands out now via `IsLikelyNextCandidate`, a stronger signal, when VATGlasses resolves it. |
 
 ## Sort order
 
 The Android client renders the list in exactly the order the plugin sends it -- no client-side
-re-sorting. `ControllerRankingModel.Recompute()` builds that order as: current (tuned/pinned) →
-contact-me → SELCAL → `IsLikelyNextCandidate` → `IsHighlighted`/`IsApproaching` → everything else,
-each bucket itself ordered by chain tier then route-match/distance. Before issue #17,
-`IsHighlighted`/`IsApproaching` were computed only for Android's color/badge display and had zero
-effect on order -- a converging CTR or a route-matching ATIS could sort behind an entire page of
-wholly unrelated stations, since chain-tier bucketing alone decided position. Flight-test feedback
-showed this in practice (a highlighted ATIS landing after every real-tier station since ATIS's
-`Other` tier always sorts last; an `IsApproaching` CTR sorting ~50 rows deep behind unrelated
-DEL/GND/TWR stations) -- both flags now get their own bucket, ahead of "everything else" but behind
-`IsLikelyNextCandidate`.
+re-sorting. As of issue #17's flight-test fixes, `ControllerRankingModel.Recompute()` builds that
+order as a sequence of **buckets** (numbered here as `bucket#` for easy reference elsewhere --
+deliberately not "tier," which already means the DEL/GND/TWR/APP/CTR chain):
+
+- **Bucket 1 -- Current** (`IsCurrent`, tuned) -- can be more than one row if COM1 and COM2 are
+  each tuned to a different real station.
+- **Bucket 2 -- Standby-tuned** -- a controller's frequency is currently loaded into COM1 or COM2
+  *standby*, ready to swap to active the moment a handoff comes. Not a `RankedController` boolean
+  field -- Android computes this locally from the `radioState` message's standby frequencies (same
+  way it computes pin in bucket 5), since the plugin only needs it internally to decide ranking
+  position, not to expose a new protocol field for it. Gets its own STBY badge on Android.
+- **Bucket 3 -- Contact-me** (`IsContactMe`).
+- **Bucket 4 -- SELCAL** (no dedicated flag -- see the flag table above).
+- **Bucket 5 -- Pinned** (`SetPinnedController`) -- a deliberate bookmark, kept prominent but never
+  a stand-in for bucket 1/`IsCurrent` (see that row's note above). Like standby, not its own
+  `RankedController` boolean -- Android compares each row's callsign against its own
+  locally-tracked pinned callsign.
+- **Bucket 6 -- `IsApproaching`** -- ranked *above* bucket 7 (`IsLikelyNextCandidate`), even though
+  the next candidate is nominally "more actionable": flight-test feedback found a converging
+  station reads as more immediately relevant in practice than the rough next-tier guess.
+- **Bucket 7 -- `IsLikelyNextCandidate`**.
+- **Bucket 8 -- `IsHighlighted`** -- ranked *below* bucket 7, unlike bucket 6 above it. A much
+  softer "worth a glance" signal (see its own row in the flag table) that should only ever outrank
+  a wholly unrelated station, never the actual next candidate.
+- **Bucket 9 -- Everything else.**
+
+Buckets 2-9 are each internally ordered by chain tier then route-match/distance.
+
+Before issue #17, `IsHighlighted`/`IsApproaching` (buckets 6/8) were computed only for Android's
+color/badge display and had zero effect on order at all -- a converging CTR or a route-matching
+ATIS could sort behind an entire page of wholly unrelated stations, since chain-tier bucketing
+alone decided position. Pin (bucket 5), meanwhile, used to be folded directly into bucket 1/
+`IsCurrent` (see that row's note above) rather than having its own bucket.
+
+A controller-issued diversion (the VATSIM-filed destination changing mid-session) also affects
+`IsApproaching`'s route-projected prediction, not just sort order directly -- see "Diversion
+invalidates the filed route" below.
 
 ## VATGlasses match parameters: distance / altitude / heading
 
@@ -93,6 +120,21 @@ one and central to the other.
   far sector at once; real airspace is a sequence of adjacent sectors along the path, so only one
   is ever genuinely "next."
 
+### Diversion invalidates the filed route
+
+The "remaining SimBrief route legs" horizontal check above assumes the filed route is still where
+the flight is actually going. A controller-issued diversion breaks that: the effective destination
+(`vatsimPilot?.Arrival ?? flightPlan.Destination`) updates correctly and immediately when it
+changes, so route-match/highlighting elsewhere already re-targets the new destination's own
+stations fine -- but `flightPlan.Waypoints` is still whatever route was filed for the *original*
+destination, which would otherwise keep projecting `IsApproaching` through a stale leg. Once a
+destination change is observed mid-session, a one-way latch (`_routeInvalidatedByDiversion`, same
+pattern as the takeoff latch) forces the remaining-waypoints list empty for the rest of the
+session, falling back to the heading-ray-cast prediction instead. Deliberately does not attempt to
+pick up a SimBrief alternate route -- in practice, a real diversion is typically "direct XXXX to
+get you out of the way," not a re-route along the filed alternate, which many controllers can't
+even see.
+
 ### Pressure altitude and QNH
 
 VATGlasses sector bands are consistently FL-unit numbers, but real-world airspace near the ground
@@ -120,5 +162,7 @@ requirement, which serves the same debouncing purpose.
 - `topdown[]` runway-specific override objects are skipped on parse -- only the plain-string
   chain entries are used.
 - Any UI/map rendering of sector boundaries.
-- Manual override/pin (`SetPinnedController`) is untouched -- VATGlasses resolution only affects
-  the *automatic* next-candidate tier, never the pinned/tuned-current slot.
+- Manual override/pin (`SetPinnedController`) is untouched by VATGlasses resolution -- it only
+  affects the *automatic* next-candidate tier. Pin itself is a separate, independent ranking
+  bucket now (see "Sort order" above) -- it no longer forces `IsCurrent`/the tuned slot either
+  (issue #17).
