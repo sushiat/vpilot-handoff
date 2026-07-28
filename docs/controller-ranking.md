@@ -6,32 +6,44 @@ kept out of the class doc-comment itself since the full table is long. See issue
 original tier-chain/route-match/distance design and issue #9 for the VATGlasses sector/boundary
 geometry that upgrades several of these rows.
 
-## Design principle: `IsLikelyNextCandidate` vs `IsApproaching`
+## Design principle: `IsHighlighted` vs `IsNext` vs `IsLikelyNext`
 
-These are two different kinds of signal, not the same thing at different thresholds:
+Since the issue #18 redesign, this is three different kinds of signal, not one flag at two
+thresholds:
 
-- **`IsLikelyNextCandidate`** is the rough estimate -- whoever's next in the DEL->CTR chain, best
-  guess from route-match/proximity, or (with VATGlasses coverage) exact current sector/airport
-  containment.
-- **`IsApproaching`** is the predictive, data-driven one -- "not there yet, but the geometry
-  (heading, polygon edges, sustained climb/descent trend, altitude-band edges) says you're headed
-  toward it."
+- **`IsHighlighted`** is relevance/visibility -- "this station is worth seeing" (flight-plan match,
+  proximity, or polygon containment/convergence), independent of whether it's the one to actually
+  contact next.
+- **`IsNext`** is confident and actionable -- exactly one qualifying candidate, unambiguous (already
+  contained, an unambiguous inner-radius match, or a single converging/entering candidate whose
+  route-relevance is also confirmed).
+- **`IsLikelyNext`** is the same underlying signal as `IsNext` but confidence-capped -- either
+  because multiple candidates are genuinely tied (see each bucket's own tie rule), or because
+  route-relevance itself is unconfirmed (not on the flight plan) even when the geometry is
+  unambiguous.
 
-Containment (already inside a sector) belongs to `IsLikelyNextCandidate`, not `IsApproaching` --
-it isn't a prediction, it already happened.
+Containment/proximity (already there, or clearly close) generally produces more confidence than
+prediction (not there yet, projected to converge) -- see bucket 8's satisfied-vs-converging split
+for where that distinction still matters directly.
 
 ## Flag/criteria table
 
 `Bucket` refers to the numbered ranking-order buckets defined in "Sort order" below -- included
-here so you don't have to cross-reference to see where a given flag lands in the list. Bucket 6
-(below) is split into lettered sub-rows (6a-6e) since its criteria don't fit one row -- they're
-checked in that order (6a first) to build the `IsHighlighted` set, then 6e resolves `IsNext`/
-`IsLikelyNext` from within it. **Bucket 6 supersedes the old `IsApproaching`/`IsLikelyNextCandidate`/
-ATIS-only-`IsHighlighted` design entirely** (issue #18 redesign, 2026-07-28) -- `IsNext`/
-`IsLikelyNext` are new flags replacing `IsLikelyNextCandidate`, and `IsHighlighted` is no longer
-ATIS-specific. Bucket 7's exact final ranking position (and whether `IsNext`/`IsLikelyNext` occupy
-one bucket or two) is not decided yet -- see "Sort order" below, still stale/pending for buckets
-6-8.
+here so you don't have to cross-reference to see where a given flag lands in the list. Buckets 6,
+7, and 8 (below) are each split into lettered sub-rows since their criteria don't fit one row --
+within a bucket, sub-rows are checked in order to build the `IsHighlighted` set, then the last
+sub-row resolves `IsNext`/`IsLikelyNext` from within it. **Buckets 6/7/8 supersede the old
+`IsApproaching`/`IsLikelyNextCandidate`/ATIS-only-`IsHighlighted` design entirely** (issue #18
+redesign, 2026-07-28) -- `IsNext`/`IsLikelyNext` are new flags replacing `IsLikelyNextCandidate`,
+and `IsHighlighted` is no longer ATIS-specific. Bucket 6 is the on-ground case (AGL<50ft) for
+DEL/GND/TWR/APP/CTR; bucket 7 is the airborne case for TWR/APP; bucket 8 is the airborne case for
+CTR (covers level and non-level flight both, via 8a's satisfied-or-converging vertical check), plus
+an independent ETA readout (8c) layered on top of 8a/8b rather than a separate bucket -- there's no
+"bucket 9" case here after all, resolving what looked like a naming collision with bucket 9's
+existing meaning (the final catch-all rank position in "Sort order" below). Every bucket's exact
+final ranking position relative to the
+others (and whether `IsNext`/`IsLikelyNext` occupy one rank or two) is not decided yet -- see "Sort
+order" below, still stale/pending for buckets 6-8.
 
 | Bucket | Flag | Tier(s) | Trigger criteria | Notes |
 |---|---|---|---|---|
@@ -45,53 +57,47 @@ one bucket or two) is not decided yet -- see "Sort order" below, still stale/pen
 | 6c | `IsHighlighted` | APP | Not on flight plan: VATGlasses polygon containment where available, else within 20nm flat (vertical ignored entirely) | |
 | 6d | `IsHighlighted` | CTR | Not on flight plan: horizontal-only polygon containment, no radius fallback at all -- vertical band ignored entirely | Real-world VATSIM top-down coverage means an online enroute Center covers straight to the ground for anything inside its lateral boundary, regardless of the nominal FL its data lists as a floor (that FL shows up in the controller's own info string, not as a hard boundary on responsibility). No polygon data for a given CTR -- neither `IsHighlighted` nor `IsNext`/`IsLikelyNext`, full stop; a distance guess for CTR is exactly the kind of unreliable heuristic already rejected pre-issue-#9, worse still without any polygon at all. |
 | 6e | `IsNext` / `IsLikelyNext` | DEL/GND/TWR/APP/CTR | Chain-walk from whatever's tuned on COM1, over only the set of stations that qualified for `IsHighlighted` above (6a-6d) -- first qualifying tier above current tier wins | A tier already passed (e.g. DEL once tuned to GND) drops out of `IsNext`/`IsLikelyNext` but stays `IsHighlighted` (still useful for e.g. a re-clearance). Within the winning tier: exactly one qualifying candidate online -- confident `IsNext`. More than one genuinely tied candidate simultaneously online (e.g. identical control-zone polygon shared by per-runway TWR pairs; or differently-owned overlapping CTR sectors) -- all of them get `IsLikelyNext` instead of a single arbitrary pick. Resolves to one via elimination (only one of the tied set is actually online) -- confident `IsNext`, no longer ambiguous. Among multiple simultaneously-online `IsLikelyNext` CTR candidates, lowest `max` altitude is the tentative display-order preference (unverified against a real differently-owned-overlap example yet -- see project memory). |
+| 7a | `IsHighlighted` | TWR | Airborne (mutually exclusive with bucket 6 -- 6 applies on the ground, AGL<50ft; 7 applies once airborne) AND AGL<10000ft: within 20nm if on flight plan (origin/destination/alternate), else within 10nm | |
+| 7b | `IsHighlighted` | APP/DEP | Airborne AND pressure altitude <FL260: distance to the sector polygon (where VATGlasses coverage exists) or straight-line distance to the station otherwise, <=30nm -- same radius regardless of flight-plan status | Unlike 6c, no polygon-vs-radius branching by coverage changes the threshold -- 30nm applies either way, polygon distance is just a more precise measurement of it where available. |
+| 7c | `IsNext` / `IsLikelyNext` | TWR | Confident `IsNext` within the inner radius (10nm if on flight plan, 5nm if not) | Same tie rule as 6e: more than one TWR simultaneously within its inner radius -- all get `IsLikelyNext` instead of an arbitrary pick. |
+| 7c | `IsNext` / `IsLikelyNext` | APP/DEP | Only when actually converging/"entering" the sector (route/heading-projected prediction, not merely within the 7b highlight radius) | Confident `IsNext` only if on the flight plan AND exactly one entering candidate. `IsLikelyNext` otherwise -- either because not on the flight plan at all (route-relevance is uncertain even if geometrically unambiguous, e.g. an unplanned diversion into LOWW's airspace with LOWW not an actual alternate -- capped at `IsLikelyNext` even with only one entering candidate), or because multiple simultaneously-entering candidates exist regardless of flight-plan status (e.g. LOWW_APP and LZIB_APP both plausible depending on approach direction). |
+| 8a | `IsHighlighted` | CTR | Airborne: route/heading-projected lateral convergence (150nm route-projected preferred, 100nm heading-ray-cast fallback when no route loaded, same as before) AND vertical -- either *satisfied* (ownship's altitude is already within the sector's band, regardless of level/climbing/descending -- no margin, no trend needed) or *converging* (sustained climb/descent trend, vertical speed >=500fpm for >=5s, same `VerticalTrendThresholdFpm`/`VerticalTrendSustainWindow` as before, bringing ownship within 5000ft of the band edge it's headed toward -- widened from the old 2000ft, since a fast-climbing/descending bizjet can close that gap quickly) | No VATGlasses (or VatSpy) geometry for a given CTR -- stays unmarked entirely, same principle as 6d (known gap, accepted for now). CTR is a more relaxed phase of flight than TWR/APP -- a real handoff is normally either an explicit pass from the previous controller or a contact-me, so this prediction is a nice-to-know, not the critical signal the tighter TWR/APP buckets are. The margin only matters for the converging case -- level flight already inside the band needs no margin at all, it's just already there. |
+| 8b | `IsNext` / `IsLikelyNext` | CTR | Among the 8a-qualifying (converging-into) set, take the single closest by lateral distance as the band anchor -- every candidate within `anchor x 1.10` of it (not pairwise-chained, always relative to that one anchor) ties with it | Exactly one candidate within the band (nothing else that close) -- confident `IsNext`. More than one within the band -- all of them get `IsLikelyNext` instead. At the 150nm range ceiling this is roughly a 15nm-wide band, which is still a reasonable "basically tied" margin at that distance. |
+| 8c | ETA readout (ownship-level, not per-controller) | -- | Level flight, any altitude -- OR climbing/descending above FL150 | Independent of 8a/8b -- not a gate on `IsHighlighted`/`IsNext`/`IsLikelyNext`, just whether an ETA number gets shown alongside whatever those already resolved. Level flight has no altitude floor at all (even a prop plane cruising at 5000ft gets one, since level flight implies stable speed regardless of altitude); climbing/descending needs FL150 specifically because speed/profile changes too much below it to trust an estimate. FL150 is a single flat threshold, not aircraft-type-aware -- deliberately not worth the SimConnect engine/category-detection work this would need to do properly for a soft UX nicety, not a correctness-critical flag. An unpressurized prop plane may never even reach FL150, but its climb is short regardless (even at a modest 1000fpm, well under 10 minutes to a typical prop cruise altitude), so the "no ETA yet" gap in practice is brief. Long-haul descents from high cruise altitudes are the main beneficiary -- a 30+ minute descent from FL410 stays well above FL150 for most of its length. |
+| 9 | (no flags) | any | Everything that didn't qualify for any bucket above | The original issue #8 base case, untouched by the #18 redesign. Ordered by chain tier (DEL->GND->TWR->APP->CTR relative to current tier), then by distance within tier. |
 
 ## Sort order
 
 The Android client renders the list in exactly the order the plugin sends it -- no client-side
-re-sorting. As of issue #17's flight-test fixes, `ControllerRankingModel.Recompute()` builds that
-order as a sequence of **buckets** (numbered here as `bucket#` for easy reference elsewhere --
-deliberately not "tier," which already means the DEL/GND/TWR/APP/CTR chain):
+re-sorting, ever. `ControllerRankingModel.Recompute()` builds that order as ascending `Bucket`
+number (1 through 9, per the flag/criteria table above -- that table is the source of truth for
+each bucket's criteria, not restated here).
 
-- **Bucket 1 -- Current** (`IsCurrent`, tuned) -- can be more than one row if COM1 and COM2 are
-  each tuned to a different real station, with COM1's always ordered ahead of COM2's.
-- **Bucket 2 -- `IsStandbyTuned`** -- a controller's frequency is currently loaded into COM1 or
-  COM2 *standby*, ready to swap to active the moment a handoff comes. Gets its own STBY badge on
-  Android.
-- **Bucket 3 -- Contact-me** (`IsContactMe`).
-- **Bucket 4 -- `IsSelcalActive`**.
-- **Bucket 5 -- Pinned** (`SetPinnedController`) -- see the flag table above for the manual-toggle
-  and current/standby-overlap behavior.
-- **Buckets 6-8 -- PENDING (issue #18 redesign in progress, 2026-07-28).** The old `IsApproaching`/
-  `IsLikelyNextCandidate`/ATIS-only-`IsHighlighted` design these bullets described is superseded by
-  the flag table's new bucket 6a-6e rows above -- but where `IsNext`/`IsLikelyNext`/`IsHighlighted`
-  actually land relative to each other in final rank order (one bucket or several, and in what
-  order) isn't decided yet. Do not treat the old bullets below as current -- kept only as a
-  reference point for what's being replaced, delete once bucket 7 is formally addressed:
-  - ~~Bucket 6 -- `IsApproaching`, ranked above bucket 7 because a converging station reads as more
-    immediately relevant than the rough next-tier guess.~~
-  - ~~Bucket 7 -- `IsLikelyNextCandidate`.~~
-  - ~~Bucket 8 -- `IsHighlighted`, ranked below bucket 7 as a softer "worth a glance" signal.~~
-- **Bucket 9 -- Everything else.**
+**Within a bucket**, order is:
 
-Buckets 2-9 are each internally ordered by chain tier then route-match/distance.
+1. `IsNext` (confident) first.
+2. `IsLikelyNext` next, ordered by distance only -- a tie group is guaranteed same-tier by
+   construction (ties only ever form among same-type candidates, e.g. two TWRs or two CTRs), so
+   tier ordering would be a no-op here.
+3. Everything else that's merely `IsHighlighted` (no `IsNext`/`IsLikelyNext`), ordered by chain
+   tier then distance -- unlike the `IsLikelyNext` group, this remainder can span multiple tiers
+   at once, so tier-first keeps them predictably grouped (all DEL together, then GND, then TWR...)
+   rather than jumbled by raw distance across tiers.
 
-Before issue #17, `IsHighlighted`/`IsApproaching` (buckets 6/8) were computed only for Android's
-color/badge display and had zero effect on order at all -- a converging CTR or a route-matching
-ATIS could sort behind an entire page of wholly unrelated stations, since chain-tier bucketing
-alone decided position. Pin (bucket 5), meanwhile, used to be folded directly into bucket 1/
-`IsCurrent` (see that row's note above) rather than having its own bucket.
+This only meaningfully applies to buckets 6/7/8, which are the only ones mixing `IsNext`/
+`IsLikelyNext`/`IsHighlighted` together -- buckets 1-5 and 9 each have simpler, single-purpose
+ordering already described in their own table rows/notes.
 
 A controller-issued diversion (the VATSIM-filed destination changing mid-session) also affects
-`IsApproaching`'s route-projected prediction, not just sort order directly -- see "Diversion
-invalidates the filed route" below.
+bucket 8's route-projected prediction, not just sort order directly -- see "Diversion invalidates
+the filed route" below.
 
 ## VATGlasses match parameters: distance / altitude / heading
 
 Two distinct checks, matching the design principle above -- heading is deliberately irrelevant to
 one and central to the other.
 
-### Containment (`IsLikelyNextCandidate`) -- exact point-in-polygon + altitude-band test
+### Containment (bucket 6b/6c's `IsHighlighted`, preferred over the radius fallback where available) -- exact point-in-polygon + altitude-band test
 
 - **Horizontal:** no radius parameter. Ownship's lat/lon either falls inside a sector polygon or
   it doesn't -- the polygon boundary itself *is* the distance criterion, at whatever irregular
@@ -99,12 +105,14 @@ one and central to the other.
 - **Vertical:** exact band containment against the matched level's `min`/`max`, using whichever
   of pressure-altitude-FL / QNH-true-altitude-FL applies (QNH-corrected below
   `VatGlassesSectorLookup.TransitionLevelFallbackFl` = FL100, pressure altitude at/above it -- see
-  "Pressure altitude and QNH" below). No altitude buffer at the band edges either.
+  "Pressure altitude and QNH" below). No altitude buffer at the band edges either. **Exception:
+  bucket 6d's CTR containment ignores this entirely** (horizontal-only, no vertical check at all)
+  -- see that row's note for why (real-world top-down coverage vs. the nominal published floor).
 - **Heading/track:** not a factor. A containment test has no notion of "closing in." Also not
   used to bias *which* of several overlapping matches wins (`VatGlassesOwnershipResolver` picks
   the first chain entry that resolves to an online controller, not the "most converged-upon" one).
 
-### Prediction (`IsApproaching`) -- heading/route and vertical trend are the whole point
+### Prediction (bucket 7c's APP "entering", bucket 8a's CTR "converging") -- heading/route and vertical trend are the whole point
 
 - **Horizontal:** preferred is the remaining SimBrief route legs from current position onward,
   intersected against the polygon (`VatGlassesSectorLookup.DistanceToPolygonAlongRouteNm`) --
@@ -114,18 +122,24 @@ one and central to the other.
   route-based check is steadier through a turn shortly before the boundary than instantaneous
   heading is -- heading alone can flip off right as the aircraft banks into a turn, even though
   the filed route still clearly enters the sector on the next leg.
-- **Vertical:** not a static band check but a sustained-trend one -- a climb/descent of at least
-  `VerticalTrendThresholdFpm` (500fpm) sustained for `VerticalTrendSustainWindow` (5s), bringing
-  ownship within `VerticalApproachThresholdFeet` (2000ft) of the band edge it's headed toward.
-  Level flight outside the band never converges, regardless of proximity.
-- **Combining:** a sector counts as `IsApproaching` when it is not already the resolved
-  current/next-candidate match AND both axes are at least "satisfied-or-converging" AND at least
-  one axis is actually in the *converging* (not-yet-inside) state.
-- **Closest-next-wins:** candidate sectors are walked nearest-first, and only the single closest
-  qualifying one is ever flagged -- not every sector within the lookahead cap. Flying straight
-  across a whole FIR (e.g. north to south over Austria) would otherwise flag both the near and
-  far sector at once; real airspace is a sequence of adjacent sectors along the path, so only one
-  is ever genuinely "next."
+- **Vertical (CTR, bucket 8a):** not a static band check but *satisfied-or-converging* -- already
+  within the band counts regardless of level/climbing/descending (no margin needed), or a
+  sustained climb/descent of at least `VerticalTrendThresholdFpm` (500fpm) for
+  `VerticalTrendSustainWindow` (5s) bringing ownship within 5000ft of the band edge it's headed
+  toward (widened from the pre-#18 2000ft -- a fast-climbing/descending bizjet can close that gap
+  quickly). Level flight outside the band never converges, regardless of proximity.
+- **Vertical (APP, bucket 7c):** not yet explicitly decided whether this needs the same
+  satisfied-or-converging vertical trend check as CTR, or whether the FL260 ceiling (bucket 7b)
+  alone is a sufficient vertical gate for "entering" without a full trend requirement -- open
+  question, flag if this matters when implementing.
+- **Combining:** a sector counts as converging when it is not already contained/otherwise resolved
+  AND both axes are at least "satisfied-or-converging" AND at least one axis is actually in the
+  *converging* (not-yet-inside) state.
+- **Tie-banding:** candidates are walked nearest-first; the single closest becomes the band anchor,
+  and every candidate within `anchor x 1.10` of it ties with it (confident `IsNext` if it's alone,
+  `IsLikelyNext` for the whole group if not) -- see bucket 8b. Replaces the old strict
+  closest-only rule, which would've missed genuinely-tied cases like two adjacent sectors at
+  nearly the same distance.
 
 ### Diversion invalidates the filed route
 
@@ -134,7 +148,7 @@ the flight is actually going. A controller-issued diversion breaks that: the eff
 (`vatsimPilot?.Arrival ?? flightPlan.Destination`) updates correctly and immediately when it
 changes, so route-match/highlighting elsewhere already re-targets the new destination's own
 stations fine -- but `flightPlan.Waypoints` is still whatever route was filed for the *original*
-destination, which would otherwise keep projecting `IsApproaching` through a stale leg. Once a
+destination, which would otherwise keep projecting bucket 8's CTR prediction through a stale leg. Once a
 destination change is observed mid-session, a one-way latch (`_routeInvalidatedByDiversion`, same
 pattern as the takeoff latch) forces the remaining-waypoints list empty for the rest of the
 session, falling back to the heading-ray-cast prediction instead. Deliberately does not attempt to
@@ -158,11 +172,11 @@ a placeholder, since VATGlasses doesn't carry real per-region transition altitud
 Both a containment edge and a prediction's lost/regained convergence need the same kind of
 protection `ApplyDistanceHysteresis` already gives the per-tier distance leader -- a committed
 value that only changes after being consistently different for the full 12s `HysteresisWindow`.
-`ApplyVatGlassesHysteresis` gives the containment resolution (`IsLikelyNextCandidate`) that same
-treatment, as a single committed value (not per-tier, since at most one sector/airport-chain
-resolution is relevant at a time). `IsApproaching`'s own convergence result doesn't need a
-separate commit/challenger slot -- it's already gated by the 5s sustained vertical-trend
-requirement, which serves the same debouncing purpose.
+`ApplyVatGlassesHysteresis` gives the containment resolution that same treatment, as a single
+committed value (not per-tier, since at most one sector/airport-chain resolution is relevant at a
+time). The prediction/convergence result doesn't need a separate commit/challenger slot -- it's
+already gated by the 5s sustained vertical-trend requirement, which serves the same debouncing
+purpose.
 
 ## Explicitly out of scope (issue #9)
 
