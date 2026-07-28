@@ -27,25 +27,31 @@ class MessagesTest {
         assertEquals(false, controller.requestsContactMe)
         assertEquals(false, controller.isCurrent)
         assertEquals(false, controller.isContactMe)
-        assertEquals(false, controller.isLikelyNextCandidate)
-        assertEquals(false, controller.isApproaching)
+        assertEquals(false, controller.isHighlighted)
+        assertEquals(false, controller.isNext)
+        assertEquals(false, controller.isLikelyNext)
+        assertEquals(false, controller.isPinned)
+        assertEquals(false, controller.isStandbyTuned)
+        assertEquals(false, controller.isSelcalActive)
+        assertNull(message.etaMinutes)
     }
 
     @Test
     fun decodesControllersMessage_FullyEnriched_PreservesSortOrderAndFlags() {
         val json = """
-            {"type":"controllers","controllers":[
+            {"type":"controllers","etaMinutes":4.5,"controllers":[
               {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
                "cid":1234567,"name":"John Smith","facility":4,"rating":5,
-               "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isLikelyNextCandidate":false,"isApproaching":false},
+               "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isHighlighted":false,"isNext":false,"isLikelyNext":false,"isPinned":false,"isStandbyTuned":false,"isSelcalActive":false},
               {"callsign":"EGLL_APP","frequency":12900,"latitude":51.5,"longitude":-0.46,
                "cid":null,"name":null,"facility":null,"rating":null,
-               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isLikelyNextCandidate":false,"isApproaching":true}
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isHighlighted":true,"isNext":false,"isLikelyNext":true,"isPinned":false,"isStandbyTuned":false,"isSelcalActive":false}
             ]}
         """.trimIndent()
 
         val message = decodeServerMessage(json) as ControllersMessage
         assertEquals(listOf("EGLL_TWR", "EGLL_APP"), message.controllers.map { it.callsign })
+        assertEquals(4.5, message.etaMinutes)
 
         val current = message.controllers[0]
         assertEquals(1234567, current.cid)
@@ -53,13 +59,13 @@ class MessagesTest {
         assertEquals(4, current.facility)
         assertEquals(5, current.rating)
         assertEquals(true, current.isCurrent)
-        assertEquals(false, current.isApproaching)
+        assertEquals(false, current.isLikelyNext)
 
         val contactMe = message.controllers[1]
         assertNull(contactMe.cid)
         assertEquals(true, contactMe.requestsContactMe)
         assertEquals(true, contactMe.isContactMe)
-        assertEquals(true, contactMe.isApproaching)
+        assertEquals(true, contactMe.isLikelyNext)
     }
 
     @Test
@@ -238,6 +244,21 @@ class MessagesTest {
     fun encodesSetTransponderCodeCommand() {
         val json = SetTransponderCodeCommand(transponderCode = 1200).encode()
         assertEquals("""{"type":"setTransponderCode","transponderCode":1200}""", json)
+    }
+
+    @Test
+    fun encodesPinControllerCommand() {
+        val json = PinControllerCommand(callsign = "EGLL_TWR").encode()
+        assertEquals("""{"type":"pinController","callsign":"EGLL_TWR"}""", json)
+    }
+
+    @Test
+    fun encodesClearPinnedControllerCommand() {
+        // Regression: clearPinnedController used to carry no fields at all (a global "unpin
+        // whatever's pinned" command) -- multiple controllers can be pinned at once now, so
+        // clearing one specifically requires its callsign, same as pinController.
+        val json = ClearPinnedControllerCommand(callsign = "EGLL_TWR").encode()
+        assertEquals("""{"type":"clearPinnedController","callsign":"EGLL_TWR"}""", json)
     }
 
     @Test

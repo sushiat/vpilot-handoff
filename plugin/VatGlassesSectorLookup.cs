@@ -70,8 +70,9 @@ namespace Handoff.Plugin
         /// ControllerRankingModel's §2 telemetry plumbing). Either altitude figure may be null
         /// (e.g. QNH not received yet) -- a level is simply skipped if the figure it needs is
         /// unavailable. Multiple overlapping matches (adjacent FIRs' data occasionally overlaps
-        /// at shared boundaries) are all returned; the caller (VatGlassesOwnershipResolver) picks
-        /// whichever resolves to an online controller first.
+        /// at shared boundaries) are all returned; the caller (VatGlassesOwnershipResolver.
+        /// ResolveOnlineControllers) resolves each to every online controller it matches, not
+        /// just one -- see that method's doc comment for why "just the first match" isn't safe.
         /// </summary>
         public static IReadOnlyList<VatGlassesSectorMatch> FindContainingSectors(
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
@@ -106,6 +107,40 @@ namespace Handoff.Plugin
             return matches;
         }
 
+        /// <summary>
+        /// Same as FindContainingSectors, but skips the altitude-band check entirely -- horizontal
+        /// polygon containment only. Used for CTR (bucket 6d, docs/controller-ranking.md): real
+        /// VATSIM top-down coverage means an online enroute Center covers straight to the ground
+        /// for anything inside its lateral boundary once staffed, regardless of the nominal FL its
+        /// data lists as a floor (that FL shows up in the controller's own info string, not as a
+        /// hard boundary on responsibility) -- so gating CTR containment on the published band
+        /// would wrongly exclude a legitimately-covering Center.
+        /// </summary>
+        public static IReadOnlyList<VatGlassesSectorMatch> FindContainingSectorsIgnoringAltitude(
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            double lat,
+            double lon)
+        {
+            var matches = new List<VatGlassesSectorMatch>();
+
+            foreach (var kv in regions)
+            {
+                foreach (var sector in kv.Value.Airspace)
+                {
+                    foreach (var level in sector.Levels)
+                    {
+                        if (!BoundingBoxMayContain(lat, lon, level, 0)) continue;
+                        if (IsPointInPolygon(lat, lon, level))
+                        {
+                            matches.Add(new VatGlassesSectorMatch(kv.Key, sector, level));
+                        }
+                    }
+                }
+            }
+
+            return matches;
+        }
+
         /// <summary>Standard ray-casting point-in-polygon test against a sector level's ring (closed last-&gt;first).</summary>
         public static bool IsPointInPolygon(double lat, double lon, VatGlassesSectorLevel level)
         {
@@ -122,6 +157,47 @@ namespace Handoff.Plugin
                 if (intersects) inside = !inside;
             }
             return inside;
+        }
+
+        /// <summary>
+        /// Plain nearest-point distance (nm) from (lat, lon) to this level's polygon boundary --
+        /// works whether the point is inside or outside, unlike DistanceToPolygonAlongHeadingNm/
+        /// AlongRouteNm which are directional ray/route intersections. Used for the containment
+        /// spatial dead-band (see ControllerRankingModel's flapping-protection handling) to tell
+        /// "just outside the edge" apart from "genuinely well clear of it."
+        /// </summary>
+        public static double DistanceToPolygonBoundaryNm(double lat, double lon, VatGlassesSectorLevel level)
+        {
+            var points = level.Points;
+            if (points.Count < 2) return double.PositiveInfinity;
+
+            var minDistance = double.PositiveInfinity;
+            for (int i = 0, j = points.Count - 1; i < points.Count; j = i++)
+            {
+                var a = Project(lat, lon, points[j].Latitude, points[j].Longitude);
+                var b = Project(lat, lon, points[i].Latitude, points[i].Longitude);
+
+                var edgeX = b.X - a.X;
+                var edgeY = b.Y - a.Y;
+                var lengthSquared = edgeX * edgeX + edgeY * edgeY;
+
+                double distance;
+                if (lengthSquared < 1e-9)
+                {
+                    distance = Math.Sqrt(a.X * a.X + a.Y * a.Y);
+                }
+                else
+                {
+                    // Project the origin (0,0 -- (lat, lon) itself) onto edge a->b, clamped to [0,1].
+                    var t = Math.Max(0.0, Math.Min(1.0, (-(a.X * edgeX) - (a.Y * edgeY)) / lengthSquared));
+                    var closestX = a.X + t * edgeX;
+                    var closestY = a.Y + t * edgeY;
+                    distance = Math.Sqrt(closestX * closestX + closestY * closestY);
+                }
+
+                if (distance < minDistance) minDistance = distance;
+            }
+            return minDistance;
         }
 
         /// <summary>

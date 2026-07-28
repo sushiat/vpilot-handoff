@@ -26,6 +26,7 @@ class HandoffWebSocketClient(
         val request = Request.Builder().url("ws://$host:$port/").build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.i("HandoffWS", "onOpen: connected to ws://$host:$port/")
                 onStateChanged(true)
             }
 
@@ -34,10 +35,17 @@ class HandoffWebSocketClient(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.i("HandoffWS", "onClosed: code=$code reason=$reason")
                 onStateChanged(false)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                // The one place a silent connection death was actually invisible before -- no
+                // reason, no exception, nothing -- which made a real dropped-connection incident
+                // undebuggable after the fact (2026-07-28 flight-test session). t.message alone is
+                // usually enough (e.g. "Connection reset", "failed to connect", timeout), response
+                // is often null (most failures happen before/without a real HTTP response).
+                Log.w("HandoffWS", "onFailure: ${t.javaClass.simpleName}: ${t.message} (response=${response?.code})")
                 onStateChanged(false)
             }
         })

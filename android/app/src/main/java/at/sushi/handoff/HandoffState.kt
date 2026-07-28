@@ -115,11 +115,6 @@ object HandoffState {
     private val _keepScreenAwake = MutableStateFlow(true)
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
 
-    // Mirrors the last pinController/clearPinnedController call, for optimistic row highlighting
-    // before the next controllers resend confirms it.
-    private val _pinnedCallsign = MutableStateFlow<String?>(null)
-    val pinnedCallsign: StateFlow<String?> = _pinnedCallsign.asStateFlow()
-
     // Whether any of this app's Activities are currently started (i.e. on-screen at all --
     // fullscreen or split-screen both count as "visible"; only a fully backgrounded/covered app
     // is not). Driven by ProcessLifecycleOwner in HandoffConnectionService.onCreate. Notifications
@@ -149,9 +144,8 @@ object HandoffState {
      *  current indefinitely, with nothing on screen indicating it stopped being live. No extra
      *  "has it been down a while" debounce -- connectionStatus itself already only reaches
      *  DISCONNECTED once the socket is genuinely gone, so there's no flicker risk to guard
-     *  against. Chat history and the pinned-controller intent are deliberately left alone: chat
-     *  is a log worth keeping across a reconnect, and the pin is the pilot's own choice, not
-     *  server-pushed data that can go stale the same way. */
+     *  against. Chat history is deliberately left alone -- it's a log worth keeping across a
+     *  reconnect, unlike the rest of this snapshot. */
     private fun clearLiveServerState() {
         _controllers.value = ControllersMessage(controllers = emptyList())
         _radioState.value = RadioStateMessage(modeCEnabled = false)
@@ -218,10 +212,6 @@ object HandoffState {
 
     fun setKeepScreenAwake(enabled: Boolean) {
         _keepScreenAwake.value = enabled
-    }
-
-    fun setPinnedCallsign(callsign: String?) {
-        _pinnedCallsign.value = callsign
     }
 
     fun setAppVisible(visible: Boolean) {

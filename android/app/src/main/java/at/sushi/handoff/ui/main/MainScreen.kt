@@ -185,7 +185,6 @@ private fun MainScreenContent() {
     val flightPlanWarning = flightPlanMismatch || vatsimMissing
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
-    val pinnedCallsign by HandoffState.pinnedCallsign.collectAsState()
     val theme by HandoffState.theme.collectAsState()
     val layoutMode by HandoffState.layoutMode.collectAsState()
     val splitSide by HandoffState.splitSide.collectAsState()
@@ -218,7 +217,6 @@ private fun MainScreenContent() {
 
     val latestSelcalAlert = chat.selcalAlerts.maxByOrNull { it.timestamp }
     val selcalActive = latestSelcalAlert != null && latestSelcalAlert.timestamp != selcalDismissedTimestamp
-    val selcalActiveCallsigns = if (selcalActive) setOf(latestSelcalAlert!!.from) else emptySet()
 
     fun send(command: at.sushi.handoff.protocol.ClientCommand) = HandoffConnectionService.instance?.sendCommand(command)
 
@@ -375,14 +373,11 @@ private fun MainScreenContent() {
                 com2Active = radioState.com2Frequency,
                 com1Standby = radioState.com1StandbyFrequency,
                 com2Standby = radioState.com2StandbyFrequency,
-                pinnedCallsign = pinnedCallsign,
-                selcalActiveCallsigns = selcalActiveCallsigns,
                 onTogglePin = { callsign ->
-                    if (pinnedCallsign == callsign) {
-                        HandoffState.setPinnedCallsign(null)
-                        send(ClearPinnedControllerCommand())
+                    val isPinned = controllers.controllers.find { it.callsign == callsign }?.isPinned == true
+                    if (isPinned) {
+                        send(ClearPinnedControllerCommand(callsign = callsign))
                     } else {
-                        HandoffState.setPinnedCallsign(callsign)
                         send(PinControllerCommand(callsign = callsign))
                     }
                 },
@@ -470,10 +465,6 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             onDismiss = { settingsDialogOpen = false },
-            onQuit = {
-                context.stopService(android.content.Intent(context, HandoffConnectionService::class.java))
-                (context as? android.app.Activity)?.finishAndRemoveTask()
-            },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)

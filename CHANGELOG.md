@@ -10,6 +10,84 @@ once it has its first release.
 
 ### Added
 
+- Plugin: controller-ranking redesign (issue #18) replacing the two-flag
+  `isLikelyNextCandidate`/`isApproaching` system with three flags --
+  `isHighlighted` (relevance/visibility), `isNext` (confident, singular), and
+  `isLikelyNext` (the same signal confidence-capped when genuinely tied or
+  route-relevance is unconfirmed) -- driven by 9 explicit ranking buckets
+  instead of an ad-hoc tier walk. Ground-mode (AGL<50ft) relevance spans
+  DEL/GND/TWR/APP/CTR together (flight-plan match, VATGlasses polygon
+  containment where available else a radius fallback, CTR horizontal-only);
+  airborne splits into TWR/APP (concentric radii, route/heading-projected
+  "entering" prediction, altitude-ceiling-gated) and CTR (lateral+vertical
+  satisfied-or-converging prediction, band-anchor tie detection at 10%, plus
+  an independent ETA readout during level flight or a high-altitude climb/
+  descent). Full bucket-by-bucket design in `docs/controller-ranking.md`.
+- Plugin: `HandoffController`/`HandoffControllerStateModel`, a single unified
+  controller-state model replacing the separate `Controller`/
+  `ControllerStateModel`/`ContactMeModel`/`SelcalActiveModel` split --
+  immutable copy-on-write records holding every ranking-relevant flag
+  (current-tuned, standby-tuned, contact-me + expiry, SELCAL-active +
+  expiry, pinned, hidden + disconnect timestamp) on one record per callsign.
+  Disconnect is hide-then-expire (5-minute grace window), not instant
+  removal, so a brief FSD/network blip no longer wipes an outstanding
+  contact-me/pin/SELCAL.
+- Plugin/Android: pinning (`pinController`/`clearPinnedController`) now
+  supports multiple simultaneously-pinned controllers -- each is set/cleared
+  independently by its own callsign (`clearPinnedController` now also takes
+  a `callsign`), never touching any other pinned callsign. Previously only
+  one controller could be pinned at a time.
+- Plugin: `HandoffWebSocketServer`'s `controllers` broadcast is decoupled
+  onto a fixed ~1s timer instead of firing on every internal ranking
+  recompute (which stays fully event-driven/reactive) -- avoids a full
+  re-serialization/Android recomposition every time SimConnect-driven
+  telemetry ticks, even when nothing meaningfully changed.
+- Plugin: spatial dead-band ("flapping protection") guarding against a
+  candidate rapidly toggling flags when sitting right at a geometric
+  boundary -- a numeric version (radius fallbacks, tie-bands: joins at the
+  real threshold, only leaves once `DeadbandExitMultiplier` past it) and a
+  polygon-containment version (`VatGlassesSectorLookup.
+  DistanceToPolygonBoundaryNm`, a new nearest-point-on-polygon-boundary
+  primitive: stays contained until genuinely past the boundary edge by a
+  fixed margin, not the instant the boolean point-in-polygon check flips).
+- Plugin: `VatGlassesOwnershipResolver.ResolveOnlineControllers` now
+  returns every distinct online controller matching a sector's ownership
+  chain instead of just the first -- fixes a real flight-test bug where
+  several same-FIR CTR positions sharing an identical prefix/type (e.g.
+  Sweden Control's M2/M4/M5/M6/M7/M8/MY, all "ESMM"+CTR) could resolve to
+  the wrong one when more than one was online at once. Callers now feed
+  every match into the existing tie-detection instead of the resolver
+  silently guessing.
+- Android: distinct tuned-frequency colors for COM1 (teal) vs. COM2 (rose),
+  and a dedicated dimmed shade for standby-tuned rows -- previously both
+  radios and the standby state shared one color, making it hard to tell at
+  a glance which radio a row belonged to.
+- Android: row text color (black vs. white) is now decided from the actual
+  rendered background's real perceptual lightness (sRGB relative luminance)
+  rather than the nominal OKLCH lightness value fed into the color
+  formula -- a flat threshold on the nominal input didn't account for how
+  much hue/chroma shift a color's real perceived brightness.
+- Android: the pin icon tilts 45 degrees when a controller is pinned, in
+  addition to the existing color change.
+
+### Changed
+
+- Plugin: the "Quit Handoff" button/confirmation dialog removed from
+  `SettingsDialog` -- the foreground-service notification's own "Quit"
+  action already covers this, and better (no need to open Settings first).
+- Android: private-chat "nearby aircraft" list shows more rows (6, up from
+  4) before scrolling.
+
+### Fixed
+
+- Android: a dropped plugin connection could go silently unrecoverable with
+  no diagnostic trace at all (`HandoffWebSocketClient`'s `onFailure`/
+  `onClosed` logged nothing). Added logging across the connection/reconnect
+  path so a future drop is actually debuggable.
+- Plugin: `isPinned` was never actually wired into the Android row-color
+  decision -- a plain pinned row with no other flag fell through to the
+  same desaturated "unrelated station" look as an untouched row.
+
 - Project scaffold: `plugin/` (.NET Framework 4.8, buildable via `dotnet build`) and
   `android/` (native Kotlin, plain Gradle project) skeletons, no application logic yet.
 - VS Code multi-root workspace (`Handoff.code-workspace`) with build tasks for both

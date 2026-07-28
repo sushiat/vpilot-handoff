@@ -28,6 +28,14 @@ that, each message type is re-sent in full (not as an incremental diff) whenever
 state changes. This is deliberately simple: resending full state is cheap on a LAN and avoids
 an entire class of missed-message/reconnect bugs that incremental delivery would introduce.
 
+`controllers` is the one exception to "resent whenever its backing state changes": the
+ranking recompute itself stays fully event-driven/reactive (any controller/radio/flight-plan/
+VATSIM-feed change triggers an immediate recompute), but the *wire broadcast* of the result is
+decoupled onto a fixed ~1-second timer instead. Diffing "did anything meaningful change" isn't
+tractable for SimConnect-driven fields (distance/heading/altitude feed the bucket 6-9 geometry
+continuously) without just running the full computation anyway, so the broadcast simply goes
+out on a steady cadence rather than being triggered per-change.
+
 All JSON fields are camelCase. All frequencies are vPilot's compressed-integer format
 throughout the protocol (e.g. `123.725` MHz → `23725`) — never plain MHz. All timestamps are
 ISO 8601 UTC.
@@ -36,17 +44,17 @@ ISO 8601 UTC.
 
 ### `controllers`
 
-The full current controller list, pre-sorted by the plugin's priority ranking (see below) and
-resent whenever any controller is added/removed/changes frequency/location, the pilot's tuned
-COM frequency changes, the flight plan changes, a "contact me" request starts/expires, or the
-VATSIM data feed enrichment updates. Nothing is ever hidden -- every connected station appears
-exactly once, just reordered, with boolean flags for the Android app to colour-code by (full
-saturation on relevant entries, paler on the rest -- no text labels needed, pilots already read
-VATSIM facility conventions).
+The full current controller list, pre-sorted by the plugin's priority ranking (see below).
+Nothing is ever hidden except a recently-disconnected station within its brief grace window
+(an FSD blip, not a real disconnect -- see `docs/controller-ranking.md`) -- every other
+connected station appears exactly once, just reordered, with boolean flags for the Android app
+to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-change (see
+"Connection" above).
 
 ```json
 {
   "type": "controllers",
+  "etaMinutes": null,
   "controllers": [
     {
       "callsign": "EGLL_TWR",
@@ -61,9 +69,12 @@ VATSIM facility conventions).
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
-      "isLikelyNextCandidate": false,
-      "isApproaching": false,
-      "isHighlighted": false
+      "isHighlighted": false,
+      "isNext": false,
+      "isLikelyNext": false,
+      "isPinned": false,
+      "isStandbyTuned": false,
+      "isSelcalActive": false
     }
   ]
 }
@@ -80,32 +91,45 @@ exists yet. Until it's populated, clients should keep parsing just the facility-
 from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
 
 Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
-order received and never re-sort client-side. The algorithm (tier chain, route matching,
-distance, SELCAL/contact-me priority, etc.) is documented as an implementation detail in the
-plugin's `ControllerRankingModel.cs`, not here: it can change between plugin versions without any
-client update needed, as long as the fields below keep meaning what they say.
+order received and never re-sort or re-tag client-side. Every flag below is computed and sent
+by the plugin; the client only ever reads them, it never re-derives a badge from other data it
+happens to have (e.g. comparing a controller's frequency against `radioState`'s own standby
+fields to guess `isStandbyTuned` itself). The ranking algorithm (9 numbered "buckets" -- tuned,
+standby, contact-me, SELCAL, pinned, then ground/TWR-APP/CTR relevance, then everything else) is
+documented in full in `docs/controller-ranking.md`, not here: it can change between plugin
+versions without any client update needed, as long as the fields below keep meaning what they
+say.
 
 The boolean fields are what clients actually consume, each driving its own badge/highlight:
 
-- `isCurrent`: this is the tuned controller. A manually pinned controller does **not** set this
-  (see `pinController` below) -- pinning must never displace whatever's actually tuned.
+- `isCurrent`: this is the tuned controller (COM1 and COM2 can each independently match a
+  different online station -- both get `isCurrent`). A manually pinned controller does **not**
+  set this (see `pinController` below) -- pinning must never displace whatever's actually tuned.
+- `isStandbyTuned`: loaded into COM1 or COM2 standby, ready to swap to active the moment a
+  handoff comes.
 - `isContactMe`: this controller sent an outstanding "contact me" request.
-- `isLikelyNextCandidate`: the plugin's best guess at which controller the pilot will want to
-  contact next.
-- `isApproaching`: only ever `true` when nothing is currently tuned/pinned (flying uncontrolled)
-  -- the pilot is closing in on this station's range.
-- `isHighlighted`: a softer, no-badge-implied "worth rendering prominently" signal -- unlike
-  `isLikelyNextCandidate` it never affects ranking order, and unlike `isApproaching` it isn't
-  gated on nothing being tuned. **Currently only ever set for two tiers, nothing else:**
-  - **CTR**: gated on being airborne and within a bounded range (no real sector geometry exists
-    yet -- issue #11 -- so this is a rough proximity cutoff, not a modeled FIR boundary).
-  - **ATIS**: gated on the callsign's ICAO prefix matching the route airport (origin
-    pre-departure, destination after takeoff) -- the same route-match logic used for
-    DEL/GND/TWR/APP/DEP elsewhere, just applied to a tier (`Other`) that both
-    `isLikelyNextCandidate`'s tier walk and `isApproaching` otherwise skip entirely.
-  
-  Every other tier already gets equivalent treatment through `isLikelyNextCandidate` or
-  `isApproaching`, so `isHighlighted` is always `false` for them.
+- `isSelcalActive`: a currently-active SELCAL alert. Unlike `isContactMe`, tuning the alerting
+  frequency does **not** clear this -- only an explicit `dismissSelcal` or the alert's own expiry
+  does (see `dismissSelcal` below).
+- `isPinned`: a manual bookmark (see `pinController`/`clearPinnedController` below) -- its own
+  ranking bucket, never a stand-in for `isCurrent`. Persists even if the pinned station becomes
+  current/standby (both flags can be true at once); only cleared by an explicit unpin or the
+  controller going offline past its hidden-expiry window.
+- `isHighlighted`: relevance/visibility -- "worth seeing," independent of whether it's the one to
+  contact next. Driven by flight-plan match, proximity, or VATGlasses sector polygon
+  containment/convergence, depending on tier and phase of flight -- see
+  `docs/controller-ranking.md` buckets 6-8 for the exact criteria.
+- `isNext`: confident and actionable -- exactly one qualifying candidate, unambiguous.
+- `isLikelyNext`: the same underlying signal as `isNext` but confidence-capped, either because
+  multiple candidates are genuinely tied, or because route-relevance itself is unconfirmed (not
+  on the flight plan) even when the geometry is unambiguous. Clients should render this as a
+  visibly softer/less certain variant of the `isNext` badge (e.g. "NEXT?" vs "NEXT"), not an
+  unrelated badge.
+
+`etaMinutes` is a top-level field on the message itself (not per-controller) -- an estimate of
+minutes remaining to the closest bucket-8-qualifying CTR sector, available during level flight
+(any altitude) or while climbing/descending above FL150, `null` otherwise (including whenever
+nothing currently qualifies for bucket 8 at all).
 
 ### `chat`
 
@@ -392,13 +416,16 @@ persisted.
 
 Marks a specific controller as pinned -- a bookmark that keeps it ranked prominently in the
 `controllers` message (its own bucket, just below contact-me/SELCAL), until cleared or the
-controller goes offline. Does **not** set `isCurrent` and never displaces whatever's actually
-tuned -- pinning is a separate signal from "current" (issue #17). `clearPinnedController` carries
-no fields of its own.
+controller goes offline past its hidden-expiry window. Multiple controllers can be pinned at
+once; each is set/cleared independently by its own callsign, never touching any other pinned
+callsign -- only the pilot's own explicit unpin (or the controller going offline past expiry)
+ever clears one, never automatic replacement. Does **not** set `isCurrent` and never displaces
+whatever's actually tuned -- pinning is a separate signal from "current" (issue #17).
+`clearPinnedController` takes the same `callsign` field as `pinController`.
 
 ```json
 {"type": "pinController", "callsign": "EGLL_TWR"}
-{"type": "clearPinnedController"}
+{"type": "clearPinnedController", "callsign": "EGLL_TWR"}
 ```
 
 ### `dismissSelcal`

@@ -9,13 +9,11 @@ namespace Handoff.Plugin
         public string Name => "Handoff";
 
         private IBroker _broker;
-        private ControllerStateModel _controllerState;
+        private HandoffControllerStateModel _controllerState;
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
         private FlightPlanModel _flightPlanState;
         private VatsimDataFeedModel _vatsimDataFeed;
-        private ContactMeModel _contactMe;
-        private SelcalActiveModel _selcalActive;
         private PilotSessionModel _pilotSession;
         private ControllerRankingModel _controllerRanking;
         private NearbyAircraftModel _nearbyAircraft;
@@ -27,8 +25,11 @@ namespace Handoff.Plugin
         public void Initialize(IBroker broker)
         {
             _broker = broker;
-            _controllerState = new ControllerStateModel(_broker);
             _chatModel = new ChatModel(_broker);
+            // Needs _chatModel to already exist -- it absorbs the old ContactMeModel/
+            // SelcalActiveModel's chat-triggered detection directly (issue #18's unified
+            // HandoffController model), not just IBroker's controller events.
+            _controllerState = new HandoffControllerStateModel(_broker, _chatModel);
 
             // RadioStateModel's helper process is tied to the VATSIM connection, not the
             // plugin's own load lifetime -- radio state isn't needed before connecting, and
@@ -78,9 +79,7 @@ namespace Handoff.Plugin
             // WebSocket server.
             _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
 
-            _contactMe = new ContactMeModel(_chatModel, _controllerState);
-            _selcalActive = new SelcalActiveModel(_chatModel, _controllerState);
-            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _contactMe, _selcalActive, _pilotSession, _vatGlassesData, _broker.PostDebugMessage);
+            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _pilotSession, _vatGlassesData, _broker.PostDebugMessage);
 
             // Nearby-aircraft events aren't tied to the VATSIM connection either (wiring is just
             // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
@@ -97,7 +96,7 @@ namespace Handoff.Plugin
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _selcalActive, _pilotSession, _operationProgress, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);
