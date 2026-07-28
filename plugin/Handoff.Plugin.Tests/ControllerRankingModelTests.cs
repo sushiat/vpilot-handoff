@@ -476,6 +476,31 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void Bucket6_PolygonContainmentDeadband_StaysHighlightedJustBeyondTheEdge()
+        {
+            // Box edge sits at 0.1 degrees (~6nm) from center in every direction.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.1, "GND", "POS_GND", "TEST_GND", "TEST", minFl: 0, maxFl: 660));
+            // Controller placed well outside the 5nm radius fallback (~30nm away) so every
+            // assertion below is only ever satisfied by polygon containment, never masked by the
+            // radius dead-band also passing.
+            AddController("TEST_GND", 21800, 1, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 0); // inside
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~0.1nm past the edge -- genuinely outside the polygon now, but well within the 1nm
+            // containment dead-band margin -- should stay highlighted rather than flap off.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0.1017, 0, DateTimeOffset.Now, pressureAltitudeFeet: 0);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~1.2nm past the edge -- should now genuinely drop out.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0.12, 0, DateTimeOffset.Now, pressureAltitudeFeet: 0);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
         public void Bucket6e_ChainWalk_StartsFromCurrentTier()
         {
             AddController("EGLL_DEL", 12100, 0, 0);
@@ -682,6 +707,32 @@ namespace Handoff.Plugin.Tests
             var ranked = model.Current.Single();
             Assert.True(ranked.IsHighlighted);
             Assert.True(ranked.IsNext);
+        }
+
+        [Fact]
+        public void Bucket8a_Ctr_ContainmentDeadband_StaysHighlightedJustBeyondTheEdge()
+        {
+            // Box edge sits at 0.1 degrees (~6nm) from center in every direction. Controller
+            // position itself is irrelevant here -- CTR has no radius fallback at all, so only
+            // containment (and this dead-band) can ever produce a highlight.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.1, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 5, 5);
+            // Heading due east while moving north in latitude -- perpendicular to the box, so the
+            // "converging" heading-projected check can't independently pick this up; only
+            // containment (and its dead-band) is in play.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // inside
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~0.1nm past the edge -- within the 1nm containment dead-band margin -- stays highlighted.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0.1017, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~1.2nm past the edge -- beyond the margin -- genuinely drops out.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0.12, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single().IsHighlighted);
         }
 
         [Fact]

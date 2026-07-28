@@ -94,12 +94,16 @@ namespace Handoff.Plugin
         // threshold, but once in, only leaves once past DeadbandExitMultiplier x that threshold.
         // Guards against flapping right at a boundary (GPS/telemetry jitter, or distance
         // oscillating right at a tie-band edge) without needing per-tick timing state -- see
-        // docs/controller-ranking.md's "Flapping protection" section. Deliberately does NOT cover
-        // actual polygon containment (6b/6c/6d's preferred path, 8a's satisfied check) -- that has
-        // no natural "how far past the edge" distance to build a buffer from without a general
-        // nearest-point-on-polygon primitive this codebase doesn't have yet (see
-        // ResolveAppDistanceNm's doc comment); tracked separately, not attempted here.
+        // docs/controller-ranking.md's "Flapping protection" section.
         private const double DeadbandExitMultiplier = 1.20;
+
+        // Same idea for actual polygon containment (6b/6c/6d's preferred path) -- once inside,
+        // only actually leave once genuinely more than this far past the nearest boundary edge
+        // (VatGlassesSectorLookup.DistanceToPolygonBoundaryNm), not the instant the boolean
+        // point-in-polygon check flips. A flat nm margin rather than a percentage multiplier --
+        // unlike the radius checks above, there's no natural "threshold value" to scale a
+        // percentage against here, just an edge.
+        private const double PolygonContainmentDeadbandMarginNm = 1.0;
 
         private readonly object _gate = new object();
         private readonly HandoffControllerStateModel _controllerState;
@@ -118,6 +122,8 @@ namespace Handoff.Plugin
         private readonly HashSet<string> _groundRadiusCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _appRadiusCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _tieBandCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _groundPolygonContainmentCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _ctrSatisfiedCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<ControllerTier, string> _committedLeader = new Dictionary<ControllerTier, string>();
         private readonly Dictionary<ControllerTier, string> _pendingChallenger = new Dictionary<ControllerTier, string>();
@@ -492,6 +498,38 @@ namespace Handoff.Plugin
             committed.RemoveWhere(cs => !current.Contains(cs));
         }
 
+        /// <summary>
+        /// Polygon-containment spatial dead-band: entry requires genuine containment this tick;
+        /// once committed, stays included as long as it's either still genuinely contained, or
+        /// (lazily, only checked once actually outside) within PolygonContainmentDeadbandMarginNm
+        /// of the nearest boundary edge of any sector this controller owns -- reuses
+        /// FindAnySectorLevelForController the same way bucket 7b's ceiling/distance resolution
+        /// already does. No owning sector found at all -- treated as genuinely out of range,
+        /// exits immediately regardless of prior commitment.
+        /// </summary>
+        private bool PassesContainmentDeadband(
+            HashSet<string> committed,
+            HandoffController controller,
+            bool isContainedNow,
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyCollection<HandoffController> allOnlineControllers,
+            double lat,
+            double lon)
+        {
+            if (isContainedNow)
+            {
+                committed.Add(controller.Callsign);
+                return true;
+            }
+
+            if (!committed.Contains(controller.Callsign)) return false;
+
+            var level = FindAnySectorLevelForController(controller, regions, allOnlineControllers);
+            var staysIn = level != null && VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(lat, lon, level) <= PolygonContainmentDeadbandMarginNm;
+            if (!staysIn) committed.Remove(controller.Callsign);
+            return staysIn;
+        }
+
         private static HashSet<string> ResolveContainedCallsigns(
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesSectorMatch> matches,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
@@ -526,6 +564,7 @@ namespace Handoff.Plugin
         {
             var result = new HighlightResult { Candidates = candidates };
             PruneDeadbandCommitted(_groundRadiusCommitted, candidates.Select(c => c.Callsign));
+            PruneDeadbandCommitted(_groundPolygonContainmentCommitted, candidates.Select(c => c.Callsign));
             if (candidates.Count == 0) return result;
 
             var byCallsign = candidates.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
@@ -578,15 +617,17 @@ namespace Handoff.Plugin
                     case ControllerTier.Delivery:
                     case ControllerTier.Ground:
                     case ControllerTier.Tower:
-                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundDelGndTwrRadiusNm)))
+                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                            || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundDelGndTwrRadiusNm)))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     case ControllerTier.AppDep:
-                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundAppRadiusNm)))
+                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                            || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundAppRadiusNm)))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     case ControllerTier.Center:
-                        if (polygonContainedCtr.Contains(c.Callsign))
+                        if (hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     default:
@@ -832,6 +873,11 @@ namespace Handoff.Plugin
         {
             var result = new HighlightResult { Candidates = candidates };
             PruneDeadbandCommitted(_tieBandCommitted, candidates.Select(c => c.Callsign));
+            // Pruned against every online controller, not just this bucket's candidates -- "satisfied"
+            // resolves ownership against allOnlineControllers directly (see below), independent of
+            // bucketCandidates' own exclusions, so a committed callsign should only actually drop
+            // once it's genuinely offline, not merely excluded from this tick's candidate list.
+            PruneDeadbandCommitted(_ctrSatisfiedCommitted, allOnlineControllers.Select(c => c.Callsign));
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             int verticalTrendSign;
@@ -844,12 +890,28 @@ namespace Handoff.Plugin
             var combined = new List<(HandoffController Owner, double DistanceNm)>();
 
             // "Satisfied" -- already inside the band, regardless of level/climbing/descending.
-            foreach (var callsign in ResolveContainedCallsigns(containingMatches, regions, allOnlineControllers))
+            var containedCallsigns = ResolveContainedCallsigns(containingMatches, regions, allOnlineControllers);
+            foreach (var callsign in containedCallsigns)
             {
                 if (currentCallsigns.Contains(callsign)) continue;
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
+                _ctrSatisfiedCommitted.Add(owner.Callsign);
                 combined.Add((owner, 0));
+            }
+
+            // Dead-band: a previously-satisfied controller that's no longer genuinely contained
+            // this tick stays included until it's clearly past the boundary edge (
+            // PolygonContainmentDeadbandMarginNm), not the instant containment flips -- same
+            // guard against edge-flapping as bucket 6b/6c/6d's ground containment.
+            foreach (var callsign in _ctrSatisfiedCommitted.Where(cs => !containedCallsigns.Contains(cs)).ToList())
+            {
+                if (currentCallsigns.Contains(callsign)) { _ctrSatisfiedCommitted.Remove(callsign); continue; }
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) { _ctrSatisfiedCommitted.Remove(callsign); continue; }
+                var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
+                var staysIn = level != null && VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, level) <= PolygonContainmentDeadbandMarginNm;
+                if (staysIn) combined.Add((owner, 0)); else _ctrSatisfiedCommitted.Remove(callsign);
             }
 
             // "Converging" -- lateral entering AND vertical satisfied-or-converging.

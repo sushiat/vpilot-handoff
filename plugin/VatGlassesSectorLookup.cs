@@ -160,6 +160,47 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
+        /// Plain nearest-point distance (nm) from (lat, lon) to this level's polygon boundary --
+        /// works whether the point is inside or outside, unlike DistanceToPolygonAlongHeadingNm/
+        /// AlongRouteNm which are directional ray/route intersections. Used for the containment
+        /// spatial dead-band (see ControllerRankingModel's flapping-protection handling) to tell
+        /// "just outside the edge" apart from "genuinely well clear of it."
+        /// </summary>
+        public static double DistanceToPolygonBoundaryNm(double lat, double lon, VatGlassesSectorLevel level)
+        {
+            var points = level.Points;
+            if (points.Count < 2) return double.PositiveInfinity;
+
+            var minDistance = double.PositiveInfinity;
+            for (int i = 0, j = points.Count - 1; i < points.Count; j = i++)
+            {
+                var a = Project(lat, lon, points[j].Latitude, points[j].Longitude);
+                var b = Project(lat, lon, points[i].Latitude, points[i].Longitude);
+
+                var edgeX = b.X - a.X;
+                var edgeY = b.Y - a.Y;
+                var lengthSquared = edgeX * edgeX + edgeY * edgeY;
+
+                double distance;
+                if (lengthSquared < 1e-9)
+                {
+                    distance = Math.Sqrt(a.X * a.X + a.Y * a.Y);
+                }
+                else
+                {
+                    // Project the origin (0,0 -- (lat, lon) itself) onto edge a->b, clamped to [0,1].
+                    var t = Math.Max(0.0, Math.Min(1.0, (-(a.X * edgeX) - (a.Y * edgeY)) / lengthSquared));
+                    var closestX = a.X + t * edgeX;
+                    var closestY = a.Y + t * edgeY;
+                    distance = Math.Sqrt(closestX * closestX + closestY * closestY);
+                }
+
+                if (distance < minDistance) minDistance = distance;
+            }
+            return minDistance;
+        }
+
+        /// <summary>
         /// Nearest along-heading distance (nm) from (lat, lon) to this level's polygon boundary,
         /// or null if the heading ray doesn't intersect it at all (flying past or away).
         /// </summary>

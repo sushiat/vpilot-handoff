@@ -187,11 +187,16 @@ to whatever's still a candidate. This guards against a distance oscillating righ
 fallback) because a spatial buffer is simpler to reason about for a numeric threshold that can be
 crossed from either direction, and doesn't need timestamp bookkeeping per candidate.
 
-**Not covered**: actual polygon containment (6b/6c/6d's preferred path, 8a's satisfied check) has
-no natural "how far past the edge" distance to build a spatial dead-band from -- that would need a
-real nearest-point-on-polygon-boundary primitive, which this codebase doesn't have yet (see
-`ResolveAppDistanceNm`'s doc comment on the bounding-box approximation it uses instead). Flapping
-right on a polygon edge is a known, accepted gap for now, not attempted here.
+Actual polygon containment (6b/6c/6d's preferred path, 8a's satisfied check) gets the same
+protection via a dedicated nearest-point-on-polygon-boundary primitive
+(`VatGlassesSectorLookup.DistanceToPolygonBoundaryNm`, added specifically for this): once a
+callsign is committed as contained, it stays contained until it's genuinely more than
+`PolygonContainmentDeadbandMarginNm` (1nm) past the nearest boundary edge, not the instant the
+boolean point-in-polygon check flips. A flat nm margin rather than a percentage multiplier --
+unlike the radius checks above, there's no natural threshold value to scale a percentage against
+here, just an edge. `ResolveAppDistanceNm`'s bounding-box approximation elsewhere in this file
+predates this primitive and is unrelated (a different distance need -- highlight-radius
+proximity, not boundary-edge dead-banding).
 
 8a's sustained-vertical-trend requirement (5s) already serves the same debouncing purpose for the
 converging/entering prediction independent of the above -- no separate dead-band needed there.

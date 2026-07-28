@@ -37,6 +37,32 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void DistanceToPolygonBoundaryNm_PointOutside_ReturnsDistanceToNearestEdge()
+        {
+            // 45N is ~2 degrees south of the rectangle's near (47N) edge -> ~120nm.
+            var distance = VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(45, 16, RectangleLevel());
+            Assert.InRange(distance, 110, 130);
+        }
+
+        [Fact]
+        public void DistanceToPolygonBoundaryNm_PointInside_ReturnsDistanceToNearestEdgeNotZero()
+        {
+            // Center of the rectangle -- 1 degree from every edge, but the E/W edges (15E/17E)
+            // are nearer in nm terms than the N/S ones at this latitude (longitude nm-per-degree
+            // shrinks by cos(48deg) =~ 0.67 -> ~40nm vs ~60nm) -- not 0 just because it's
+            // contained (unlike IsPointInPolygon, this is a plain distance query).
+            var distance = VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(48, 16, RectangleLevel());
+            Assert.InRange(distance, 35, 45);
+        }
+
+        [Fact]
+        public void DistanceToPolygonBoundaryNm_PointOnEdge_ReturnsNearZero()
+        {
+            var distance = VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(47, 16, RectangleLevel());
+            Assert.InRange(distance, 0, 1);
+        }
+
+        [Fact]
         public void FindContainingSectors_InsideHorizontallyButOutsideAltitudeBand_NoMatch()
         {
             var sector = new VatGlassesSector("S1", "GRP", new List<string> { "OWN" }, new List<VatGlassesSectorLevel> { RectangleLevel(0, 245) });
