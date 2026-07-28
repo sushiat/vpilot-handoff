@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PushPin
@@ -86,6 +87,7 @@ private val ratingLabels = mapOf(
 
 private val badgeLabels = mapOf(
     ControllerBadge.TUNED to "TUNED",
+    ControllerBadge.STBY to "STBY",
     ControllerBadge.CONTACT_ME to "CONTACT ME",
     ControllerBadge.NEXT to "NEXT",
     ControllerBadge.APPROACHING to "APPROACHING",
@@ -98,6 +100,8 @@ fun ControllerList(
     controllers: List<Controller>,
     com1Active: Int?,
     com2Active: Int?,
+    com1Standby: Int?,
+    com2Standby: Int?,
     pinnedCallsign: String?,
     selcalActiveCallsigns: Set<String>,
     onTogglePin: (String) -> Unit,
@@ -149,11 +153,36 @@ fun ControllerList(
             ).size.width
             with(density) { widthPx.toDp() }
         }
+        // A newly badged row (TUNED/CONTACT_ME/NEXT/APPROACHING/PINNED/SELCAL) can land above
+        // whatever's currently in the viewport if the pilot has scrolled down -- easy to miss
+        // entirely, worst of all for CONTACT_ME. Auto-scroll to the top whenever the *set* of
+        // badged callsigns gains a new member, not on every recompute (badges flipping off, or a
+        // row merely changing position among already-badged ones, shouldn't yank the scroll
+        // position around).
+        val listState = rememberLazyListState()
+        var previousBadgedCallsigns by remember { mutableStateOf<Set<String>?>(null) }
+        LaunchedEffect(controllers, com1Active, com2Active, com1Standby, com2Standby, pinnedCallsign, selcalActiveCallsigns) {
+            val currentBadged = controllers.filter { controller ->
+                controllerBadges(
+                    controller, com1Active, com2Active, com1Standby, com2Standby,
+                    isPinned = controller.callsign == pinnedCallsign,
+                    selcalActive = controller.callsign in selcalActiveCallsigns
+                ).isNotEmpty()
+            }.mapTo(mutableSetOf()) { it.callsign }
+
+            val previous = previousBadgedCallsigns
+            if (previous != null && (currentBadged - previous).isNotEmpty()) {
+                listState.animateScrollToItem(0)
+            }
+            previousBadgedCallsigns = currentBadged
+        }
+
         // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;
         // gap:6px` -- rows are individually rounded cards with their own border/gap between
         // them, not a plain divided list (no HorizontalDivider in the reference at all).
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
+            state = listState,
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -165,6 +194,8 @@ fun ControllerList(
                     frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
                     com2Active = com2Active,
+                    com1Standby = com1Standby,
+                    com2Standby = com2Standby,
                     isPinned = controller.callsign == pinnedCallsign,
                     selcalActive = controller.callsign in selcalActiveCallsigns,
                     onTogglePin = { onTogglePin(controller.callsign) },
@@ -201,6 +232,8 @@ private fun ControllerRow(
     frequencyTextWidth: Dp,
     com1Active: Int?,
     com2Active: Int?,
+    com1Standby: Int?,
+    com2Standby: Int?,
     isPinned: Boolean,
     selcalActive: Boolean,
     onTogglePin: () -> Unit,
@@ -213,7 +246,7 @@ private fun ControllerRow(
 ) {
     val colors = LocalHandoffColors.current
     val rowColors = controllerRowColors(controller, com1Active, com2Active, colors)
-    val badges = controllerBadges(controller, com1Active, com2Active, isPinned, selcalActive)
+    val badges = controllerBadges(controller, com1Active, com2Active, com1Standby, com2Standby, isPinned, selcalActive)
     var menuOpen by remember { mutableStateOf(false) }
 
     val rowPhaseA = rememberFlashPhaseA(rowColors.isFlashing)

@@ -87,7 +87,8 @@ client update needed, as long as the fields below keep meaning what they say.
 
 The boolean fields are what clients actually consume, each driving its own badge/highlight:
 
-- `isCurrent`: this is the tuned (or manually pinned) controller.
+- `isCurrent`: this is the tuned controller. A manually pinned controller does **not** set this
+  (see `pinController` below) -- pinning must never displace whatever's actually tuned.
 - `isContactMe`: this controller sent an outstanding "contact me" request.
 - `isLikelyNextCandidate`: the plugin's best guess at which controller the pilot will want to
   contact next.
@@ -389,9 +390,11 @@ persisted.
 
 ### `pinController` / `clearPinnedController`
 
-Manual override: forces a specific controller to rank 0 / `isCurrent` in the `controllers`
-message, regardless of what the tuned-frequency heuristic would pick, until cleared or the
-controller goes offline. `clearPinnedController` carries no fields of its own.
+Marks a specific controller as pinned -- a bookmark that keeps it ranked prominently in the
+`controllers` message (its own bucket, just below contact-me/SELCAL), until cleared or the
+controller goes offline. Does **not** set `isCurrent` and never displaces whatever's actually
+tuned -- pinning is a separate signal from "current" (issue #17). `clearPinnedController` carries
+no fields of its own.
 
 ```json
 {"type": "pinController", "callsign": "EGLL_TWR"}

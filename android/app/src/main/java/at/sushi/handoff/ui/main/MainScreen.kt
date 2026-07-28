@@ -373,6 +373,8 @@ private fun MainScreenContent() {
                 controllers = controllers.controllers,
                 com1Active = radioState.com1Frequency,
                 com2Active = radioState.com2Frequency,
+                com1Standby = radioState.com1StandbyFrequency,
+                com2Standby = radioState.com2StandbyFrequency,
                 pinnedCallsign = pinnedCallsign,
                 selcalActiveCallsigns = selcalActiveCallsigns,
                 onTogglePin = { callsign ->

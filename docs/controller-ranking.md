@@ -35,8 +35,22 @@ it isn't a prediction, it already happened.
 | `IsApproaching` | CTR | VATGlasses lateral+vertical convergence against a resolved-online sector -- not already contained (that's `IsLikelyNextCandidate` instead) AND both axes satisfied-or-converging AND at least one actually converging. Only the single *closest* qualifying sector is ever flagged, not every sector within the lookahead cap. | No fallback for uncovered regions -- stays `false` there. |
 | `IsApproaching` | DEL/Other | Always `false` | |
 | `IsApproaching` (any tier) | -- | Always `false` whenever something is already `IsCurrent` (tuned/pinned) | This flag only means something pre-contact. |
-| `IsHighlighted` | `_ATIS` (parses to `Other`) | Callsign ICAO-prefix-matches the route airport | |
+| `IsHighlighted` | `_ATIS` (parses to `Other`) | Callsign ICAO-prefix-matches the route airport | Since issue #17, `IsHighlighted` (like `IsApproaching`) is also pulled ahead of unrelated stations in the sort order, regardless of tier -- see "Sort order" below. |
 | `IsHighlighted` (any other tier) | -- | Always `false` | The old fixed-radius CTR highlight heuristic was removed entirely (issue #9) -- a CTR only stands out now via `IsLikelyNextCandidate`, a stronger signal, when VATGlasses resolves it. |
+
+## Sort order
+
+The Android client renders the list in exactly the order the plugin sends it -- no client-side
+re-sorting. `ControllerRankingModel.Recompute()` builds that order as: current (tuned/pinned) →
+contact-me → SELCAL → `IsLikelyNextCandidate` → `IsHighlighted`/`IsApproaching` → everything else,
+each bucket itself ordered by chain tier then route-match/distance. Before issue #17,
+`IsHighlighted`/`IsApproaching` were computed only for Android's color/badge display and had zero
+effect on order -- a converging CTR or a route-matching ATIS could sort behind an entire page of
+wholly unrelated stations, since chain-tier bucketing alone decided position. Flight-test feedback
+showed this in practice (a highlighted ATIS landing after every real-tier station since ATIS's
+`Other` tier always sorts last; an `IsApproaching` CTR sorting ~50 rows deep behind unrelated
+DEL/GND/TWR stations) -- both flags now get their own bucket, ahead of "everything else" but behind
+`IsLikelyNextCandidate`.
 
 ## VATGlasses match parameters: distance / altitude / heading
 

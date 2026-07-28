@@ -75,6 +75,29 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BothComFrequenciesTunedToDifferentStations_BothMarkedCurrent()
+        {
+            // Regression: COM1 and COM2 can each be tuned to a different real online station at
+            // once (e.g. a working frequency on one radio, a second sector on the other) --
+            // both must get IsCurrent/rank 0, not just whichever a single-match lookup found
+            // first.
+            AddController("EGLL_TWR", 23725);
+            AddController("EGLL_APP", 12345);
+            AddController("EGLL_GND", 21800);
+            _radio.Current = new RadioState(23725, 12345, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_TWR").IsCurrent);
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_APP").IsCurrent);
+            Assert.False(ranked.Single(c => c.Callsign == "EGLL_GND").IsCurrent);
+            Assert.Equal("EGLL_TWR", ranked[0].Callsign);
+            Assert.Equal("EGLL_APP", ranked[1].Callsign);
+        }
+
+        [Fact]
         public void NothingTuned_NoControllerIsCurrent()
         {
             AddController("EGLL_TWR", 23725);
@@ -84,8 +107,11 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public void PinnedController_OverridesTunedFrequency()
+        public void PinnedController_DoesNotOverrideTunedFrequency()
         {
+            // Regression (issue #17 flight-test feedback): pinning a controller must never steal
+            // "current"/TUNED status from whatever's actually tuned -- pin is its own bookmark
+            // bucket now (pinnedOrdered), ranked separately, never a stand-in for IsCurrent.
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
             _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
@@ -94,12 +120,31 @@ namespace Handoff.Plugin.Tests
             model.SetPinnedController("EGLL_GND");
 
             var ranked = model.Current;
-            Assert.True(ranked.Single(c => c.Callsign == "EGLL_GND").IsCurrent);
-            Assert.False(ranked.Single(c => c.Callsign == "EGLL_TWR").IsCurrent);
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_TWR").IsCurrent);
+            Assert.False(ranked.Single(c => c.Callsign == "EGLL_GND").IsCurrent);
         }
 
         [Fact]
-        public void ClearPinnedController_RevertsToTunedFrequency()
+        public void PinnedController_RanksAheadOfUnrelatedTierCloserStation()
+        {
+            // The pinned bucket should still keep a pinned controller prominent (quick access is
+            // the whole point of pinning it), just without displacing the actually-tuned one.
+            AddController("EGLL_TWR", 23725);
+            AddController("EGLL_GND", 21800);
+            AddController("EGLC_TWR", 20100); // unrelated, tier-closer to current (Tower)
+            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            model.SetPinnedController("EGLL_GND");
+
+            var ranked = model.Current.ToList();
+            Assert.Equal("EGLL_TWR", ranked[0].Callsign);
+            Assert.Equal("EGLL_GND", ranked[1].Callsign);
+            Assert.True(ranked.FindIndex(c => c.Callsign == "EGLL_GND") < ranked.FindIndex(c => c.Callsign == "EGLC_TWR"));
+        }
+
+        [Fact]
+        public void ClearPinnedController_RemovesItFromPinnedBucket()
         {
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
@@ -110,6 +155,24 @@ namespace Handoff.Plugin.Tests
             model.ClearPinnedController();
 
             Assert.True(model.Current.Single(c => c.Callsign == "EGLL_TWR").IsCurrent);
+            Assert.False(model.Current.Single(c => c.Callsign == "EGLL_GND").IsCurrent);
+        }
+
+        [Fact]
+        public void StandbyTunedController_RanksImmediatelyBelowCurrent()
+        {
+            // Regression (issue #17 flight-test feedback): a controller already dialed into
+            // standby -- ready to swap the moment a handoff comes -- should park right below
+            // current, ahead of contact-me/SELCAL/pinned/everything else.
+            AddController("EGLL_TWR", 23725);
+            AddController("EGLL_APP", 12345); // prepared in standby
+            AddController("EGLL_GND", 21800); // unrelated, no signal
+            _radio.Current = new RadioState(23725, null, 12345, null, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            var ranked = model.Current.ToList();
+            Assert.Equal("EGLL_TWR", ranked[0].Callsign);
+            Assert.Equal("EGLL_APP", ranked[1].Callsign);
         }
 
         [Fact]
@@ -349,6 +412,98 @@ namespace Handoff.Plugin.Tests
             var ranked = model.Current.Single(c => c.Callsign == "EDDM_HOF_CTR");
             Assert.False(ranked.IsHighlighted);
             Assert.False(ranked.IsLikelyNextCandidate);
+        }
+
+        [Fact]
+        public async Task SortOrder_ApproachingAboveNextCandidateAboveHighlightedAboveRest()
+        {
+            // Regression (issue #17 flight-test feedback): confirms the full relative order of
+            // the four "flagged" buckets -- IsApproaching outranks IsLikelyNextCandidate, which
+            // outranks IsHighlighted, which outranks a wholly unrelated station -- all in one
+            // scenario where all four are simultaneously present.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("EGKK_TWR", 20100, 51.505, 0.0489); // unrelated, but approaching (fixed-radius)
+            AddController("LOWW_APP", 12345, 48.11, 16.57); // route-matched -> next candidate
+            AddController("LOWW_ATIS", 12800); // route-matched ATIS -> highlighted
+            AddController("ZZZZ_GND", 12100, 0, 0); // wholly unrelated -> rest
+            _radio.Telemetry = new OwnshipTelemetry(false, 160, 3000, 0, 0, 51.505, 0.0489, DateTimeOffset.Now); // right at EGKK, airborne
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current.Select(c => c.Callsign).ToList();
+            Assert.Equal(new[] { "EGKK_TWR", "LOWW_APP", "LOWW_ATIS", "ZZZZ_GND" }, ranked);
+        }
+
+        [Fact]
+        public void ApproachingFlag_FixedRadius_NeverAtCruiseAltitude()
+        {
+            // Regression (issue #17 flight-test feedback): a cruise overflight at FL360, laterally
+            // within the fixed-radius fallback's 40nm range of an unrelated APP, was getting
+            // flagged IsApproaching anyway -- no real approach sector reaches anywhere near cruise
+            // altitude, so the fixed-radius fallback (used when there's no VATGlasses coverage)
+            // needs an altitude sanity ceiling, not just a lateral one.
+            AddController("EPWA_APP", 12345, 52.17, 20.97); // Warsaw approach
+            _radio.Telemetry = new OwnshipTelemetry(false, 480, 36000, 0, 90, 52.17, 20.9, DateTimeOffset.Now); // directly overhead, FL360
+            var model = CreateModel();
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EPWA_APP").IsApproaching);
+        }
+
+        [Fact]
+        public async Task ApproachingFlag_OutranksUnrelatedTierCloserStation()
+        {
+            // Regression (issue #17 flight-test feedback): IsApproaching used to be purely a
+            // display/badge flag with zero effect on sort order, so a converging APP could sit
+            // behind a wholly unrelated station just because that station's tier happened to be
+            // chain-closer to nothing-tuned.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("ZZZZ_GND", 12100, 0, 0); // unrelated airport, tier-closer, no flag
+            AddController("EGKK_APP", 12200, 51.15, -0.19); // unrelated airport too, but flagged approaching
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 5000, 0, 0, 51.15, -0.19, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            var ranked = model.Current.ToList();
+            Assert.True(ranked.Single(c => c.Callsign == "EGKK_APP").IsApproaching);
+            Assert.False(ranked.Single(c => c.Callsign == "ZZZZ_GND").IsLikelyNextCandidate);
+            Assert.True(ranked.FindIndex(c => c.Callsign == "EGKK_APP") < ranked.FindIndex(c => c.Callsign == "ZZZZ_GND"));
+        }
+
+        [Fact]
+        public async Task Highlighted_Atis_OutranksUnrelatedStations()
+        {
+            // Regression (issue #17): IsHighlighted used to be purely cosmetic and never affected
+            // sort order -- ATIS parses to ControllerTier.Other, which chain-distance ordering
+            // always sends to the very end, so a highlighted (route-matching) ATIS used to sort
+            // behind every unrelated DEL/GND/TWR/APP/CTR station regardless of relevance.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LOWW_ATIS", 12800);
+            AddController("EDDF_DEL", 12100); // unrelated airport, chain-closest tier, nothing tuned
+            var model = CreateModel(flightPlan);
+
+            var ranked = model.Current.ToList();
+            Assert.True(ranked.Single(c => c.Callsign == "LOWW_ATIS").IsHighlighted);
+            Assert.True(ranked.FindIndex(c => c.Callsign == "LOWW_ATIS") < ranked.FindIndex(c => c.Callsign == "EDDF_DEL"));
+        }
+
+        [Fact]
+        public async Task NextTierCandidate_OriginApp_StaysFlaggedThroughInitialClimb()
+        {
+            // Regression (issue #17 flight-test feedback): a 50ft AGL threshold flipped
+            // routeAirport from origin to destination almost immediately at liftoff, dropping the
+            // departure airport's own APP out of route-match (and thus IsLikelyNextCandidate)
+            // while the flight was still very much dealing with the origin's own airspace during
+            // the initial climb.
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            AddController("LOWW_APP", 12345, 48.11, 16.57);
+            _radio.Telemetry = new OwnshipTelemetry(false, 160, 1500, 1500, 90, 48.11, 16.57, DateTimeOffset.Now); // just airborne, 1500ft AGL
+            var model = CreateModel(flightPlan);
+
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWW_APP").IsLikelyNextCandidate);
         }
 
         [Fact]
