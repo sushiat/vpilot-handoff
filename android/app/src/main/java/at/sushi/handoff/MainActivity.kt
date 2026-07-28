@@ -40,6 +40,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startConnectionService() {
+        // onCreate re-runs on every activity relaunch (rotation, split-screen resize -- the
+        // exact scenario this app is built for), but the service instance survives that. Calling
+        // startForegroundService() again on an already-running service reaches onStartCommand
+        // without a matching startForeground() call (it already dropped out of foreground state
+        // via appVisibilityObserver once the app became visible), which trips Android's 5s
+        // "didn't call startForeground in time" watchdog and kills the process.
+        if (HandoffConnectionService.instance != null) return
         ContextCompat.startForegroundService(this, Intent(this, HandoffConnectionService::class.java))
     }
 }

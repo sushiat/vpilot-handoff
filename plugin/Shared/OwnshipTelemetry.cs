@@ -20,9 +20,17 @@ namespace Handoff.Plugin
         public double? Latitude { get; }
         public double? Longitude { get; }
 
+        // Standard-pressure (29.92"/1013.25hPa) referenced altitude -- i.e. flight-level units
+        // (PressureAltitudeFeet / 100 = FL), independent of local QNH. SeaLevelPressureHpa is
+        // the sim's actual local QNH at the aircraft's position (not the pilot's altimeter
+        // Kohlsman subscale) -- together they let a caller derive a QNH-true AMSL altitude for
+        // comparison against VATGlasses sectors near the ground (see issue #9 phase 2).
+        public double? PressureAltitudeFeet { get; }
+        public double? SeaLevelPressureHpa { get; }
+
         public DateTimeOffset Timestamp { get; }
 
-        public OwnshipTelemetry(bool? onGround, double? groundSpeedKnots, double? altitudeAboveGroundFeet, double? verticalSpeedFpm, double? headingDegrees, double? latitude, double? longitude, DateTimeOffset timestamp)
+        public OwnshipTelemetry(bool? onGround, double? groundSpeedKnots, double? altitudeAboveGroundFeet, double? verticalSpeedFpm, double? headingDegrees, double? latitude, double? longitude, DateTimeOffset timestamp, double? pressureAltitudeFeet = null, double? seaLevelPressureHpa = null)
         {
             OnGround = onGround;
             GroundSpeedKnots = groundSpeedKnots;
@@ -32,6 +40,8 @@ namespace Handoff.Plugin
             Latitude = latitude;
             Longitude = longitude;
             Timestamp = timestamp;
+            PressureAltitudeFeet = pressureAltitudeFeet;
+            SeaLevelPressureHpa = seaLevelPressureHpa;
         }
     }
 }

@@ -202,7 +202,9 @@ namespace Handoff.RadioHost
                         VerticalSpeedFpm = telemetry.VerticalSpeedFpm,
                         HeadingDegrees = telemetry.HeadingDegrees,
                         Latitude = telemetry.Latitude,
-                        Longitude = telemetry.Longitude
+                        Longitude = telemetry.Longitude,
+                        PressureAltitudeFeet = telemetry.PressureAltitudeFeet,
+                        SeaLevelPressureHpa = telemetry.SeaLevelPressureHpa
                     };
                     RadioIpcProtocol.WriteMessage(_currentWriter, message);
                 }

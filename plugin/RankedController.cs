@@ -37,9 +37,14 @@ namespace Handoff.Plugin
         public bool IsApproaching { get; }
 
         // A softer, no-badge-implied "this one's plausible, render it prominently" signal --
-        // unlike IsLikelyNextCandidate it never affects ranking order, and unlike IsApproaching
-        // it isn't gated on nothing being tuned (it's not a "you're on UNICOM, get ready" alert,
-        // just "worth a glance"). Currently only ever set for two tiers, each excluded from
+        // unlike IsApproaching it isn't gated on nothing being tuned (it's not a "you're on
+        // UNICOM, get ready" alert, just "worth a glance"). Since issue #17 this does affect
+        // ranking order (ControllerRankingModel step 6) -- it used to be display-only, but
+        // flight-test feedback showed a route-matching ATIS could otherwise sort behind an entire
+        // page of unrelated stations. Deliberately ranked *below* IsLikelyNextCandidate though
+        // (unlike IsApproaching, which ranks above it) -- being this much softer a signal, it
+        // should only ever outrank a wholly unrelated station, never the actual next candidate.
+        // Currently only ever set for two tiers, each excluded from
         // IsLikelyNextCandidate/IsApproaching for its own reason:
         //   - CTR: without real sector geometry (issue #11) a "closest CTR" guess isn't
         //     confident enough to justify pulling it to the top of the list or claiming

@@ -34,6 +34,8 @@ namespace Handoff.Plugin
         public double? HeadingDegrees { get; set; }
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
+        public double? PressureAltitudeFeet { get; set; }
+        public double? SeaLevelPressureHpa { get; set; }
 
         // TypeSetCom1Frequency / TypeSetCom2Frequency / TypeSetCom1StandbyFrequency /
         // TypeSetCom2StandbyFrequency (plugin -> host)

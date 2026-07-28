@@ -115,6 +115,8 @@ namespace Handoff.RadioHost
             public double HeadingDegreesMagnetic;
             public double Latitude;
             public double Longitude;
+            public double PressureAltitudeFeet;
+            public double SeaLevelPressureHpa;
         }
 
         // TRANSPONDER STATE:1 enum value for altitude-reporting ("Alt"/Mode C) mode.
@@ -261,7 +263,9 @@ namespace Handoff.RadioHost
                         telemetrySimVars.HeadingDegreesMagnetic,
                         telemetrySimVars.Latitude,
                         telemetrySimVars.Longitude,
-                        DateTimeOffset.Now));
+                        DateTimeOffset.Now,
+                        telemetrySimVars.PressureAltitudeFeet,
+                        telemetrySimVars.SeaLevelPressureHpa));
                 }
             }
         }
@@ -307,7 +311,9 @@ namespace Handoff.RadioHost
                                 new SimVar("VERTICAL SPEED", "Feet per minute", SIMCONNECT_DATATYPE.FLOAT64),
                                 new SimVar("PLANE HEADING DEGREES MAGNETIC", "Degrees", SIMCONNECT_DATATYPE.FLOAT64),
                                 new SimVar("PLANE LATITUDE", "Degrees", SIMCONNECT_DATATYPE.FLOAT64),
-                                new SimVar("PLANE LONGITUDE", "Degrees", SIMCONNECT_DATATYPE.FLOAT64)
+                                new SimVar("PLANE LONGITUDE", "Degrees", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("PRESSURE ALTITUDE", "Feet", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("SEA LEVEL PRESSURE", "Millibars", SIMCONNECT_DATATYPE.FLOAT64)
                             });
 
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1FrequencyHz, "COM_RADIO_SET_HZ");

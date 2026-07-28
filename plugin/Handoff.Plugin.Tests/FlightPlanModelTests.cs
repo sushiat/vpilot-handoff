@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
@@ -18,7 +19,7 @@ namespace Handoff.Plugin.Tests
         public async Task RefreshAsync_AfterSetSimbriefCredentials_UpdatesCurrentAndRaisesChanged()
         {
             var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
-            var model = new FlightPlanModel(fetch: (userId, username) => Task.FromResult(plan), configPath: _configPath);
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) => Task.FromResult(plan), configPath: _configPath);
             model.SetSimbriefCredentials("12345", "someuser");
 
             var raised = false;
@@ -37,7 +38,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void HasFetchedSuccessfully_BeforeAnyFetch_IsFalse()
         {
-            var model = new FlightPlanModel(configPath: _configPath);
+            var model = new FlightPlanModel(new OperationProgressModel(), configPath: _configPath);
 
             Assert.False(model.HasFetchedSuccessfully);
         }
@@ -45,7 +46,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public async Task RefreshAsync_FailedFetch_LeavesCurrentNull()
         {
-            var model = new FlightPlanModel(fetch: (userId, username) => Task.FromResult<FlightPlan>(null), configPath: _configPath);
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) => Task.FromResult<FlightPlan>(null), configPath: _configPath);
             model.SetSimbriefCredentials("12345", "someuser");
 
             await model.RefreshAsync();
@@ -56,7 +57,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public async Task RefreshAsync_FetchThrows_LeavesCurrentNullWithoutThrowing()
         {
-            var model = new FlightPlanModel(fetch: (userId, username) => throw new InvalidOperationException("boom"), configPath: _configPath);
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) => throw new InvalidOperationException("boom"), configPath: _configPath);
             model.SetSimbriefCredentials("12345", "someuser");
 
             await model.RefreshAsync();
@@ -68,7 +69,7 @@ namespace Handoff.Plugin.Tests
         public async Task RefreshAsync_NoPersistedCredentials_DoesNotFetch()
         {
             var fetchCalled = false;
-            var model = new FlightPlanModel(fetch: (userId, username) =>
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) =>
             {
                 fetchCalled = true;
                 return Task.FromResult(new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS"));
@@ -82,11 +83,11 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public async Task RefreshAsync_UsesCredentialsPersistedByAPriorInstance()
         {
-            var seedModel = new FlightPlanModel(configPath: _configPath);
+            var seedModel = new FlightPlanModel(new OperationProgressModel(), configPath: _configPath);
             seedModel.SetSimbriefCredentials("12345", "someuser");
 
             string capturedUserId = null, capturedUsername = null;
-            var reloadedModel = new FlightPlanModel(fetch: (userId, username) =>
+            var reloadedModel = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) =>
             {
                 capturedUserId = userId;
                 capturedUsername = username;
@@ -103,7 +104,7 @@ namespace Handoff.Plugin.Tests
         public void SetSimbriefCredentials_DoesNotFetch()
         {
             var fetchCalled = false;
-            var model = new FlightPlanModel(fetch: (userId, username) =>
+            var model = new FlightPlanModel(new OperationProgressModel(), fetch: (userId, username) =>
             {
                 fetchCalled = true;
                 return Task.FromResult(new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS"));
@@ -113,6 +114,89 @@ namespace Handoff.Plugin.Tests
 
             Assert.False(fetchCalled);
             Assert.Null(model.Current.Callsign);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_NoCredentials_ReportsNoOperationProgressAtAll()
+        {
+            var progress = new OperationProgressModel();
+            var events = new List<OperationProgressEventArgs>();
+            progress.Changed += (s, e) => events.Add(e);
+            var model = new FlightPlanModel(progress, configPath: _configPath);
+
+            await model.RefreshAsync();
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_SuccessfulFetch_ReportsThenFinishesWithSuccess()
+        {
+            var progress = new OperationProgressModel();
+            var events = new List<OperationProgressEventArgs>();
+            progress.Changed += (s, e) => events.Add(e);
+            var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
+            var model = new FlightPlanModel(progress, fetch: (userId, username) => Task.FromResult(plan), configPath: _configPath);
+            model.SetSimbriefCredentials("12345", "someuser");
+
+            await model.RefreshAsync();
+
+            Assert.Equal(2, events.Count);
+            Assert.False(events[0].Finished);
+            Assert.True(events[1].Finished);
+            Assert.True(events[1].Success);
+            Assert.Equal(events[0].OperationId, events[1].OperationId);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_FailedFetch_FinishesWithFailure()
+        {
+            var progress = new OperationProgressModel();
+            OperationProgressEventArgs lastEvent = null;
+            progress.Changed += (s, e) => lastEvent = e;
+            var model = new FlightPlanModel(progress, fetch: (userId, username) => Task.FromResult<FlightPlan>(null), configPath: _configPath);
+            model.SetSimbriefCredentials("12345", "someuser");
+
+            await model.RefreshAsync();
+
+            Assert.True(lastEvent.Finished);
+            Assert.False(lastEvent.Success);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_FetchThrows_FinishesWithFailure()
+        {
+            var progress = new OperationProgressModel();
+            OperationProgressEventArgs lastEvent = null;
+            progress.Changed += (s, e) => lastEvent = e;
+            var model = new FlightPlanModel(progress, fetch: (userId, username) => throw new InvalidOperationException("boom"), configPath: _configPath);
+            model.SetSimbriefCredentials("12345", "someuser");
+
+            await model.RefreshAsync();
+
+            Assert.True(lastEvent.Finished);
+            Assert.False(lastEvent.Success);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_CalledRepeatedly_EachCallGetsItsOwnOperationId()
+        {
+            // The real-world case this guards: a pilot tapping the refresh button several times
+            // in quick succession must never have one call's Finish stomp on another's -- each
+            // RefreshAsync() invocation needs its own identity, not a shared constant.
+            var progress = new OperationProgressModel();
+            var operationIds = new List<string>();
+            progress.Changed += (s, e) => { if (!e.Finished) operationIds.Add(e.OperationId); };
+            var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
+            var model = new FlightPlanModel(progress, fetch: (userId, username) => Task.FromResult(plan), configPath: _configPath);
+            model.SetSimbriefCredentials("12345", "someuser");
+
+            await model.RefreshAsync();
+            await model.RefreshAsync();
+            await model.RefreshAsync();
+
+            Assert.Equal(3, operationIds.Count);
+            Assert.Equal(3, new HashSet<string>(operationIds).Count);
         }
     }
 }

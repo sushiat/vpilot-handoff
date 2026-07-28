@@ -73,6 +73,66 @@ private fun rememberSustained(condition: Boolean, delayMs: Long): Boolean {
     return sustained
 }
 
+// docs/protocol.md: while still in progress, a backstop against a dropped `finished` message;
+// once finished, how long the success/failure result stays visible before clearing -- long
+// enough to actually read a failure (the more actionable case), shorter for a routine success.
+private const val OperationInProgressTimeoutMs = 60_000L
+private const val OperationSuccessLingerMs = 10_000L
+private const val OperationFailureLingerMs = 30_000L
+
+private fun operationTimeoutMs(state: at.sushi.handoff.OperationProgressState): Long = when {
+    !state.message.finished -> OperationInProgressTimeoutMs
+    state.message.success -> OperationSuccessLingerMs
+    else -> OperationFailureLingerMs
+}
+
+/** Every entry of [operations] still within its own display window -- see operationTimeoutMs.
+ *  Multiple operations (different operationIds, e.g. two SimBrief refreshes tapped in a row, or
+ *  VatGlasses syncing alongside a future VatSpy sync) can be visible at once, each on its own
+ *  independent clock. Ticks on a 1s loop rather than one-shot delayed checks per entry, since
+ *  [operations] itself keeps changing (a new receivedAtMillis on every step of each still-running
+ *  operation) while anything's actually in progress. Expired entries are dropped from
+ *  HandoffState entirely (not just this composable's return value) so the underlying map doesn't
+ *  grow unbounded across a long session. */
+@Composable
+private fun rememberVisibleOperations(operations: Map<String, at.sushi.handoff.OperationProgressState>): List<at.sushi.handoff.OperationProgressState> {
+    var visible by remember(operations) { mutableStateOf(operations.values.toList()) }
+    LaunchedEffect(operations) {
+        while (operations.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val stillVisible = mutableListOf<at.sushi.handoff.OperationProgressState>()
+            for (state in operations.values) {
+                if (now - state.receivedAtMillis < operationTimeoutMs(state)) {
+                    stillVisible.add(state)
+                } else {
+                    HandoffState.removeOperationProgress(state.message.operationId)
+                }
+            }
+            visible = stillVisible
+            if (stillVisible.isEmpty()) break
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    return visible
+}
+
+/** Reduces every currently-visible operation to the one icon state the footer's collapsed row
+ *  has room for -- see [at.sushi.handoff.OperationIndicator]'s doc for what each value means.
+ *  Null when nothing's visible at all. */
+private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationProgressState>): at.sushi.handoff.OperationIndicator? {
+    if (visible.isEmpty()) return null
+    val anyRunning = visible.any { !it.message.finished }
+    val anyFailed = visible.any { it.message.finished && !it.message.success }
+    val anySucceeded = visible.any { it.message.finished && it.message.success }
+    return when {
+        anyRunning && anyFailed -> at.sushi.handoff.OperationIndicator.RUNNING_BAD
+        anyRunning && anySucceeded -> at.sushi.handoff.OperationIndicator.RUNNING_GOOD
+        anyRunning -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
+        anyFailed -> at.sushi.handoff.OperationIndicator.FAILURE
+        else -> at.sushi.handoff.OperationIndicator.SUCCESS
+    }
+}
+
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
@@ -131,8 +191,12 @@ private fun MainScreenContent() {
     val splitSide by HandoffState.splitSide.collectAsState()
     val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
+    val resolvedHost by HandoffState.resolvedHost.collectAsState()
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
+    val operationProgress by HandoffState.operationProgress.collectAsState()
+    val visibleOperations = rememberVisibleOperations(operationProgress)
+    val operationIndicator = combineOperationIndicator(visibleOperations)
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -309,6 +373,8 @@ private fun MainScreenContent() {
                 controllers = controllers.controllers,
                 com1Active = radioState.com1Frequency,
                 com2Active = radioState.com2Frequency,
+                com1Standby = radioState.com1StandbyFrequency,
+                com2Standby = radioState.com2StandbyFrequency,
                 pinnedCallsign = pinnedCallsign,
                 selcalActiveCallsigns = selcalActiveCallsigns,
                 onTogglePin = { callsign ->
@@ -344,8 +410,10 @@ private fun MainScreenContent() {
                 vatsimOrigin = flightPlan.vatsimOrigin,
                 vatsimDestination = flightPlan.vatsimDestination,
                 vatsimMissing = vatsimMissing,
-                address = prefs.getString(HandoffConnectionService.PrefKeyHost, null),
+                address = resolvedHost,
                 subsystemStatus = subsystemStatus,
+                operationIndicator = operationIndicator,
+                visibleOperations = visibleOperations,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
                 keepScreenAwake = keepScreenAwake,
@@ -402,6 +470,10 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             onDismiss = { settingsDialogOpen = false },
+            onQuit = {
+                context.stopService(android.content.Intent(context, HandoffConnectionService::class.java))
+                (context as? android.app.Activity)?.finishAndRemoveTask()
+            },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)

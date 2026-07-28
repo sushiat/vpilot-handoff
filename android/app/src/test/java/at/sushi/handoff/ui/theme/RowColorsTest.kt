@@ -147,6 +147,8 @@ class RowColorsTest {
             c,
             com1Active = null,
             com2Active = null,
+            com1Standby = null,
+            com2Standby = null,
             isPinned = true,
             selcalActive = true
         )
@@ -163,6 +165,38 @@ class RowColorsTest {
     }
 
     @Test
+    fun controllerBadges_standbyTunedAddsStbyBadgeRightAfterTuned() {
+        val c = controller(isLikelyNextCandidate = true)
+        val badges = controllerBadges(
+            c,
+            com1Active = null,
+            com2Active = null,
+            com1Standby = c.frequency,
+            com2Standby = null,
+            isPinned = false,
+            selcalActive = false
+        )
+        assertEquals(listOf(ControllerBadge.STBY, ControllerBadge.NEXT), badges)
+    }
+
+    @Test
+    fun controllerBadges_standbyTunedNeverAppliesToTheCurrentRow() {
+        // A row that's already TUNED (current) shouldn't also read as "prepared in standby" --
+        // it's already active, not waiting to become active.
+        val c = controller(isCurrent = true)
+        val badges = controllerBadges(
+            c,
+            com1Active = null,
+            com2Active = null,
+            com1Standby = c.frequency,
+            com2Standby = null,
+            isPinned = false,
+            selcalActive = false
+        )
+        assertEquals(listOf(ControllerBadge.TUNED), badges)
+    }
+
+    @Test
     fun controllerRowColors_isHighlightedGetsFullSaturationLikeABadgedRowButDoesNotFlash() {
         val c = controller(callsign = "LON_CTR", facility = 6, isHighlighted = true)
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
@@ -176,6 +210,8 @@ class RowColorsTest {
             controller(isHighlighted = true),
             com1Active = null,
             com2Active = null,
+            com1Standby = null,
+            com2Standby = null,
             isPinned = false,
             selcalActive = false
         )
@@ -188,6 +224,8 @@ class RowColorsTest {
             controller(),
             com1Active = null,
             com2Active = null,
+            com1Standby = null,
+            com2Standby = null,
             isPinned = false,
             selcalActive = false
         )

@@ -7,6 +7,7 @@ vPilot companion app: live VATSIM controller list + two-way chat on an Android E
 - `plugin/` — C# vPilot plugin, **.NET Framework 4.8** (not modern .NET — vPilot loads plugins in-process via reflection, and the host process itself is .NET Framework, so the plugin runtime is a hard constraint, not a choice). Implements `IPlugin` from `RossCarlson.Vatsim.Vpilot.Plugins`, referenced via a local `HintPath` into the user's vPilot install (that DLL is not redistributed in this repo). Embeds a local HTTP/WebSocket server (candidates: EmbedIO or HttpListener+Fleck) that the Android app connects to.
 - `android/` — native Kotlin app (not a WebView/PWA — native chosen specifically for proper notification channels and reliable background WebSocket handling via a foreground service, which a browser tab can't do well).
 - `docs/protocol.md` — the WebSocket contract. Treat this as the source of truth for message shapes if implementing any client (Android or a future iOS port), not whichever client's source happens to exist first.
+- `docs/controller-ranking.md` — the full `RankedController` flag/criteria reference (`IsLikelyNextCandidate` vs `IsApproaching`, VATGlasses sector/boundary geometry parameters). See issue #8 for the base ranking design and issue #9 for the VATGlasses upgrade.
 
 ## Key architectural decisions (see repo issues for full reasoning)
 

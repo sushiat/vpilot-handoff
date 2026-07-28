@@ -99,9 +99,17 @@ fun isContactMeResolved(controller: Controller, com1Active: Int?, com2Active: In
 private fun isContactMeActive(controller: Controller, com1Active: Int?, com2Active: Int?): Boolean =
     controller.isContactMe && controller.frequency != com1Active && controller.frequency != com2Active
 
-enum class ControllerBadge { TUNED, CONTACT_ME, NEXT, APPROACHING, PINNED, SELCAL }
+enum class ControllerBadge { TUNED, STBY, CONTACT_ME, NEXT, APPROACHING, PINNED, SELCAL }
 
-/** Badges in the doc's fixed display priority order (TUNED, CONTACT ME, NEXT, APPROACHING,
+/** Whether this controller's frequency is currently loaded into COM1 or COM2 *standby* -- ready
+ *  to swap to active the moment a handoff comes. Computed client-side from data already received
+ *  (radioState's standby frequencies), the same way isPinned is derived locally, rather than a
+ *  new server-pushed field -- the plugin only needs this internally to rank the row (see
+ *  ControllerRankingModel step 2, issue #17), not to expose a new protocol field. */
+fun isStandbyTuned(controller: Controller, com1Standby: Int?, com2Standby: Int?): Boolean =
+    !controller.isCurrent && (controller.frequency == com1Standby || controller.frequency == com2Standby)
+
+/** Badges in the doc's fixed display priority order (TUNED, STBY, CONTACT ME, NEXT, APPROACHING,
  *  PINNED, SELCAL). [selcalActive] should only ever be true for the currently-tuned row -- SELCAL
  *  always targets whatever frequency is tuned -- but that constraint is the caller's to enforce
  *  (it depends on chat/SELCAL state this function doesn't see). */
@@ -109,10 +117,13 @@ fun controllerBadges(
     controller: Controller,
     com1Active: Int?,
     com2Active: Int?,
+    com1Standby: Int?,
+    com2Standby: Int?,
     isPinned: Boolean,
     selcalActive: Boolean
 ): List<ControllerBadge> = buildList {
     if (controller.isCurrent) add(ControllerBadge.TUNED)
+    if (isStandbyTuned(controller, com1Standby, com2Standby)) add(ControllerBadge.STBY)
     if (isContactMeActive(controller, com1Active, com2Active)) add(ControllerBadge.CONTACT_ME)
     if (controller.isLikelyNextCandidate) add(ControllerBadge.NEXT)
     if (controller.isApproaching) add(ControllerBadge.APPROACHING)

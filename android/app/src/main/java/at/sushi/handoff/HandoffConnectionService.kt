@@ -3,6 +3,7 @@ package at.sushi.handoff
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,6 +12,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -22,6 +24,7 @@ import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
+import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
@@ -47,6 +50,11 @@ class HandoffConnectionService : Service() {
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
+        // Handled in onStartCommand -- the notification's "Quit" action (only ever shown/tapped
+        // while backgrounded, see buildConnectionNotification) targets this Service with this
+        // action rather than a broadcast, since the intent needs to actually reach this specific
+        // running instance to tear it down.
+        private const val ActionQuit = "at.sushi.handoff.action.QUIT"
         private const val MinBackoffMillis = 2_000L
         private const val MaxBackoffMillis = 30_000L
         private const val PingIntervalMillis = 10_000L
@@ -69,9 +77,23 @@ class HandoffConnectionService : Service() {
         // this app becomes visible/fully invisible -- true for both fullscreen and split-screen
         // (Android only stops an Activity once it's completely covered/backgrounded), which is
         // exactly "not visible at all" per the user's notification rule, without needing to poll
-        // window bounds or track individual Activities ourselves.
-        override fun onStart(owner: LifecycleOwner) = HandoffState.setAppVisible(true)
-        override fun onStop(owner: LifecycleOwner) = HandoffState.setAppVisible(false)
+        // window bounds or track individual Activities ourselves. Also drives the persistent
+        // "Running in the background" notification's actual visibility: while the app is on
+        // screen at all, that notification has nothing left to tell the pilot (they're already
+        // looking at live connection state), so it's hidden via stopForeground -- the service
+        // itself keeps running throughout, this only demotes it from "foreground" back to
+        // "started" and removes the notification along with that. startForeground is called
+        // again on the way back to fully backgrounded, since Android requires an active
+        // notification for a service to legitimately keep running once nothing's visible.
+        override fun onStart(owner: LifecycleOwner) {
+            HandoffState.setAppVisible(true)
+            ServiceCompat.stopForeground(this@HandoffConnectionService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            HandoffState.setAppVisible(false)
+            startForeground(NotificationId, buildConnectionNotification())
+        }
     }
 
     // The tablet is normally docked and wired into power for the whole flight, so "keep screen
@@ -92,6 +114,22 @@ class HandoffConnectionService : Service() {
         notifier = HandoffNotifier(this)
         createConnectionNotificationChannel()
         notifier.createChannels()
+        // Static and silent -- Android requires an active notification for a foreground service
+        // to keep running at all (the WebSocket connection surviving backgrounding is the whole
+        // point of this being a service, see the class doc), but the user doesn't want it calling
+        // attention to itself or updating with connection status. MIN importance + no further
+        // notify() calls keeps it collapsed and silent in the shade.
+        //
+        // Must happen before addObserver below, not after -- ProcessLifecycleOwner dispatches
+        // the current state synchronously to a newly added observer, so on a cold launch (the
+        // process is typically already STARTED by the time this service initializes, racing
+        // MainActivity's own onStart) appVisibilityObserver.onStart fires immediately and calls
+        // stopForeground. If that ran before this startForeground call even happened, it'd be a
+        // no-op on a service that hasn't entered the foreground state yet -- and this call would
+        // then unconditionally post the notification right afterward with nothing left to hide
+        // it until the next real background/foreground transition, leaving it stuck showing on
+        // a fresh launch even though the app is already on screen.
+        startForeground(NotificationId, buildConnectionNotification())
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         HandoffState.setKeepScreenAwake(isCharging())
@@ -105,21 +143,28 @@ class HandoffConnectionService : Service() {
                     is FlightPlanMessage -> HandoffState.update(message)
                     is NearbyAircraftMessage -> HandoffState.update(message)
                     is SubsystemStatusMessage -> HandoffState.update(message)
+                    is OperationProgressMessage -> HandoffState.update(message)
                     is PongMessage -> HandoffState.setLatencyMs(System.currentTimeMillis() - message.clientTimestamp)
                 }
             },
             onStateChanged = { connected -> onConnectionStateChanged(connected) }
         )
-        // Static and silent -- Android requires an active notification for a foreground service
-        // to keep running at all (the WebSocket connection surviving backgrounding is the whole
-        // point of this being a service, see the class doc), but the user doesn't want it calling
-        // attention to itself or updating with connection status. MIN importance + no further
-        // notify() calls keeps it collapsed and silent in the shade.
-        startForeground(NotificationId, buildConnectionNotification())
         reconnectLoop()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ActionQuit) {
+            // Only the notification itself (see buildConnectionNotification) -- shown, and thus
+            // tappable, only while fully backgrounded and hammering away with no pilot watching,
+            // exactly the "I'm not flying for days, stop this" case. onDestroy (triggered by
+            // stopSelf) handles the rest of the teardown -- cancelling jobs, closing the socket,
+            // unregistering receivers.
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         connectionJob?.cancel()
@@ -163,6 +208,10 @@ class HandoffConnectionService : Service() {
                 if (host == null) {
                     HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
                 } else {
+                    // Only updated on a successful resolve -- a later resolution failure (e.g.
+                    // discovery briefly not answering) shouldn't blank out the last known-good
+                    // address, which is still useful to see while the app quietly retries.
+                    HandoffState.setResolvedHost(host)
                     client.connect(host)
                     // Wait for a disconnect/failure signal before retrying; onStateChanged
                     // drives HandoffState directly, this loop only owns the retry timing.
@@ -228,12 +277,20 @@ class HandoffConnectionService : Service() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun buildConnectionNotification(): Notification =
-        NotificationCompat.Builder(this, ChannelId)
+    private fun buildConnectionNotification(): Notification {
+        val quitIntent = Intent(this, HandoffConnectionService::class.java).setAction(ActionQuit)
+        val quitPendingIntent = PendingIntent.getService(this, 0, quitIntent, PendingIntent.FLAG_IMMUTABLE)
+
+        return NotificationCompat.Builder(this, ChannelId)
             .setContentTitle("Handoff")
             .setContentText("Running in the background")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
+            // Not flying for a while and don't want this quietly retrying in the background --
+            // right here is the one moment this notification is actually visible at all (see
+            // appVisibilityObserver), so it's the most discoverable place to offer a way out.
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Quit", quitPendingIntent)
             .build()
+    }
 }

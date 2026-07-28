@@ -146,6 +146,42 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesOperationProgressMessage_InProgress() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"Updating VatGlasses file 12/24","finished":false}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals("vatGlassesSync", message.operationId)
+        assertEquals("Updating VatGlasses file 12/24", message.status)
+        assertEquals(false, message.finished)
+    }
+
+    @Test
+    fun decodesOperationProgressMessage_FinishedSuccess() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"VatGlasses data up to date","finished":true,"success":true}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals(true, message.finished)
+        assertEquals(true, message.success)
+    }
+
+    @Test
+    fun decodesOperationProgressMessage_FinishedFailure() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"VatGlasses sync incomplete","finished":true,"success":false}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals(true, message.finished)
+        assertEquals(false, message.success)
+    }
+
+    @Test
+    fun decodesOperationProgressMessage_MissingSuccessField_DefaultsToTrue() {
+        val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"Updating VatGlasses file 12/24","finished":false}"""
+
+        val message = decodeServerMessage(json) as OperationProgressMessage
+        assertEquals(true, message.success)
+    }
+
+    @Test
     fun encodesSetSimbriefCredentialsCommand() {
         val json = SetSimbriefCredentialsCommand(simbriefUserId = "123456", simbriefUsername = null).encode()
         assertEquals("""{"type":"setSimbriefCredentials","simbriefUserId":"123456","simbriefUsername":null}""", json)

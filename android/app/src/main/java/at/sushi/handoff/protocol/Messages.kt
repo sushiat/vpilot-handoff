@@ -127,6 +127,22 @@ data class SubsystemStatusMessage(
     val pluginVersion: String? = null
 ) : ServerMessage
 
+/** One step of an in-progress background plugin operation (docs/protocol.md) -- unlike every
+ *  other ServerMessage here, this is NOT resendable full state, it's an event stream (closer to
+ *  [PongMessage] than to [ControllersMessage]). [operationId] is deliberately generic, not tied
+ *  to any one feature -- see docs/protocol.md. [finished] is the "end of update" signal; clients
+ *  should also apply their own ~60s timeout while still in progress, as a backstop for a dropped
+ *  finished message. [success] is only meaningful once [finished] is true -- drives which
+ *  icon/linger-duration a client shows (see HandoffState.OperationProgressState). */
+@Serializable
+data class OperationProgressMessage(
+    val type: String = "operationProgress",
+    val operationId: String,
+    val status: String,
+    val finished: Boolean,
+    val success: Boolean = true
+) : ServerMessage
+
 @Serializable
 data class PongMessage(
     val type: String = "pong",
@@ -151,6 +167,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
         "nearbyAircraft" -> json.decodeFromJsonElement<NearbyAircraftMessage>(element)
         "subsystemStatus" -> json.decodeFromJsonElement<SubsystemStatusMessage>(element)
+        "operationProgress" -> json.decodeFromJsonElement<OperationProgressMessage>(element)
         "pong" -> json.decodeFromJsonElement<PongMessage>(element)
         else -> null
     }

@@ -79,6 +79,64 @@ the first time so its integrated terminal picks it up.
 Check the Plugins folder for any stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml`
 copies first — a known FSLabs-installer bug drops these there and breaks plugin loading.
 
+## VATGlasses sector-ranking replay tool (dev-only, not deployed)
+
+`Handoff.ReplayTool/` validates `VatGlassesSectorLookup`'s geometry against real recorded VATSIM
+flights, pulled from [vataware.net](https://vataware.net)'s free, no-auth flight history API
+(see issue #9). Not part of the plugin/RadioHost deploy — a standalone console app for manual
+sanity-checking.
+
+```
+dotnet build Handoff.ReplayTool/Handoff.ReplayTool.csproj
+
+# Single flight
+Handoff.ReplayTool/bin/Debug/net48/Handoff.ReplayTool.exe <vataware-flight-id> [--route]
+
+# Batch: up to <count> random European airports, one completed flight from each,
+# replayed and collated -- writes ReplayTests/<timestamp>/summary.txt (one line per
+# flight) plus a full detail file per flight for review. Omitting --seed uses a fresh
+# random seed each run (Environment.TickCount) -- pass --seed <n> for a reproducible run.
+Handoff.ReplayTool/bin/Debug/net48/Handoff.ReplayTool.exe --random-test <count> [--seed <n>] [--out <dir>]
+```
+
+From the repo root, `run-replay-tests.bat` builds and runs the batch mode in one step,
+defaulting to 100 flights: `run-replay-tests.bat [count] [--seed <n>] [--out <dir>]`. Output
+always lands in `ReplayTests\` at the repo root (git-ignored) regardless of where it's invoked
+from.
+
+Find a single flight ID via `https://vataware.net/airports/<ICAO>` (send
+`Accept: application/json`, e.g. via `curl`) — arrivals/departures list each flight's ULID.
+`--route` uses the filed route's waypoints for lateral approach-prediction instead of
+instantaneous heading (falls back to heading if the route can't be resolved -- waypoint lat/lon
+resolution from the raw route string isn't implemented, only SimBrief's own `navlog.fix[]` gives
+that directly; `--random-test` is heading-only for this same reason, batch mode has no SimBrief
+credentials to fetch a real OFP from).
+
+`--random-test` only picks flights that (a) departed within the *current AIRAC cycle* (a fixed,
+globally-synchronized 28-day schedule published years in advance -- computed from one confirmed
+real effective date, `AiracAnchorDate`, via simple modular arithmetic; see `CurrentAiracCycle`),
+so the real-world airspace structure it flew through is reasonably likely to still match today's
+cached VATGlasses data, and (b) have actually landed (`arrival_time` in the past) -- checked
+directly on each candidate's timestamps rather than trusting vataware's `state` field or which
+list (`recent_arrivals`/`recent_departures`) it came from, since both have been observed with
+real quirks: `recent_arrivals` returned the exact same ~9-month-stale date across every airport
+checked (a site-wide staleness bug, not chance), while `recent_departures` is reliably current
+but mostly still-airborne.
+
+Prints the sequence of sector containment/approach-prediction transitions for the flight, to be
+cross-checked by eye against the live map at vatglasses.uk. Also self-checks each
+approach-prediction against what ownship actually flew into next (no external ground truth
+needed for this part — did the sector predicted as "approaching" become the next `IN:` sector?),
+printing `[OK]`/`[MISS]` verdicts and a final tally; a `[MISS]` right after a wide gap between
+position samples usually just means the predicted sector was briefly transited between samples,
+not a real prediction failure — the gap duration is printed alongside each miss to help tell
+the two apart. Deliberately geometry-only otherwise: VATSIM's public data feed (and vataware's
+archive of it) carries no per-pilot tuned-COM-frequency history — that's only ever broadcast
+live via the separate AFV transceivers feed, which nobody archives — so there's no ground truth
+available to check ownership-resolution/ranking against (i.e. whether the sector that ends up
+"approaching"/"IN:" would actually have anyone online on live VATSIM, only that the
+sector/altitude-band geometry itself picks the polygon a human would expect).
+
 ## Debugging
 
 vPilot doesn't show plugin `PostDebugMessage` output anywhere by default. Launch it with the
