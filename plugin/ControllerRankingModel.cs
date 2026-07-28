@@ -89,6 +89,18 @@ namespace Handoff.Plugin
         // nicety, not a correctness-critical flag.
         private const double EtaClimbDescendMinFl = 150;
 
+        // Spatial dead-band for the numeric radius/tie-band thresholds above (6b/6c's radius
+        // fallback, 7b's highlight radius, 8b's tie-band) -- a candidate joins at the real
+        // threshold, but once in, only leaves once past DeadbandExitMultiplier x that threshold.
+        // Guards against flapping right at a boundary (GPS/telemetry jitter, or distance
+        // oscillating right at a tie-band edge) without needing per-tick timing state -- see
+        // docs/controller-ranking.md's "Flapping protection" section. Deliberately does NOT cover
+        // actual polygon containment (6b/6c/6d's preferred path, 8a's satisfied check) -- that has
+        // no natural "how far past the edge" distance to build a buffer from without a general
+        // nearest-point-on-polygon primitive this codebase doesn't have yet (see
+        // ResolveAppDistanceNm's doc comment); tracked separately, not attempted here.
+        private const double DeadbandExitMultiplier = 1.20;
+
         private readonly object _gate = new object();
         private readonly HandoffControllerStateModel _controllerState;
         private readonly IRadioStateModel _radioState;
@@ -98,6 +110,14 @@ namespace Handoff.Plugin
         private readonly VatGlassesDataModel _vatGlassesData;
         private readonly Action<string> _logDebug;
         private readonly Func<DateTimeOffset> _now;
+
+        // Committed-inclusion state for the dead-band above -- one set per numeric threshold
+        // check, callsign-keyed. Pruned each tick to whatever candidates are actually still being
+        // considered for that check, so a callsign's stale membership can't resurrect once it's
+        // gone from the relevant candidate set (offline, or moved to a different bucket).
+        private readonly HashSet<string> _groundRadiusCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _appRadiusCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _tieBandCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<ControllerTier, string> _committedLeader = new Dictionary<ControllerTier, string>();
         private readonly Dictionary<ControllerTier, string> _pendingChallenger = new Dictionary<ControllerTier, string>();
@@ -452,6 +472,26 @@ namespace Handoff.Plugin
 
         private static bool IsTwrOrApp(ControllerTier tier) => tier == ControllerTier.Tower || tier == ControllerTier.AppDep;
 
+        /// <summary>Spatial dead-band check: passes at <paramref name="enterThreshold"/> if not
+        /// already committed, or at <paramref name="enterThreshold"/> x DeadbandExitMultiplier if
+        /// it is -- updates <paramref name="committed"/> in place. See DeadbandExitMultiplier's
+        /// doc comment for why this exists instead of a time-based hysteresis window.</summary>
+        private static bool PassesDeadband(HashSet<string> committed, string callsign, double value, double enterThreshold)
+        {
+            var wasCommitted = committed.Contains(callsign);
+            var threshold = wasCommitted ? enterThreshold * DeadbandExitMultiplier : enterThreshold;
+            var isIn = value <= threshold;
+            if (isIn) committed.Add(callsign); else committed.Remove(callsign);
+            return isIn;
+        }
+
+        /// <summary>Drops any committed callsign no longer present in this tick's candidate set -- otherwise a stale committed flag could resurrect if the same callsign reappears in an unrelated context later.</summary>
+        private static void PruneDeadbandCommitted(HashSet<string> committed, IEnumerable<string> currentCandidateCallsigns)
+        {
+            var current = new HashSet<string>(currentCandidateCallsigns, StringComparer.OrdinalIgnoreCase);
+            committed.RemoveWhere(cs => !current.Contains(cs));
+        }
+
         private static HashSet<string> ResolveContainedCallsigns(
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesSectorMatch> matches,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
@@ -485,6 +525,7 @@ namespace Handoff.Plugin
             IReadOnlyDictionary<string, VatGlassesRegionData> regions)
         {
             var result = new HighlightResult { Candidates = candidates };
+            PruneDeadbandCommitted(_groundRadiusCommitted, candidates.Select(c => c.Callsign));
             if (candidates.Count == 0) return result;
 
             var byCallsign = candidates.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
@@ -516,6 +557,17 @@ namespace Handoff.Plugin
                 polygonContainedCtr = ResolveContainedCallsigns(horizontalOnly, regions, allOnlineControllers);
             }
 
+            // Distance for tie/order purposes only (OrderHighlightBucket's "IsLikelyNext by
+            // distance" and "plain IsHighlighted by tier then distance" -- see "Sort order" in
+            // docs/controller-ranking.md) -- straight-line to the controller's own reported
+            // position, same source the 6b/6c radius fallback already reads below. This was
+            // previously never populated at all for bucket 6, silently leaving ties/ordering at
+            // whatever arbitrary order the underlying HashSet enumerated in.
+            if (hasPosition)
+            {
+                foreach (var c in candidates) result.DistanceNm[c.Callsign] = DistanceNm(c, telemetry);
+            }
+
             // 6b/6c/6d.
             foreach (var c in candidates)
             {
@@ -526,11 +578,11 @@ namespace Handoff.Plugin
                     case ControllerTier.Delivery:
                     case ControllerTier.Ground:
                     case ControllerTier.Tower:
-                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && DistanceNm(c, telemetry) <= GroundDelGndTwrRadiusNm))
+                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundDelGndTwrRadiusNm)))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     case ControllerTier.AppDep:
-                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && DistanceNm(c, telemetry) <= GroundAppRadiusNm))
+                        if (polygonContainedNonCtr.Contains(c.Callsign) || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundAppRadiusNm)))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     case ControllerTier.Center:
@@ -591,6 +643,7 @@ namespace Handoff.Plugin
             IReadOnlyDictionary<string, VatGlassesRegionData> regions)
         {
             var result = new HighlightResult { Candidates = candidates };
+            PruneDeadbandCommitted(_appRadiusCommitted, candidates.Select(c => c.Callsign));
             if (candidates.Count == 0 || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             var agl = telemetry.AltitudeAboveGroundFeet;
@@ -621,7 +674,7 @@ namespace Handoff.Plugin
                     if (pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ceilingFl) continue;
 
                     var distance = ResolveAppDistanceNm(c, regions, allOnlineControllers, telemetry);
-                    if (distance > AppHighlightRadiusNm) continue;
+                    if (!PassesDeadband(_appRadiusCommitted, c.Callsign, distance, AppHighlightRadiusNm)) continue;
 
                     result.HighlightedCallsigns.Add(c.Callsign);
                     result.DistanceNm[c.Callsign] = distance;
@@ -778,6 +831,7 @@ namespace Handoff.Plugin
             HashSet<string> currentCallsigns)
         {
             var result = new HighlightResult { Candidates = candidates };
+            PruneDeadbandCommitted(_tieBandCommitted, candidates.Select(c => c.Callsign));
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             int verticalTrendSign;
@@ -816,7 +870,7 @@ namespace Handoff.Plugin
             if (deduped.Count == 0) return result;
 
             var anchorDistance = deduped[0].DistanceNm;
-            var band = deduped.Where(x => x.DistanceNm <= anchorDistance * TieBandMultiplier).ToList();
+            var band = deduped.Where(x => PassesDeadband(_tieBandCommitted, x.Owner.Callsign, x.DistanceNm, anchorDistance * TieBandMultiplier)).ToList();
 
             foreach (var (owner, distance) in band)
             {

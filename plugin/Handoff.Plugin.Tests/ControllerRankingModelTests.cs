@@ -453,6 +453,29 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void Bucket6_PlainHighlightedTies_OrderedByDistance_NotArbitrarily()
+        {
+            // Regression: ComputeGroundHighlight never populated HighlightResult.DistanceNm at
+            // all, so ties silently fell back to whatever arbitrary order the underlying HashSet
+            // enumerated in -- the doc's "IsHighlighted ordered by tier then distance" (Sort
+            // order) had no effect for bucket 6. Tower (tuned to APP, tier above it) is already
+            // "passed" so 6e's chain-walk skips both -- pure IsHighlighted-only ties, isolating
+            // the ordering fix from any IsNext/IsLikelyNext tie-detection.
+            AddController("ZZZZ_APP", 12345, 0, 0);
+            AddController("LFPG_TWR", 23730, 0, 3 / 60.0); // ~3nm
+            AddController("EGLL_TWR", 23725, 0, 1 / 60.0); // ~1nm -- closer, added second
+            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            var ranked = model.Current.ToList();
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_TWR").IsHighlighted);
+            Assert.True(ranked.Single(c => c.Callsign == "LFPG_TWR").IsHighlighted);
+            Assert.DoesNotContain(ranked, c => c.IsNext || c.IsLikelyNext);
+            Assert.True(ranked.FindIndex(c => c.Callsign == "EGLL_TWR") < ranked.FindIndex(c => c.Callsign == "LFPG_TWR"));
+        }
+
+        [Fact]
         public void Bucket6e_ChainWalk_StartsFromCurrentTier()
         {
             AddController("EGLL_DEL", 12100, 0, 0);
@@ -742,6 +765,91 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel(vatGlassesData: vatGlasses);
 
             Assert.NotNull(model.EtaMinutes);
+        }
+
+        // ---- Numeric spatial dead-band (flapping protection) --------------------------------
+
+        [Fact]
+        public void Bucket6_RadiusDeadband_StaysHighlightedJustBeyondRawThreshold_ButNotWellBeyond()
+        {
+            AddController("EGLL_GND", 21800, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 4 / 60.0, 0, DateTimeOffset.Now); // ~4nm, inside the 5nm radius
+            var model = CreateModel();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~5.5nm -- past the raw 5nm threshold but within the dead-band's 20% exit margin
+            // (6nm) -- should stay highlighted rather than flap off.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 5.5 / 60.0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~6.5nm -- past the dead-band's exit margin -- should now genuinely drop out.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 6.5 / 60.0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
+        public void Bucket7b_AppDep_RadiusDeadband_StaysHighlightedJustBeyondRawThreshold()
+        {
+            AddController("EGLL_APP", 12345, 0, 25 / 60.0); // ~25nm, inside the 30nm radius
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~33nm -- past the raw 30nm threshold but within the dead-band's 20% exit margin
+            // (36nm) -- should stay highlighted.
+            _broker.RaiseControllerLocationChanged(new ControllerLocationChangedEventArgs("EGLL_APP", 33 / 60.0, 0));
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single().IsHighlighted);
+
+            // ~40nm -- past the dead-band's exit margin -- should now genuinely drop out.
+            _broker.RaiseControllerLocationChanged(new ControllerLocationChangedEventArgs("EGLL_APP", 40 / 60.0, 0));
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        // Bucket 8b's tie-band reuses this exact same PassesDeadband helper (see
+        // ComputeBucket8Highlight), already exercised end-to-end by the two tests above -- no
+        // separate geometry-based test for it here. Constructing a *nonzero*-anchor tie scenario
+        // needs the route/heading-projected "converging" path (the "satisfied"/contained case
+        // used by the existing bucket 8b tie tests anchors at distance 0, which trivially
+        // collapses the dead-band's multiplier to 0 too), and reliably placing two converging
+        // sectors at controllable, adjustable distances is significantly more setup than this is
+        // worth for what's otherwise identical logic to the two cases already covered.
+
+        // ---- Diversion invalidates the filed route -----------------------------------------
+
+        [Fact]
+        public async Task Diversion_DestinationChange_DropsStaleRouteForApproachPrediction()
+        {
+            // Heading deliberately null throughout -- isolates the route-projected check
+            // entirely (FindEnteringOwnerMatches only falls back to heading when there ARE no
+            // remaining waypoints), so a match before the diversion can only have come from the
+            // filed route, and the absence of a match afterward can only mean that route stopped
+            // being used, not that some other heading-based fallback happened to also miss.
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("WPT1", 4, 0) };
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "YYYY", null, waypoints);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            // Box at (2,0) sits directly on the route from ownship (0,0) to the waypoint at (4,0).
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            // Same waypoints (the stale route toward the original destination), only the
+            // destination itself changes -- exactly the scenario the doc describes: a
+            // controller-issued diversion updates the effective destination immediately, but
+            // flightPlan.Waypoints on its own has no way to know it's now stale.
+            currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "ZZZZ", null, waypoints);
+            await flightPlan.RefreshAsync();
+
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
         }
 
         // ---- VATGlasses fixture helpers ------------------------------------------------------

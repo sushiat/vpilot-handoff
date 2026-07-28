@@ -70,8 +70,9 @@ namespace Handoff.Plugin
         /// ControllerRankingModel's §2 telemetry plumbing). Either altitude figure may be null
         /// (e.g. QNH not received yet) -- a level is simply skipped if the figure it needs is
         /// unavailable. Multiple overlapping matches (adjacent FIRs' data occasionally overlaps
-        /// at shared boundaries) are all returned; the caller (VatGlassesOwnershipResolver) picks
-        /// whichever resolves to an online controller first.
+        /// at shared boundaries) are all returned; the caller (VatGlassesOwnershipResolver.
+        /// ResolveOnlineControllers) resolves each to every online controller it matches, not
+        /// just one -- see that method's doc comment for why "just the first match" isn't safe.
         /// </summary>
         public static IReadOnlyList<VatGlassesSectorMatch> FindContainingSectors(
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,

@@ -58,7 +58,7 @@ order" below, still stale/pending for buckets 6-8.
 | 6d | `IsHighlighted` | CTR | Not on flight plan: horizontal-only polygon containment, no radius fallback at all -- vertical band ignored entirely | Real-world VATSIM top-down coverage means an online enroute Center covers straight to the ground for anything inside its lateral boundary, regardless of the nominal FL its data lists as a floor (that FL shows up in the controller's own info string, not as a hard boundary on responsibility). No polygon data for a given CTR -- neither `IsHighlighted` nor `IsNext`/`IsLikelyNext`, full stop; a distance guess for CTR is exactly the kind of unreliable heuristic already rejected pre-issue-#9, worse still without any polygon at all. |
 | 6e | `IsNext` / `IsLikelyNext` | DEL/GND/TWR/APP/CTR | Chain-walk from whatever's tuned on COM1, over only the set of stations that qualified for `IsHighlighted` above (6a-6d) -- first qualifying tier above current tier wins | A tier already passed (e.g. DEL once tuned to GND) drops out of `IsNext`/`IsLikelyNext` but stays `IsHighlighted` (still useful for e.g. a re-clearance). Within the winning tier: exactly one qualifying candidate online -- confident `IsNext`. More than one genuinely tied candidate simultaneously online (e.g. identical control-zone polygon shared by per-runway TWR pairs; or differently-owned overlapping CTR sectors) -- all of them get `IsLikelyNext` instead of a single arbitrary pick. Resolves to one via elimination (only one of the tied set is actually online) -- confident `IsNext`, no longer ambiguous. Among multiple simultaneously-online `IsLikelyNext` CTR candidates, lowest `max` altitude is the tentative display-order preference (unverified against a real differently-owned-overlap example yet -- see project memory). |
 | 7a | `IsHighlighted` | TWR | Airborne (mutually exclusive with bucket 6 -- 6 applies on the ground, AGL<50ft; 7 applies once airborne) AND AGL<10000ft: within 20nm if on flight plan (origin/destination/alternate), else within 10nm | |
-| 7b | `IsHighlighted` | APP/DEP | Airborne AND pressure altitude <FL260: distance to the sector polygon (where VATGlasses coverage exists) or straight-line distance to the station otherwise, <=30nm -- same radius regardless of flight-plan status | Unlike 6c, no polygon-vs-radius branching by coverage changes the threshold -- 30nm applies either way, polygon distance is just a more precise measurement of it where available. |
+| 7b | `IsHighlighted` | APP/DEP | Airborne AND below the ceiling (the sector's own published upper FL + 5000ft where VATGlasses defines one, else a flat FL290 fallback -- no lower bound at all): distance to the sector polygon (where VATGlasses coverage exists) or straight-line distance to the station otherwise, <=30nm -- same radius regardless of flight-plan status | Unlike 6c, no polygon-vs-radius branching by coverage changes the threshold -- 30nm applies either way, polygon distance is just a more precise measurement of it where available. The ceiling is deliberately not a single flat FL: a real gap hit on departure (Tower handed off to APP early, clear of conflict, before being within APP's nominal lower band) is what ruled out a lower bound entirely, and per-sector data is preferred over the flat fallback where VATGlasses actually publishes an upper FL for that controller's own sector. |
 | 7c | `IsNext` / `IsLikelyNext` | TWR | Confident `IsNext` within the inner radius (10nm if on flight plan, 5nm if not) | Same tie rule as 6e: more than one TWR simultaneously within its inner radius -- all get `IsLikelyNext` instead of an arbitrary pick. |
 | 7c | `IsNext` / `IsLikelyNext` | APP/DEP | Only when actually converging/"entering" the sector (route/heading-projected prediction, not merely within the 7b highlight radius) | Confident `IsNext` only if on the flight plan AND exactly one entering candidate. `IsLikelyNext` otherwise -- either because not on the flight plan at all (route-relevance is uncertain even if geometrically unambiguous, e.g. an unplanned diversion into LOWW's airspace with LOWW not an actual alternate -- capped at `IsLikelyNext` even with only one entering candidate), or because multiple simultaneously-entering candidates exist regardless of flight-plan status (e.g. LOWW_APP and LZIB_APP both plausible depending on approach direction). |
 | 8a | `IsHighlighted` | CTR | Airborne: route/heading-projected lateral convergence (150nm route-projected preferred, 100nm heading-ray-cast fallback when no route loaded, same as before) AND vertical -- either *satisfied* (ownship's altitude is already within the sector's band, regardless of level/climbing/descending -- no margin, no trend needed) or *converging* (sustained climb/descent trend, vertical speed >=500fpm for >=5s, same `VerticalTrendThresholdFpm`/`VerticalTrendSustainWindow` as before, bringing ownship within 5000ft of the band edge it's headed toward -- widened from the old 2000ft, since a fast-climbing/descending bizjet can close that gap quickly) | No VATGlasses (or VatSpy) geometry for a given CTR -- stays unmarked entirely, same principle as 6d (known gap, accepted for now). CTR is a more relaxed phase of flight than TWR/APP -- a real handoff is normally either an explicit pass from the previous controller or a contact-me, so this prediction is a nice-to-know, not the critical signal the tighter TWR/APP buckets are. The margin only matters for the converging case -- level flight already inside the band needs no margin at all, it's just already there. |
@@ -109,8 +109,14 @@ one and central to the other.
   bucket 6d's CTR containment ignores this entirely** (horizontal-only, no vertical check at all)
   -- see that row's note for why (real-world top-down coverage vs. the nominal published floor).
 - **Heading/track:** not a factor. A containment test has no notion of "closing in." Also not
-  used to bias *which* of several overlapping matches wins (`VatGlassesOwnershipResolver` picks
-  the first chain entry that resolves to an online controller, not the "most converged-upon" one).
+  used to bias which of several overlapping matches wins -- `VatGlassesOwnershipResolver.
+  ResolveOnlineControllers` returns *every* distinct online controller matching any position in
+  the chain, not just the first (fixed 2026-07-28: several same-FIR CTR positions can share an
+  identical prefix/type with nothing to disambiguate them, e.g. Sweden Control's
+  M2/M4/M5/M6/M7/M8/MY all being "ESMM"+CTR -- returning only the first match silently picked the
+  wrong one on a real flight when two such positions were online at once). Callers feed every
+  returned candidate into the existing `IsNext`/`IsLikelyNext` tie-detection instead of the
+  resolver guessing which one is "right."
 
 ### Prediction (bucket 7c's APP "entering", bucket 8a's CTR "converging") -- heading/route and vertical trend are the whole point
 
@@ -128,10 +134,11 @@ one and central to the other.
   `VerticalTrendSustainWindow` (5s) bringing ownship within 5000ft of the band edge it's headed
   toward (widened from the pre-#18 2000ft -- a fast-climbing/descending bizjet can close that gap
   quickly). Level flight outside the band never converges, regardless of proximity.
-- **Vertical (APP, bucket 7c):** not yet explicitly decided whether this needs the same
-  satisfied-or-converging vertical trend check as CTR, or whether the FL260 ceiling (bucket 7b)
-  alone is a sufficient vertical gate for "entering" without a full trend requirement -- open
-  question, flag if this matters when implementing.
+- **Vertical (APP, bucket 7c):** decided -- no satisfied-or-converging vertical trend check at all.
+  Bucket 7b's ceiling (the sector's own upper FL + 5000ft, else a flat FL290 fallback) is the only
+  vertical gate; "entering" for 7c is purely lateral route/heading convergence. Simpler than CTR's
+  8a on purpose -- APP/DEP is a much tighter-range, shorter-lived phase than an enroute Center
+  prediction, not worth the same trend-tracking machinery.
 - **Combining:** a sector counts as converging when it is not already contained/otherwise resolved
   AND both axes are at least "satisfied-or-converging" AND at least one axis is actually in the
   *converging* (not-yet-inside) state.
@@ -169,14 +176,25 @@ a placeholder, since VATGlasses doesn't carry real per-region transition altitud
 
 ### Flapping protection
 
-Both a containment edge and a prediction's lost/regained convergence need the same kind of
-protection `ApplyDistanceHysteresis` already gives the per-tier distance leader -- a committed
-value that only changes after being consistently different for the full 12s `HysteresisWindow`.
-`ApplyVatGlassesHysteresis` gives the containment resolution that same treatment, as a single
-committed value (not per-tier, since at most one sector/airport-chain resolution is relevant at a
-time). The prediction/convergence result doesn't need a separate commit/challenger slot -- it's
-already gated by the 5s sustained vertical-trend requirement, which serves the same debouncing
-purpose.
+Numeric radius/tie-band thresholds (6b/6c's radius fallback, 7b's highlight radius, 8b's
+tie-band) use a spatial dead-band, not a time-based one: a candidate joins at the real threshold,
+but once in, only leaves once past `DeadbandExitMultiplier` (1.20) x that threshold --
+`ControllerRankingModel.PassesDeadband`, with a per-check committed-callsign set pruned each tick
+to whatever's still a candidate. This guards against a distance oscillating right at a boundary
+(GPS/telemetry jitter, or a tie-band edge) without needing per-tick timing state. Chosen over a
+12s-window time-based hysteresis (the pre-issue-#18 design's `ApplyDistanceHysteresis`/
+`ApplyVatGlassesHysteresis` approach, still used as-is for bucket 9's plain distance-leader
+fallback) because a spatial buffer is simpler to reason about for a numeric threshold that can be
+crossed from either direction, and doesn't need timestamp bookkeeping per candidate.
+
+**Not covered**: actual polygon containment (6b/6c/6d's preferred path, 8a's satisfied check) has
+no natural "how far past the edge" distance to build a spatial dead-band from -- that would need a
+real nearest-point-on-polygon-boundary primitive, which this codebase doesn't have yet (see
+`ResolveAppDistanceNm`'s doc comment on the bounding-box approximation it uses instead). Flapping
+right on a polygon edge is a known, accepted gap for now, not attempted here.
+
+8a's sustained-vertical-trend requirement (5s) already serves the same debouncing purpose for the
+converging/entering prediction independent of the above -- no separate dead-band needed there.
 
 ## Explicitly out of scope (issue #9)
 

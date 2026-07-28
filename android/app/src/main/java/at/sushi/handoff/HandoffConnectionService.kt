@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -206,12 +207,14 @@ class HandoffConnectionService : Service() {
                 HandoffState.setConnectionStatus(ConnectionStatus.CONNECTING)
                 val host = resolveHost()
                 if (host == null) {
+                    Log.w("HandoffConn", "resolveHost() found nothing (no manual IP set and discovery got no reply) -- retrying in ${backoff}ms")
                     HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
                 } else {
                     // Only updated on a successful resolve -- a later resolution failure (e.g.
                     // discovery briefly not answering) shouldn't blank out the last known-good
                     // address, which is still useful to see while the app quietly retries.
                     HandoffState.setResolvedHost(host)
+                    Log.i("HandoffConn", "attempting connection to $host")
                     client.connect(host)
                     // Wait for a disconnect/failure signal before retrying; onStateChanged
                     // drives HandoffState directly, this loop only owns the retry timing.
@@ -220,6 +223,7 @@ class HandoffConnectionService : Service() {
                     ) {
                         delay(1_000)
                     }
+                    Log.w("HandoffConn", "connection to $host lost/never established -- retrying in ${backoff}ms")
                 }
                 delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(MaxBackoffMillis)
@@ -250,6 +254,7 @@ class HandoffConnectionService : Service() {
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {
+        Log.i("HandoffConn", "onConnectionStateChanged: connected=$connected")
         HandoffState.setConnectionStatus(if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED)
         if (connected) {
             startPingLoop()
