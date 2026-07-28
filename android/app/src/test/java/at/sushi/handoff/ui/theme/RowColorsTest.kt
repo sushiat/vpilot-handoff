@@ -172,6 +172,30 @@ class RowColorsTest {
     }
 
     @Test
+    fun controllerRowColors_com1CurrentUsesTunedHueComp2CurrentUsesDistinctHue() {
+        val com1Current = controller(frequency = 23725, isCurrent = true)
+        val com2Current = controller(frequency = 18000, isCurrent = true)
+        val com1Result = controllerRowColors(com1Current, com1Active = 23725, com2Active = null, colors = LightHandoffColors)
+        val com2Result = controllerRowColors(com2Current, com1Active = null, com2Active = 18000, colors = LightHandoffColors)
+        assertEquals(FacilityColors.fullColor(FacilityColors.TUNED_HUE).bg, com1Result.background)
+        assertEquals(FacilityColors.fullColor(FacilityColors.COM2_TUNED_HUE).bg, com2Result.background)
+        assertTrue(com1Result.background != com2Result.background)
+    }
+
+    @Test
+    fun controllerRowColors_standbyTunedGetsADarkerShadeOfWhicheverComItWillBecomeActiveOn() {
+        val com1Standby = controller(frequency = 21000, isStandbyTuned = true)
+        val com2Standby = controller(frequency = 19000, isStandbyTuned = true)
+        val com1Result = controllerRowColors(com1Standby, com1Active = null, com2Active = null, colors = LightHandoffColors, com1Standby = 21000, com2Standby = null)
+        val com2Result = controllerRowColors(com2Standby, com1Active = null, com2Active = null, colors = LightHandoffColors, com1Standby = null, com2Standby = 19000)
+        val expectedCom1 = FacilityColors.fullColor(FacilityColors.TUNED_HUE, lightnessPercent = 50f, chroma = 0.15f).bg
+        val expectedCom2 = FacilityColors.fullColor(FacilityColors.COM2_TUNED_HUE, lightnessPercent = 50f, chroma = 0.15f).bg
+        assertEquals(expectedCom1, com1Result.background)
+        assertEquals(expectedCom2, com2Result.background)
+        assertTrue(com1Result.background != com2Result.background)
+    }
+
+    @Test
     fun controllerRowColors_isHighlightedGetsFullSaturationLikeABadgedRowButDoesNotFlash() {
         val c = controller(callsign = "LON_CTR", facility = 6, isHighlighted = true)
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)

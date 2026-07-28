@@ -122,12 +122,25 @@ fun controllerBadges(
     if (controller.isSelcalActive) add(ControllerBadge.SELCAL)
 }
 
+/** COM1 gets [FacilityColors.TUNED_HUE] (teal), COM2 gets [FacilityColors.COM2_TUNED_HUE]
+ *  (rose) -- a row tuned/standby-loaded on both at once (same frequency on both radios) defaults
+ *  to COM1's color rather than picking arbitrarily. */
+private fun tunedHueFor(frequency: Int, com1Frequency: Int?, com2Frequency: Int?): Float = when {
+    frequency == com1Frequency -> FacilityColors.TUNED_HUE
+    frequency == com2Frequency -> FacilityColors.COM2_TUNED_HUE
+    else -> FacilityColors.TUNED_HUE
+}
+
 /** Row background/border/text per the reference's `fullColor`/`fadedColor`/`textColorForL`:
- *  - isCurrent always wins: solid teal (hue 195, default L58/C0.16), regardless of anything else.
+ *  - isCurrent always wins: solid COM1/COM2 tuned color (see [tunedHueFor]), regardless of
+ *    anything else.
  *  - else an unresolved contact-me / likely-next / approaching flag: solid facility color (TWR
  *    gets L48/C0.22, a flagged ATIS gets L85/C0.19, everything else the L58/C0.16 default) --
  *    and if it's specifically an unresolved contact-me row, [RowColors.isFlashing] is true so the
  *    caller alternates this against hazard-yellow.
+ *  - else if isStandbyTuned: a darker, less saturated shade of whichever COM's tuned color it'll
+ *    become active on (L38/C0.12) -- distinguishable from both the bright tuned color and the
+ *    plain desaturated facility background below.
  *  - else: the same facility hue, desaturated per-theme (still faintly visible), no border.
  *  Text is white below L62, else a near-black `rgba(0,0,0,.82)` -- never chosen per-color by hand.
  *  Badge chip background is white-22%-alpha on dark rows, black-10%-alpha on light rows. */
@@ -135,14 +148,16 @@ fun controllerRowColors(
     controller: Controller,
     com1Active: Int?,
     com2Active: Int?,
-    colors: HandoffColors
+    colors: HandoffColors,
+    com1Standby: Int? = null,
+    com2Standby: Int? = null
 ): RowColors {
     val hue = facilityHue(controller)
     val isAtis = controller.callsign.endsWith("_ATIS")
     val contactMeActive = isContactMeActive(controller, com1Active, com2Active)
 
     val col = when {
-        controller.isCurrent -> FacilityColors.fullColor(FacilityColors.TUNED_HUE)
+        controller.isCurrent -> FacilityColors.fullColor(tunedHueFor(controller.frequency, com1Active, com2Active))
         // isHighlighted is a no-badge signal -- it earns the same full-saturation treatment as a
         // badged row (contact-me/next/approaching) but never adds anything to controllerBadges,
         // and (unlike an unresolved contact-me row) never flashes -- see docs/protocol.md.
@@ -151,6 +166,15 @@ fun controllerRowColors(
             isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f)
             else -> FacilityColors.fullColor(hue)
         }
+        // Just a shade or two darker than the full L58/C0.16 tuned color -- not the big drop down
+        // to fadedColor's near-gray L92/L26. A standby-prepared station should read as an almost-
+        // as-vivid variant of its eventual tuned color, not lumped in visually with the plain
+        // desaturated "nothing going on" rows.
+        controller.isStandbyTuned -> FacilityColors.fullColor(
+            tunedHueFor(controller.frequency, com1Standby, com2Standby),
+            lightnessPercent = 50f,
+            chroma = 0.15f
+        )
         else -> FacilityColors.fadedColor(hue, colors.isDark)
     }
 

@@ -100,6 +100,8 @@ fun ControllerList(
     controllers: List<Controller>,
     com1Active: Int?,
     com2Active: Int?,
+    com1Standby: Int?,
+    com2Standby: Int?,
     onTogglePin: (String) -> Unit,
     onOpenChatWith: (String) -> Unit,
     onTuneCom1Active: (Int) -> Unit,
@@ -186,6 +188,8 @@ fun ControllerList(
                     frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
                     com2Active = com2Active,
+                    com1Standby = com1Standby,
+                    com2Standby = com2Standby,
                     onTogglePin = { onTogglePin(controller.callsign) },
                     onOpenChat = { onOpenChatWith(controller.callsign) },
                     onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
@@ -220,6 +224,8 @@ private fun ControllerRow(
     frequencyTextWidth: Dp,
     com1Active: Int?,
     com2Active: Int?,
+    com1Standby: Int?,
+    com2Standby: Int?,
     onTogglePin: () -> Unit,
     onOpenChat: () -> Unit,
     onTuneCom1Active: () -> Unit,
@@ -229,7 +235,7 @@ private fun ControllerRow(
     onDismissSelcal: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
-    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors)
+    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby)
     val badges = controllerBadges(controller, com1Active, com2Active)
     var menuOpen by remember { mutableStateOf(false) }
 

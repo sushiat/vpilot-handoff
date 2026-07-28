@@ -71,7 +71,11 @@ object FacilityColors {
     const val APP_DEP_HUE = 60f
     const val CTR_HUE = 300f
     const val ATIS_HUE = 95f
-    const val TUNED_HUE = 195f
+    const val TUNED_HUE = 195f // COM1
+    // Sits in the one open stretch of the hue wheel (300 CTR -> 25 TWR, wrapping through
+    // magenta/red) that no facility color already occupies, and is far enough around the wheel
+    // from COM1's teal to read as clearly distinct at a glance, not just a similar shade.
+    const val COM2_TUNED_HUE = 340f
 
     val hazardYellow = oklch(0.88f, 0.19f, 98f)
 
