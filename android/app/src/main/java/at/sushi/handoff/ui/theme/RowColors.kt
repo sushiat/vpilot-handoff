@@ -134,15 +134,21 @@ private fun tunedHueFor(frequency: Int, com1Frequency: Int?, com2Frequency: Int?
 /** Row background/border/text per the reference's `fullColor`/`fadedColor`/`textColorForL`:
  *  - isCurrent always wins: solid COM1/COM2 tuned color (see [tunedHueFor]), regardless of
  *    anything else.
- *  - else an unresolved contact-me / likely-next / approaching flag: solid facility color (TWR
- *    gets L48/C0.22, a flagged ATIS gets L85/C0.19, everything else the L58/C0.16 default) --
- *    and if it's specifically an unresolved contact-me row, [RowColors.isFlashing] is true so the
- *    caller alternates this against hazard-yellow.
+ *  - else an unresolved contact-me / likely-next / approaching / pinned flag: solid facility
+ *    color (TWR gets L48/C0.22, a flagged ATIS gets L85/C0.19, everything else the L58/C0.16
+ *    default) -- and if it's specifically an unresolved contact-me row, [RowColors.isFlashing] is
+ *    true so the caller alternates this against hazard-yellow.
  *  - else if isStandbyTuned: a darker, less saturated shade of whichever COM's tuned color it'll
  *    become active on (L38/C0.12) -- distinguishable from both the bright tuned color and the
  *    plain desaturated facility background below.
  *  - else: the same facility hue, desaturated per-theme (still faintly visible), no border.
- *  Text is white below L62, else a near-black `rgba(0,0,0,.82)` -- never chosen per-color by hand.
+ *  Text color is picked from [perceptualLightness] of the *actual rendered* background (real sRGB
+ *  relative luminance), not the nominal OKLCH lightness value fed into fullColor/fadedColor -- a
+ *  flat threshold on that nominal input ignores how much hue/chroma shift a color's real
+ *  perceived brightness (confirmed on-device: COM1-tuned's teal and GND's green share the same
+ *  nominal L58 input, but read completely differently in black text). Threshold tuned to 54,
+ *  which cleanly separates every on-device-confirmed case (COM1 tuned real L*~56 wants black;
+ *  GND/CTR/TWR/standby-tuned all sit at real L*~39-53 and want white) -- see RowColorsTest.
  *  Badge chip background is white-22%-alpha on dark rows, black-10%-alpha on light rows. */
 fun controllerRowColors(
     controller: Controller,
@@ -158,10 +164,13 @@ fun controllerRowColors(
 
     val col = when {
         controller.isCurrent -> FacilityColors.fullColor(tunedHueFor(controller.frequency, com1Active, com2Active))
-        // isHighlighted is a no-badge signal -- it earns the same full-saturation treatment as a
-        // badged row (contact-me/next/approaching) but never adds anything to controllerBadges,
-        // and (unlike an unresolved contact-me row) never flashes -- see docs/protocol.md.
-        contactMeActive || controller.isNext || controller.isLikelyNext || controller.isHighlighted -> when {
+        // isHighlighted/isPinned are no-badge-color signals -- pinned in particular is a manual
+        // bookmark the pilot deliberately set, so it should never read as visually less relevant
+        // than an untouched, plain station -- both earn the same full-saturation treatment as a
+        // badged row (contact-me/next/likelyNext) but don't add anything themselves to
+        // controllerBadges beyond their own PINNED tag, and (unlike an unresolved contact-me row)
+        // never flash -- see docs/protocol.md.
+        contactMeActive || controller.isNext || controller.isLikelyNext || controller.isHighlighted || controller.isPinned -> when {
             isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f)
             isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f)
             else -> FacilityColors.fullColor(hue)
@@ -178,7 +187,7 @@ fun controllerRowColors(
         else -> FacilityColors.fadedColor(hue, colors.isDark)
     }
 
-    val isWhiteText = col.lightnessPercent < 62f
+    val isWhiteText = perceptualLightness(col.bg) < 54f
     val text = if (isWhiteText) Color.White else nearBlackText
     val badgeBackground = if (isWhiteText) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.1f)
     return RowColors(col.bg, col.border, text, badgeBackground, contactMeActive)

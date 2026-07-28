@@ -376,7 +376,7 @@ private fun MainScreenContent() {
                 onTogglePin = { callsign ->
                     val isPinned = controllers.controllers.find { it.callsign == callsign }?.isPinned == true
                     if (isPinned) {
-                        send(ClearPinnedControllerCommand())
+                        send(ClearPinnedControllerCommand(callsign = callsign))
                     } else {
                         send(PinControllerCommand(callsign = callsign))
                     }
@@ -465,10 +465,6 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             onDismiss = { settingsDialogOpen = false },
-            onQuit = {
-                context.stopService(android.content.Intent(context, HandoffConnectionService::class.java))
-                (context as? android.app.Activity)?.finishAndRemoveTask()
-            },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)

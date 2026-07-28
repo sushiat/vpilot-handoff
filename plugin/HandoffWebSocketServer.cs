@@ -196,7 +196,7 @@ namespace Handoff.Plugin
                     _controllerState.SetPinnedController(command.Callsign);
                     break;
                 case ClientCommand.TypeClearPinnedController:
-                    _controllerState.ClearPinnedController();
+                    _controllerState.ClearPinnedController(command.Callsign);
                     break;
                 case ClientCommand.TypeDismissSelcal:
                     _controllerState.ClearSelcal(command.Callsign);

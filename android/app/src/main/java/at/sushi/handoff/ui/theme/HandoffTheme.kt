@@ -57,8 +57,10 @@ val DarkHandoffColors = HandoffColors(
 )
 
 /** A facility color pair: filled background + its border (border is `transparent` for the
- *  desaturated/"faded" variant, per the design reference's own `fadedColor()`). */
-data class FacilityColor(val bg: Color, val border: Color, val lightnessPercent: Float)
+ *  desaturated/"faded" variant, per the design reference's own `fadedColor()`). Text color is
+ *  decided separately, from [perceptualLightness] of the actual rendered [bg] -- see
+ *  RowColors.kt's controllerRowColors -- not carried on this type. */
+data class FacilityColor(val bg: Color, val border: Color)
 
 /** Facility hue/lightness/chroma constants and the two color-building functions
  *  (`fullColor`/`fadedColor`), transcribed directly from issue #13's JS reference (not
@@ -85,7 +87,7 @@ object FacilityColors {
     fun fullColor(hue: Float, lightnessPercent: Float = 58f, chroma: Float = 0.16f): FacilityColor {
         val bg = oklch(lightnessPercent / 100f, chroma, hue)
         val border = oklch((lightnessPercent - 12f) / 100f, chroma + 0.01f, hue)
-        return FacilityColor(bg, border, lightnessPercent)
+        return FacilityColor(bg, border)
     }
 
     /** The desaturated background shown for a row with no active flags -- border is
@@ -93,7 +95,7 @@ object FacilityColors {
     fun fadedColor(hue: Float, isDark: Boolean): FacilityColor {
         val lightnessPercent = if (isDark) 26f else 92f
         val chroma = if (isDark) 0.02f else 0.025f
-        return FacilityColor(oklch(lightnessPercent / 100f, chroma, hue), Color.Transparent, lightnessPercent)
+        return FacilityColor(oklch(lightnessPercent / 100f, chroma, hue), Color.Transparent)
     }
 }
 

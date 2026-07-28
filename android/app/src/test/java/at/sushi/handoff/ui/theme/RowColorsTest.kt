@@ -95,10 +95,47 @@ class RowColorsTest {
     }
 
     @Test
-    fun controllerRowColors_textFlipsToWhiteOnDarkBackground() {
+    fun controllerRowColors_com1TunedGetsNearBlackTextFromTheRealPerceptualLightness() {
+        // COM1-tuned's teal (real perceptualLightness ~56) reads noticeably better in black than
+        // a threshold on the *nominal* OKLCH input would give it (nominal 58% alone reads as
+        // "should be white") -- confirmed on-device. This is why controllerRowColors decides text
+        // color from perceptualLightness(col.bg), the real rendered color, not the nominal input.
         val current = controller(isCurrent = true)
-        val result = controllerRowColors(current, com1Active = null, com2Active = null, colors = LightHandoffColors)
-        // Tuned/current uses the default L58% -- below the 62 threshold -> white text.
+        val result = controllerRowColors(current, com1Active = 23725, com2Active = null, colors = LightHandoffColors)
+        assertEquals(nearBlackText, result.text)
+    }
+
+    @Test
+    fun controllerRowColors_com2TunedGetsWhiteTextUnderTheSameFormula() {
+        // COM2-tuned's rose computes a *lower* real perceptualLightness (~49) than COM1's teal
+        // (~56) despite sharing the same nominal L58 input -- the formula genuinely can't put
+        // both COM1 and COM2 on the same side of one threshold as GND (~53, confirmed wants
+        // white) without contradicting one of them, so this is the accepted trade-off: COM2
+        // renders white here, unlike the earlier hardcoded-black attempt.
+        val com2 = controller(frequency = 18000, isCurrent = true)
+        val result = controllerRowColors(com2, com1Active = null, com2Active = 18000, colors = LightHandoffColors)
+        assertEquals(androidx.compose.ui.graphics.Color.White, result.text)
+    }
+
+    @Test
+    fun controllerRowColors_highlightedFacilityRowsGetWhiteTextFromTheFormula() {
+        // GND/TWR/CTR all compute a real perceptualLightness well below the 54 threshold despite
+        // TWR's nominal input (48) being *lower* than GND/CTR's (58) -- confirmed on-device that
+        // forcing any of these to black (an earlier, since-reverted attempt) made them harder to
+        // read, not easier.
+        val highlightedGnd = controller(facility = 3, isHighlighted = true)
+        val highlightedTwr = controller(facility = 4, isHighlighted = true)
+        val highlightedCtr = controller(facility = 6, isHighlighted = true)
+        for (c in listOf(highlightedGnd, highlightedTwr, highlightedCtr)) {
+            val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
+            assertEquals(androidx.compose.ui.graphics.Color.White, result.text)
+        }
+    }
+
+    @Test
+    fun controllerRowColors_standbyTunedStaysWhiteTextUnderTheFormula() {
+        val standby = controller(isStandbyTuned = true)
+        val result = controllerRowColors(standby, com1Active = null, com2Active = null, colors = LightHandoffColors, com1Standby = standby.frequency)
         assertEquals(androidx.compose.ui.graphics.Color.White, result.text)
     }
 
@@ -198,6 +235,17 @@ class RowColorsTest {
     @Test
     fun controllerRowColors_isHighlightedGetsFullSaturationLikeABadgedRowButDoesNotFlash() {
         val c = controller(callsign = "LON_CTR", facility = 6, isHighlighted = true)
+        val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
+        assertEquals(FacilityColors.fullColor(FacilityColors.CTR_HUE).bg, result.background)
+        assertFalse(result.isFlashing)
+    }
+
+    @Test
+    fun controllerRowColors_pinnedAloneGetsFullSaturationNotTheDesaturatedFallback() {
+        // Regression: isPinned wasn't wired into controllerRowColors at all -- a plain pinned
+        // row with no other flag fell all the way through to the same desaturated "unrelated
+        // station" look as a row nobody had touched, which read as if pinning had done nothing.
+        val c = controller(callsign = "LON_CTR", facility = 6, isPinned = true)
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
         assertEquals(FacilityColors.fullColor(FacilityColors.CTR_HUE).bg, result.background)
         assertFalse(result.isFlashing)

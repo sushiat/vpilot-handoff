@@ -394,9 +394,10 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void ParseClientCommand_ClearPinnedController()
         {
-            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"clearPinnedController\"}");
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"clearPinnedController\",\"callsign\":\"EGLL_TWR\"}");
 
             Assert.Equal(ClientCommand.TypeClearPinnedController, command.Type);
+            Assert.Equal("EGLL_TWR", command.Callsign);
         }
 
         [Fact]

@@ -247,6 +247,21 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesPinControllerCommand() {
+        val json = PinControllerCommand(callsign = "EGLL_TWR").encode()
+        assertEquals("""{"type":"pinController","callsign":"EGLL_TWR"}""", json)
+    }
+
+    @Test
+    fun encodesClearPinnedControllerCommand() {
+        // Regression: clearPinnedController used to carry no fields at all (a global "unpin
+        // whatever's pinned" command) -- multiple controllers can be pinned at once now, so
+        // clearing one specifically requires its callsign, same as pinController.
+        val json = ClearPinnedControllerCommand(callsign = "EGLL_TWR").encode()
+        assertEquals("""{"type":"clearPinnedController","callsign":"EGLL_TWR"}""", json)
+    }
+
+    @Test
     fun encodesDismissSelcalCommand() {
         val json = DismissSelcalCommand(callsign = "EGLL_CTR").encode()
         assertEquals("""{"type":"dismissSelcal","callsign":"EGLL_CTR"}""", json)

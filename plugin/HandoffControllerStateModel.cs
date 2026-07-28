@@ -71,30 +71,28 @@ namespace Handoff.Plugin
             }
         }
 
-        /// <summary>Marks the given callsign as pinned -- clears any previous pin first, since only one is ever pinned at a time.</summary>
+        /// <summary>Marks the given callsign as pinned. Multiple controllers can be pinned at once -- this never touches any other callsign's pin, only ever the pilot's own explicit unpin (or the controller going offline past its hidden-expiry window) clears one.</summary>
         public void SetPinnedController(string callsign)
         {
+            bool changed;
             lock (_gate)
             {
-                ClearAllPinsLocked();
-                if (_controllers.TryGetValue(callsign, out var existing))
-                    _controllers[callsign] = existing.WithPinned(true);
+                changed = _controllers.TryGetValue(callsign, out var existing) && !existing.IsPinned;
+                if (changed) _controllers[callsign] = existing.WithPinned(true);
             }
-            RaiseChanged();
+            if (changed) RaiseChanged();
         }
 
-        public void ClearPinnedController()
+        /// <summary>Clears one specific callsign's pin -- never any other pinned controller's.</summary>
+        public void ClearPinnedController(string callsign)
         {
-            lock (_gate) { ClearAllPinsLocked(); }
-            RaiseChanged();
-        }
-
-        private void ClearAllPinsLocked()
-        {
-            foreach (var key in _controllers.Keys.ToList())
+            bool changed;
+            lock (_gate)
             {
-                if (_controllers[key].IsPinned) _controllers[key] = _controllers[key].WithPinned(false);
+                changed = _controllers.TryGetValue(callsign, out var existing) && existing.IsPinned;
+                if (changed) _controllers[callsign] = existing.WithPinned(false);
             }
+            if (changed) RaiseChanged();
         }
 
         /// <summary>Clears an outstanding contact-me request -- called by ControllerRankingModel when the callsign becomes the currently-tuned controller.</summary>

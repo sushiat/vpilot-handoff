@@ -265,8 +265,9 @@ data class RefreshFlightPlanCommand(
 }
 
 /** Marks `callsign` as pinned (isPinned) -- its own ranking bucket, never displacing isCurrent --
- *  until cleared or the controller goes offline past its hidden-expiry window. Only one
- *  controller is ever pinned at a time; pinning a new one clears any previous pin. */
+ *  until cleared or the controller goes offline past its hidden-expiry window. Multiple
+ *  controllers can be pinned at once; each is set/cleared independently, never touching any
+ *  other pinned callsign -- only the pilot's own explicit unpin clears one. */
 @Serializable
 data class PinControllerCommand(
     val type: String = "pinController",
@@ -275,10 +276,11 @@ data class PinControllerCommand(
     override fun encode() = json.encodeToString(PinControllerCommand.serializer(), this)
 }
 
-/** Carries no fields of its own. */
+/** Clears `callsign`'s pin specifically -- never any other pinned controller's. */
 @Serializable
 data class ClearPinnedControllerCommand(
-    val type: String = "clearPinnedController"
+    val type: String = "clearPinnedController",
+    val callsign: String
 ) : ClientCommand {
     override fun encode() = json.encodeToString(ClearPinnedControllerCommand.serializer(), this)
 }

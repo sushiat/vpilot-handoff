@@ -416,14 +416,16 @@ persisted.
 
 Marks a specific controller as pinned -- a bookmark that keeps it ranked prominently in the
 `controllers` message (its own bucket, just below contact-me/SELCAL), until cleared or the
-controller goes offline past its hidden-expiry window. Only one controller can be pinned at a
-time; pinning a new one clears any previous pin. Does **not** set `isCurrent` and never displaces
+controller goes offline past its hidden-expiry window. Multiple controllers can be pinned at
+once; each is set/cleared independently by its own callsign, never touching any other pinned
+callsign -- only the pilot's own explicit unpin (or the controller going offline past expiry)
+ever clears one, never automatic replacement. Does **not** set `isCurrent` and never displaces
 whatever's actually tuned -- pinning is a separate signal from "current" (issue #17).
-`clearPinnedController` carries no fields of its own.
+`clearPinnedController` takes the same `callsign` field as `pinController`.
 
 ```json
 {"type": "pinController", "callsign": "EGLL_TWR"}
-{"type": "clearPinnedController"}
+{"type": "clearPinnedController", "callsign": "EGLL_TWR"}
 ```
 
 ### `dismissSelcal`

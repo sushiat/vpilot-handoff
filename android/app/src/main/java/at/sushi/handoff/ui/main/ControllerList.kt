@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.platform.LocalDensity
@@ -414,7 +415,17 @@ private fun ControllerRow(
                             Modifier.size(30.dp).clickable(onClick = onTogglePin),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Filled.PushPin, contentDescription = "Pin controller", tint = text, modifier = Modifier.size(20.dp))
+                            Icon(
+                                Icons.Filled.PushPin,
+                                contentDescription = if (controller.isPinned) "Unpin controller" else "Pin controller",
+                                tint = text,
+                                // Tilted (as if actually stuck in at an angle, the classic
+                                // Google-Keep-style pinned look) vs. the plain upright glyph --
+                                // a state change on the icon itself, not just the row's color,
+                                // so a pinned row still reads as pinned even before the color
+                                // treatment registers.
+                                modifier = Modifier.size(20.dp).rotate(if (controller.isPinned) 45f else 0f)
+                            )
                         }
                         Box(
                             Modifier.size(30.dp).clickable(onClick = onOpenChat),

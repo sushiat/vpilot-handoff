@@ -236,9 +236,35 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel();
             _controllerState.SetPinnedController("EGLL_GND");
 
-            _controllerState.ClearPinnedController();
+            _controllerState.ClearPinnedController("EGLL_GND");
 
             Assert.False(model.Current.Single(c => c.Callsign == "EGLL_GND").IsPinned);
+        }
+
+        [Fact]
+        public void MultiplePinnedControllers_AllStayPinnedUntilIndividuallyCleared()
+        {
+            // Regression: pinning used to clear any other pinned callsign first (an undiscussed,
+            // self-imposed single-slot design) -- the pilot should be able to pin as many
+            // stations as they like, and only an explicit unpin (or the controller going
+            // offline) should ever remove one, never pinning a second station.
+            AddController("EGLL_TWR", 23725);
+            AddController("EGLL_GND", 21800);
+            AddController("EGLL_DEL", 12100);
+            var model = CreateModel();
+
+            _controllerState.SetPinnedController("EGLL_GND");
+            _controllerState.SetPinnedController("EGLL_DEL");
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_GND").IsPinned);
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_DEL").IsPinned);
+
+            _controllerState.ClearPinnedController("EGLL_GND");
+
+            var afterClear = model.Current;
+            Assert.False(afterClear.Single(c => c.Callsign == "EGLL_GND").IsPinned);
+            Assert.True(afterClear.Single(c => c.Callsign == "EGLL_DEL").IsPinned);
         }
 
         [Fact]

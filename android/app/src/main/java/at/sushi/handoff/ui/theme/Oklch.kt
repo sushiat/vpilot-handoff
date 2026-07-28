@@ -48,20 +48,22 @@ private fun linearToSrgb(value: Float): Float {
     return encoded.coerceIn(0f, 1f)
 }
 
-/** The perceptual lightness (0..100) Compose would report for [color] if it were expressed in
- *  OKLCH -- used for the "auto-pick black or white text based on background L, threshold ~62"
- *  rule. Approximated via relative luminance rather than a full sRGB->OKLab round trip, which is
- *  adequate for a threshold decision (the design doc's own reference implementation likely does
- *  the equivalent in reverse, from an OKLCH value it already had in hand).
- */
+/** The real perceptual lightness (CIE L*, 0..100) of a rendered [color] -- computed from its
+ *  actual sRGB relative luminance, not the nominal OKLCH lightness value used to build it. This
+ *  is what [controllerRowColors] uses to pick black-vs-white text: a flat threshold on the
+ *  *nominal* lightness input (e.g. "58%") ignores that hue/chroma shift how bright a color
+ *  actually reads (the Helmholtz-Kohlrausch effect -- vivid saturated colors read brighter than
+ *  their raw luminance suggests), which is why on-device testing found some nominally-identical
+ *  L58 facility hues needed opposite text colors under that naive approach. Real relative
+ *  luminance already bakes in those hue-dependent differences, so a single threshold on this
+ *  value works uniformly across every row type -- confirmed against on-device feedback for
+ *  COM1-tuned/GND/TWR/CTR/standby-tuned (see RowColorsTest). */
 fun perceptualLightness(color: Color): Float {
     fun channel(v: Float) = if (v <= 0.04045f) v / 12.92f else ((v + 0.055f) / 1.055f).pow(2.4f)
     val r = channel(color.red)
     val g = channel(color.green)
     val b = channel(color.blue)
     val relativeLuminance = 0.2126f * r + 0.7152f * g + 0.0722f * b
-    // CIE lightness formula (L*), which maps luminance to a ~0..100 perceptual scale close
-    // enough to OKLCH's L for a "flip text color" threshold.
     return if (relativeLuminance <= 0.008856f) {
         relativeLuminance * 903.3f
     } else {

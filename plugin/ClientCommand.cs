@@ -27,11 +27,11 @@ namespace Handoff.Plugin
         // sendPrivateMessage
         public string To { get; set; }
 
-        // pinController -- forces this callsign to rank 0 / isCurrent regardless of tuned
-        // frequency, until clearPinnedController or the controller goes offline. Not used by
-        // clearPinnedController, which carries no fields of its own.
-        // dismissSelcal -- clears that callsign's active SELCAL alert (SelcalActiveModel), same
-        // as tune-matching it would; independent of the private "contact me" list.
+        // pinController / clearPinnedController -- sets/clears this specific callsign's pin.
+        // Multiple controllers can be pinned at once; each is set/cleared independently, never
+        // touching any other pinned callsign.
+        // dismissSelcal -- clears that callsign's active SELCAL alert, same as tune-matching it
+        // would; independent of the private "contact me" list.
         public string Callsign { get; set; }
 
         // sendPrivateMessage / sendRadioMessage
