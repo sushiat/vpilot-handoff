@@ -461,8 +461,10 @@ namespace Handoff.Plugin
             foreach (var match in matches)
             {
                 if (!regions.TryGetValue(match.RegionFileName, out var region)) continue;
-                var owner = VatGlassesOwnershipResolver.ResolveOnlineController(match.Sector.Owner, region.Positions, onlineControllers);
-                if (owner != null) result.Add(owner.Callsign);
+                foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(match.Sector.Owner, region.Positions, onlineControllers))
+                {
+                    result.Add(owner.Callsign);
+                }
             }
             return result;
         }
@@ -677,8 +679,8 @@ namespace Handoff.Plugin
             {
                 foreach (var sector in region.Airspace)
                 {
-                    var owner = VatGlassesOwnershipResolver.ResolveOnlineController(sector.Owner, region.Positions, allOnlineControllers);
-                    if (owner != null && string.Equals(owner.Callsign, controller.Callsign, StringComparison.OrdinalIgnoreCase))
+                    var owners = VatGlassesOwnershipResolver.ResolveOnlineControllers(sector.Owner, region.Positions, allOnlineControllers);
+                    if (owners.Any(o => string.Equals(o.Callsign, controller.Callsign, StringComparison.OrdinalIgnoreCase)))
                     {
                         return sector.Levels.FirstOrDefault();
                     }
@@ -713,7 +715,7 @@ namespace Handoff.Plugin
             return GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
         }
 
-        /// <summary>Shared route/heading-projected "entering" search used by both bucket 7c (APP/DEP) and bucket 8 (CTR) -- walks approach matches nearest-first, resolves each to an online controller, and keeps only ones matching tierFilter.</summary>
+        /// <summary>Shared route/heading-projected "entering" search used by both bucket 7c (APP/DEP) and bucket 8 (CTR) -- walks approach matches nearest-first, resolves each to every online controller matching its chain (see VatGlassesOwnershipResolver -- more than one is possible for an ambiguous same-prefix/tier chain, deliberately not collapsed here so downstream tie-detection sees all of them), and keeps only ones matching tierFilter.</summary>
         private List<(HandoffController Owner, VatGlassesSectorLookup.VatGlassesApproachMatch Match)> FindEnteringOwnerMatches(
             OwnshipTelemetry telemetry,
             FlightPlan flightPlan,
@@ -747,10 +749,11 @@ namespace Handoff.Plugin
             foreach (var approach in approachMatches)
             {
                 if (!regions.TryGetValue(approach.Match.RegionFileName, out var region)) continue;
-                var owner = VatGlassesOwnershipResolver.ResolveOnlineController(approach.Match.Sector.Owner, region.Positions, allOnlineControllers);
-                if (owner == null) continue;
-                if (owner.Callsign.ParseControllerTier() != tierFilter) continue;
-                result.Add((owner, approach));
+                foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(approach.Match.Sector.Owner, region.Positions, allOnlineControllers))
+                {
+                    if (owner.Callsign.ParseControllerTier() != tierFilter) continue;
+                    result.Add((owner, approach));
+                }
             }
             return result;
         }
