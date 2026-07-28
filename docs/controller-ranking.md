@@ -22,21 +22,29 @@ it isn't a prediction, it already happened.
 
 ## Flag/criteria table
 
-| Flag | Tier(s) | Trigger criteria | Notes |
-|---|---|---|---|
-| `IsCurrent` | any | Tuned COM1 or COM2 frequency matches | Always ranked first. Since issue #17, COM1 and COM2 can each independently match a different real online station -- both get `IsCurrent` simultaneously, not just whichever a single lookup found first. Manual pin (`SetPinnedController`) no longer sets this (see "Sort order" below) -- it used to, but pinning a controller while a different one was genuinely tuned wrongly stole `IsCurrent`/TUNED status from the real one. |
-| `IsContactMe` | any | Callsign present in `ContactMeModel.ActiveCallsigns` | Ranked below current, above SELCAL/next-candidate. |
-| (SELCAL ordering, no dedicated flag) | any | Callsign present in `SelcalActiveModel.ActiveCallsigns` | Ranked below contact-me, above next-candidate. |
-| `IsLikelyNextCandidate` | DEL/GND/TWR/APP/DEP | Priority order: (1) VATGlasses sector/airport-topdown resolution -- ownship's lat/lon + altitude falls inside a VATGlasses sector polygon (or, on the ground, the flight-plan airport's `topdown[]` chain) whose resolved online controller is in this tier; (2) else callsign-prefix route match against origin (pre-takeoff)/destination (post-takeoff); (3) else, only when no flight plan is loaded at all, the tier's single closest-by-distance controller | Only the *first* qualifying tier walking up the chain from current tier gets flagged. |
-| `IsLikelyNextCandidate` | CTR | VATGlasses sector resolution only (no distance/route fallback -- CTR never got a no-flight-plan proximity fallback here) | Still gated on being an actual next-tier-walk match, not just proximity. |
-| `IsApproaching` | GND | Always `false` | Ground never gets this flag -- Tower is the lowest tier it applies to (a UNICOM aircraft taxiing isn't "approaching" Ground, it's already there). |
-| `IsApproaching` | TWR | Airborne, within `TowerApproachingNauticalMiles` (20nm) | |
-| `IsApproaching` | APP/DEP | Airborne, <= `AppOmnidirectionalNauticalMiles` (40nm) any heading, or <= `AppOuterNauticalMiles` (50nm) with heading within `AppHeadingToleranceDegrees` (45 degrees) of bearing to station -- OR a VATGlasses convergence match (see below) when coverage exists | VATGlasses convergence is preferred when it produces a result, but the fixed-radius heuristic still applies independently as a fallback. |
-| `IsApproaching` | CTR | VATGlasses lateral+vertical convergence against a resolved-online sector -- not already contained (that's `IsLikelyNextCandidate` instead) AND both axes satisfied-or-converging AND at least one actually converging. Only the single *closest* qualifying sector is ever flagged, not every sector within the lookahead cap. | No fallback for uncovered regions -- stays `false` there. |
-| `IsApproaching` | DEL/Other | Always `false` | |
-| `IsApproaching` (any tier) | -- | Always `false` whenever something is already `IsCurrent` (tuned) | This flag only means something pre-contact. |
-| `IsHighlighted` | `_ATIS` (parses to `Other`) | Callsign ICAO-prefix-matches the route airport | Since issue #17, `IsHighlighted` (like `IsApproaching`) is also pulled ahead of unrelated stations in the sort order, regardless of tier -- see "Sort order" below. |
-| `IsHighlighted` (any other tier) | -- | Always `false` | The old fixed-radius CTR highlight heuristic was removed entirely (issue #9) -- a CTR only stands out now via `IsLikelyNextCandidate`, a stronger signal, when VATGlasses resolves it. |
+`Bucket` refers to the numbered ranking-order buckets defined in "Sort order" below -- included
+here so you don't have to cross-reference to see where a given flag lands in the list. Bucket 6
+(below) is split into lettered sub-rows (6a-6e) since its criteria don't fit one row -- they're
+checked in that order (6a first) to build the `IsHighlighted` set, then 6e resolves `IsNext`/
+`IsLikelyNext` from within it. **Bucket 6 supersedes the old `IsApproaching`/`IsLikelyNextCandidate`/
+ATIS-only-`IsHighlighted` design entirely** (issue #18 redesign, 2026-07-28) -- `IsNext`/
+`IsLikelyNext` are new flags replacing `IsLikelyNextCandidate`, and `IsHighlighted` is no longer
+ATIS-specific. Bucket 7's exact final ranking position (and whether `IsNext`/`IsLikelyNext` occupy
+one bucket or two) is not decided yet -- see "Sort order" below, still stale/pending for buckets
+6-8.
+
+| Bucket | Flag | Tier(s) | Trigger criteria | Notes |
+|---|---|---|---|---|
+| 1 | `IsCurrent` | any | Tuned COM1 or COM2 frequency matches | Always ranked first. COM1 and COM2 can each independently match a different real online station -- both get `IsCurrent` simultaneously, not just whichever a single lookup found first. When both match, COM1's station is always ordered ahead of COM2's within this bucket. |
+| 2 | `IsStandbyTuned` | any | Callsign's frequency matches COM1 or COM2 *standby* | Ranked immediately below current, regardless of tier. |
+| 3 | `IsContactMe` | any | Callsign present in `ContactMeModel.ActiveCallsigns` | Tuning that frequency (COM1 or COM2 active) clears the contact-me request. |
+| 4 | `IsSelcalActive` | any | Callsign present in `SelcalActiveModel.ActiveCallsigns` | Cleared by the client's `dismissSelcal` command -- does not auto-clear on tune-match. |
+| 5 | (no dedicated flag) | any | Callsign matches `SetPinnedController`'s pinned callsign | Manual toggle (`pinController`/`clearPinnedController`), pilot-controlled only -- never auto-cleared by becoming current/standby. If the pinned station becomes current or standby-tuned, it moves to that higher-priority bucket instead (never both places at once), but the pin badge still shows alongside TUNED/STBY, since Android tracks it independently of bucket position. |
+| 6a | `IsHighlighted` | any (incl. ATIS/`Other`) | Callsign ICAO-prefix-matches the flight plan's origin, destination, or alternate | Checked first, before any range/polygon rule below -- unconditional the moment the station is online (visible in `IBroker`), regardless of distance or geometry. Subsumes the old ATIS-only highlight rule entirely -- ATIS gets highlighted through this same row now, no dedicated rule needed. ATIS has no equivalent to 6b-6d (no radius/polygon fallback -- an unrelated nearby airport's ATIS isn't worth highlighting) and never participates in 6e (`Other` tier is always skipped by the chain-walk, same as today). |
+| 6b | `IsHighlighted` | DEL/GND/TWR | Not on flight plan: VATGlasses polygon containment where available, else within 5nm | 5nm comfortably covers even the world's largest airport by land area (King Fahd International, ~780km<sup>2</sup>) -- its actual runway/taxiway complex is only a few km across, the rest is empty buffer land. |
+| 6c | `IsHighlighted` | APP | Not on flight plan: VATGlasses polygon containment where available, else within 20nm flat (vertical ignored entirely) | |
+| 6d | `IsHighlighted` | CTR | Not on flight plan: horizontal-only polygon containment, no radius fallback at all -- vertical band ignored entirely | Real-world VATSIM top-down coverage means an online enroute Center covers straight to the ground for anything inside its lateral boundary, regardless of the nominal FL its data lists as a floor (that FL shows up in the controller's own info string, not as a hard boundary on responsibility). No polygon data for a given CTR -- neither `IsHighlighted` nor `IsNext`/`IsLikelyNext`, full stop; a distance guess for CTR is exactly the kind of unreliable heuristic already rejected pre-issue-#9, worse still without any polygon at all. |
+| 6e | `IsNext` / `IsLikelyNext` | DEL/GND/TWR/APP/CTR | Chain-walk from whatever's tuned on COM1, over only the set of stations that qualified for `IsHighlighted` above (6a-6d) -- first qualifying tier above current tier wins | A tier already passed (e.g. DEL once tuned to GND) drops out of `IsNext`/`IsLikelyNext` but stays `IsHighlighted` (still useful for e.g. a re-clearance). Within the winning tier: exactly one qualifying candidate online -- confident `IsNext`. More than one genuinely tied candidate simultaneously online (e.g. identical control-zone polygon shared by per-runway TWR pairs; or differently-owned overlapping CTR sectors) -- all of them get `IsLikelyNext` instead of a single arbitrary pick. Resolves to one via elimination (only one of the tied set is actually online) -- confident `IsNext`, no longer ambiguous. Among multiple simultaneously-online `IsLikelyNext` CTR candidates, lowest `max` altitude is the tentative display-order preference (unverified against a real differently-owned-overlap example yet -- see project memory). |
 
 ## Sort order
 
@@ -46,25 +54,24 @@ order as a sequence of **buckets** (numbered here as `bucket#` for easy referenc
 deliberately not "tier," which already means the DEL/GND/TWR/APP/CTR chain):
 
 - **Bucket 1 -- Current** (`IsCurrent`, tuned) -- can be more than one row if COM1 and COM2 are
-  each tuned to a different real station.
-- **Bucket 2 -- Standby-tuned** -- a controller's frequency is currently loaded into COM1 or COM2
-  *standby*, ready to swap to active the moment a handoff comes. Not a `RankedController` boolean
-  field -- Android computes this locally from the `radioState` message's standby frequencies (same
-  way it computes pin in bucket 5), since the plugin only needs it internally to decide ranking
-  position, not to expose a new protocol field for it. Gets its own STBY badge on Android.
+  each tuned to a different real station, with COM1's always ordered ahead of COM2's.
+- **Bucket 2 -- `IsStandbyTuned`** -- a controller's frequency is currently loaded into COM1 or
+  COM2 *standby*, ready to swap to active the moment a handoff comes. Gets its own STBY badge on
+  Android.
 - **Bucket 3 -- Contact-me** (`IsContactMe`).
-- **Bucket 4 -- SELCAL** (no dedicated flag -- see the flag table above).
-- **Bucket 5 -- Pinned** (`SetPinnedController`) -- a deliberate bookmark, kept prominent but never
-  a stand-in for bucket 1/`IsCurrent` (see that row's note above). Like standby, not its own
-  `RankedController` boolean -- Android compares each row's callsign against its own
-  locally-tracked pinned callsign.
-- **Bucket 6 -- `IsApproaching`** -- ranked *above* bucket 7 (`IsLikelyNextCandidate`), even though
-  the next candidate is nominally "more actionable": flight-test feedback found a converging
-  station reads as more immediately relevant in practice than the rough next-tier guess.
-- **Bucket 7 -- `IsLikelyNextCandidate`**.
-- **Bucket 8 -- `IsHighlighted`** -- ranked *below* bucket 7, unlike bucket 6 above it. A much
-  softer "worth a glance" signal (see its own row in the flag table) that should only ever outrank
-  a wholly unrelated station, never the actual next candidate.
+- **Bucket 4 -- `IsSelcalActive`**.
+- **Bucket 5 -- Pinned** (`SetPinnedController`) -- see the flag table above for the manual-toggle
+  and current/standby-overlap behavior.
+- **Buckets 6-8 -- PENDING (issue #18 redesign in progress, 2026-07-28).** The old `IsApproaching`/
+  `IsLikelyNextCandidate`/ATIS-only-`IsHighlighted` design these bullets described is superseded by
+  the flag table's new bucket 6a-6e rows above -- but where `IsNext`/`IsLikelyNext`/`IsHighlighted`
+  actually land relative to each other in final rank order (one bucket or several, and in what
+  order) isn't decided yet. Do not treat the old bullets below as current -- kept only as a
+  reference point for what's being replaced, delete once bucket 7 is formally addressed:
+  - ~~Bucket 6 -- `IsApproaching`, ranked above bucket 7 because a converging station reads as more
+    immediately relevant than the rough next-tier guess.~~
+  - ~~Bucket 7 -- `IsLikelyNextCandidate`.~~
+  - ~~Bucket 8 -- `IsHighlighted`, ranked below bucket 7 as a softer "worth a glance" signal.~~
 - **Bucket 9 -- Everything else.**
 
 Buckets 2-9 are each internally ordered by chain tier then route-match/distance.
