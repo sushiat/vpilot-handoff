@@ -14,9 +14,12 @@ class RowColorsTest {
         facility: Int? = 4,
         isCurrent: Boolean = false,
         isContactMe: Boolean = false,
-        isLikelyNextCandidate: Boolean = false,
-        isApproaching: Boolean = false,
-        isHighlighted: Boolean = false
+        isHighlighted: Boolean = false,
+        isNext: Boolean = false,
+        isLikelyNext: Boolean = false,
+        isPinned: Boolean = false,
+        isStandbyTuned: Boolean = false,
+        isSelcalActive: Boolean = false
     ) = Controller(
         callsign = callsign,
         frequency = frequency,
@@ -25,9 +28,12 @@ class RowColorsTest {
         facility = facility,
         isCurrent = isCurrent,
         isContactMe = isContactMe,
-        isLikelyNextCandidate = isLikelyNextCandidate,
-        isApproaching = isApproaching,
-        isHighlighted = isHighlighted
+        isHighlighted = isHighlighted,
+        isNext = isNext,
+        isLikelyNext = isLikelyNext,
+        isPinned = isPinned,
+        isStandbyTuned = isStandbyTuned,
+        isSelcalActive = isSelcalActive
     )
 
     @Test
@@ -50,7 +56,7 @@ class RowColorsTest {
         // (a truly-tuned frequency is by definition already resolved), but the reference
         // computes contactMeActive/its flash independently of isCurrent, so this (admittedly
         // synthetic) combination still flashes -- isCurrent only wins the base color.
-        val c = controller(isCurrent = true, isContactMe = true, isApproaching = true, facility = 4)
+        val c = controller(isCurrent = true, isContactMe = true, isLikelyNext = true, facility = 4)
         val result = controllerRowColors(c, com1Active = null, com2Active = null, colors = LightHandoffColors)
         assertEquals(FacilityColors.fullColor(FacilityColors.TUNED_HUE).bg, result.background)
     }
@@ -140,23 +146,17 @@ class RowColorsTest {
     fun controllerBadges_orderIsFixedAndOnlyAppliesFlaggedBadges() {
         val c = controller(
             isCurrent = true,
-            isLikelyNextCandidate = true,
-            isApproaching = true
-        )
-        val badges = controllerBadges(
-            c,
-            com1Active = null,
-            com2Active = null,
-            com1Standby = null,
-            com2Standby = null,
+            isNext = true,
+            isLikelyNext = true,
             isPinned = true,
-            selcalActive = true
+            isSelcalActive = true
         )
+        val badges = controllerBadges(c, com1Active = null, com2Active = null)
         assertEquals(
             listOf(
                 ControllerBadge.TUNED,
                 ControllerBadge.NEXT,
-                ControllerBadge.APPROACHING,
+                ControllerBadge.NEXT_LIKELY,
                 ControllerBadge.PINNED,
                 ControllerBadge.SELCAL
             ),
@@ -166,34 +166,9 @@ class RowColorsTest {
 
     @Test
     fun controllerBadges_standbyTunedAddsStbyBadgeRightAfterTuned() {
-        val c = controller(isLikelyNextCandidate = true)
-        val badges = controllerBadges(
-            c,
-            com1Active = null,
-            com2Active = null,
-            com1Standby = c.frequency,
-            com2Standby = null,
-            isPinned = false,
-            selcalActive = false
-        )
-        assertEquals(listOf(ControllerBadge.STBY, ControllerBadge.NEXT), badges)
-    }
-
-    @Test
-    fun controllerBadges_standbyTunedNeverAppliesToTheCurrentRow() {
-        // A row that's already TUNED (current) shouldn't also read as "prepared in standby" --
-        // it's already active, not waiting to become active.
-        val c = controller(isCurrent = true)
-        val badges = controllerBadges(
-            c,
-            com1Active = null,
-            com2Active = null,
-            com1Standby = c.frequency,
-            com2Standby = null,
-            isPinned = false,
-            selcalActive = false
-        )
-        assertEquals(listOf(ControllerBadge.TUNED), badges)
+        val c = controller(isLikelyNext = true, isStandbyTuned = true)
+        val badges = controllerBadges(c, com1Active = null, com2Active = null)
+        assertEquals(listOf(ControllerBadge.STBY, ControllerBadge.NEXT_LIKELY), badges)
     }
 
     @Test
@@ -206,29 +181,13 @@ class RowColorsTest {
 
     @Test
     fun controllerBadges_isHighlightedNeverAddsABadge() {
-        val badges = controllerBadges(
-            controller(isHighlighted = true),
-            com1Active = null,
-            com2Active = null,
-            com1Standby = null,
-            com2Standby = null,
-            isPinned = false,
-            selcalActive = false
-        )
+        val badges = controllerBadges(controller(isHighlighted = true), com1Active = null, com2Active = null)
         assertTrue(badges.isEmpty())
     }
 
     @Test
     fun controllerBadges_emptyWhenNoFlagsSet() {
-        val badges = controllerBadges(
-            controller(),
-            com1Active = null,
-            com2Active = null,
-            com1Standby = null,
-            com2Standby = null,
-            isPinned = false,
-            selcalActive = false
-        )
+        val badges = controllerBadges(controller(), com1Active = null, com2Active = null)
         assertTrue(badges.isEmpty())
     }
 }

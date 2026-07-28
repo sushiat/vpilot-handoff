@@ -21,7 +21,11 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5, true, true, false, true, false, false)
+                new RankedController(
+                    "EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5,
+                    requestsContactMe: true, isCurrent: true, isContactMe: false,
+                    isHighlighted: true, isNext: true, isLikelyNext: false,
+                    isPinned: true, isStandbyTuned: false, isSelcalActive: false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
@@ -38,9 +42,12 @@ namespace Handoff.Plugin.Tests
             Assert.True((bool)controller["requestsContactMe"]);
             Assert.True((bool)controller["isCurrent"]);
             Assert.False((bool)controller["isContactMe"]);
-            Assert.True((bool)controller["isLikelyNextCandidate"]);
-            Assert.False((bool)controller["isApproaching"]);
-            Assert.False((bool)controller["isHighlighted"]);
+            Assert.True((bool)controller["isHighlighted"]);
+            Assert.True((bool)controller["isNext"]);
+            Assert.False((bool)controller["isLikelyNext"]);
+            Assert.True((bool)controller["isPinned"]);
+            Assert.False((bool)controller["isStandbyTuned"]);
+            Assert.False((bool)controller["isSelcalActive"]);
             Assert.Equal(JTokenType.Null, controller["stationName"].Type);
         }
 
@@ -49,7 +56,11 @@ namespace Handoff.Plugin.Tests
         {
             var controllers = new List<RankedController>
             {
-                new RankedController("EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null, false, false, false, false, false, false)
+                new RankedController(
+                    "EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false)
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
@@ -59,6 +70,22 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(JTokenType.Null, controller["name"].Type);
             Assert.Equal(JTokenType.Null, controller["facility"].Type);
             Assert.Equal(JTokenType.Null, controller["rating"].Type);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_EtaMinutes_NullByDefault()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<RankedController>()));
+
+            Assert.Equal(JTokenType.Null, json["etaMinutes"].Type);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_EtaMinutes_IncludedWhenProvided()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<RankedController>(), etaMinutes: 12.5));
+
+            Assert.Equal(12.5, (double)json["etaMinutes"]);
         }
 
         [Fact]

@@ -26,19 +26,28 @@ data class Controller(
     // that integration exists on the plugin side. Falls back to facilitySuffixName(callsign)
     // client-side until then; see docs/protocol.md.
     val stationName: String? = null,
-    // Priority-ranking flags -- see docs/protocol.md. Not yet used for anything beyond
-    // decoding: the list arrives pre-sorted by the plugin, so rendering it in order is all
-    // that's needed for now; colour-coding by these flags is a follow-up.
+    // Priority-ranking flags -- see docs/protocol.md and docs/controller-ranking.md. All
+    // server-authoritative: the client never re-derives one of these from other data it happens
+    // to have (e.g. comparing frequency against radioState's standby fields) -- issue #18.
     val requestsContactMe: Boolean = false,
     val isCurrent: Boolean = false,
     val isContactMe: Boolean = false,
-    val isLikelyNextCandidate: Boolean = false,
-    val isApproaching: Boolean = false,
-    // A softer, no-badge "worth rendering full color" signal -- unlike isLikelyNextCandidate it
-    // never affects ranking order, and unlike isApproaching it isn't gated on nothing being
-    // tuned. Only ever set by the plugin for CTR (airborne + bounded range, pending real sector
-    // geometry) and ATIS (route-matched ICAO prefix) -- see docs/protocol.md.
-    val isHighlighted: Boolean = false
+    // Three-flag design (issue #18, replacing the old isLikelyNextCandidate/isApproaching pair):
+    // isHighlighted is relevance/visibility ("worth seeing"), independent of isNext/isLikelyNext.
+    // isNext is confident and singular; isLikelyNext is the same signal confidence-capped (a
+    // genuine tie, or route-relevance unconfirmed) -- render as a visibly softer variant of the
+    // isNext badge (e.g. "NEXT?" vs "NEXT"), not an unrelated badge.
+    val isHighlighted: Boolean = false,
+    val isNext: Boolean = false,
+    val isLikelyNext: Boolean = false,
+    // Manual bookmark -- its own bucket, never a stand-in for isCurrent; can be true alongside
+    // isCurrent/isStandbyTuned.
+    val isPinned: Boolean = false,
+    // Loaded into COM1 or COM2 standby.
+    val isStandbyTuned: Boolean = false,
+    // Active SELCAL alert -- unlike isContactMe, tuning the alerting frequency does NOT clear
+    // this, only an explicit dismissSelcal command or the alert's own expiry does.
+    val isSelcalActive: Boolean = false
 )
 
 @Serializable
@@ -46,7 +55,10 @@ data class ControllersMessage(
     val type: String = "controllers",
     // Pre-sorted by the plugin's priority ranking (docs/protocol.md) -- render in list order,
     // don't re-sort client-side.
-    val controllers: List<Controller>
+    val controllers: List<Controller>,
+    // Ownship-level (not per-controller): minutes to the closest bucket-8-qualifying CTR sector,
+    // available during level flight or climbing/descending above FL150 -- null otherwise.
+    val etaMinutes: Double? = null
 ) : ServerMessage
 
 @Serializable
@@ -252,8 +264,9 @@ data class RefreshFlightPlanCommand(
     override fun encode() = json.encodeToString(RefreshFlightPlanCommand.serializer(), this)
 }
 
-/** Forces `callsign` to rank 0 / isCurrent in the next controllers message, overriding the
- *  tuned-frequency heuristic, until cleared or the controller goes offline. */
+/** Marks `callsign` as pinned (isPinned) -- its own ranking bucket, never displacing isCurrent --
+ *  until cleared or the controller goes offline past its hidden-expiry window. Only one
+ *  controller is ever pinned at a time; pinning a new one clears any previous pin. */
 @Serializable
 data class PinControllerCommand(
     val type: String = "pinController",

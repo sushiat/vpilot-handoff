@@ -2,9 +2,19 @@ namespace Handoff.Plugin
 {
     /// <summary>
     /// A single controller as re-ranked by ControllerRankingModel -- the full station list
-    /// IBroker reports, reordered, plus boolean flags the Android app uses for colour-coding.
-    /// Nothing is ever hidden: every connected station appears exactly once. Cid/Name/Facility/
-    /// Rating are null until VatsimDataFeedModel solidifies enrichment for that callsign.
+    /// IBroker reports, reordered, plus boolean flags the Android app uses for colour-coding and
+    /// badges. Nothing is ever hidden except a recently-disconnected station within its brief
+    /// grace window (see HandoffController/HandoffControllerStateModel) -- every other connected
+    /// station appears exactly once. Cid/Name/Facility/Rating are null until
+    /// VatsimDataFeedModel solidifies enrichment for that callsign.
+    ///
+    /// Since issue #18, every flag the client displays is computed here and sent explicitly --
+    /// the client never re-derives a badge/tag from other data it happens to have (e.g. comparing
+    /// a controller's frequency against radioState's own standby fields, or tracking a locally-
+    /// guessed "pinned callsign"). That was the actual bug behind IsPinned/IsStandbyTuned being
+    /// client-side derivations for a while during the issue #17 session -- this class is the
+    /// single source of truth for what the client shows, matching the same "no sorting on
+    /// Android" principle already established for ranking order.
     /// </summary>
     public sealed class RankedController
     {
@@ -27,34 +37,40 @@ namespace Handoff.Plugin
         public bool RequestsContactMe { get; }
         public bool IsCurrent { get; }
         public bool IsContactMe { get; }
-        public bool IsLikelyNextCandidate { get; }
 
-        // Distance/heading-based "closing in on this station" signal, only ever set when
-        // nothing is currently tuned/pinned (see ControllerRankingModel.IsApproaching) --
-        // e.g. flying uncontrolled and about to enter a TWR/APP's range. Not computed for
-        // DEL (already well-served by route match) or CTR (needs real sector geometry,
-        // deferred to issue #11).
-        public bool IsApproaching { get; }
-
-        // A softer, no-badge-implied "this one's plausible, render it prominently" signal --
-        // unlike IsApproaching it isn't gated on nothing being tuned (it's not a "you're on
-        // UNICOM, get ready" alert, just "worth a glance"). Since issue #17 this does affect
-        // ranking order (ControllerRankingModel step 6) -- it used to be display-only, but
-        // flight-test feedback showed a route-matching ATIS could otherwise sort behind an entire
-        // page of unrelated stations. Deliberately ranked *below* IsLikelyNextCandidate though
-        // (unlike IsApproaching, which ranks above it) -- being this much softer a signal, it
-        // should only ever outrank a wholly unrelated station, never the actual next candidate.
-        // Currently only ever set for two tiers, each excluded from
-        // IsLikelyNextCandidate/IsApproaching for its own reason:
-        //   - CTR: without real sector geometry (issue #11) a "closest CTR" guess isn't
-        //     confident enough to justify pulling it to the top of the list or claiming
-        //     APPROACHING's specific meaning, but it's still more useful highlighted than flat.
-        //   - ATIS: parses to ControllerTier.Other, which both of those entirely skip, so an
-        //     airport's own ATIS otherwise never renders any differently than an unrelated one
-        //     even when its callsign plainly matches the route.
+        // Since issue #18 (docs/controller-ranking.md): three-flag design, not the old two-flag
+        // IsLikelyNextCandidate/IsApproaching split.
+        //   - IsHighlighted: relevance/visibility -- "worth seeing," independent of whether it's
+        //     the one to actually contact next (flight-plan match, proximity, or polygon
+        //     containment/convergence, per buckets 6a-8a).
+        //   - IsNext: confident and actionable -- exactly one qualifying candidate, unambiguous.
+        //   - IsLikelyNext: the same underlying signal as IsNext but confidence-capped, either
+        //     because multiple candidates are genuinely tied, or because route-relevance itself
+        //     is unconfirmed (not on the flight plan) even when the geometry is unambiguous.
         public bool IsHighlighted { get; }
+        public bool IsNext { get; }
+        public bool IsLikelyNext { get; }
 
-        public RankedController(string callsign, int frequency, double latitude, double longitude, int? cid, string name, int? facility, int? rating, bool requestsContactMe, bool isCurrent, bool isContactMe, bool isLikelyNextCandidate, bool isApproaching, bool isHighlighted, string stationName = null)
+        // Manual bookmark (pinController/clearPinnedController) -- its own ranking bucket, never
+        // a stand-in for IsCurrent. Persists even if the pinned station becomes current/standby
+        // (both flags can be true at once); only cleared by an explicit unpin or the controller
+        // going offline past HandoffControllerStateModel's hidden-expiry window.
+        public bool IsPinned { get; }
+
+        // Loaded into COM1 or COM2 standby, ready to swap to active the moment a handoff comes.
+        public bool IsStandbyTuned { get; }
+
+        // Currently-active SELCAL alert. Unlike IsContactMe, tuning the alerting frequency does
+        // NOT clear this -- only an explicit dismissSelcal command or the alert's own expiry does.
+        public bool IsSelcalActive { get; }
+
+        public RankedController(
+            string callsign, int frequency, double latitude, double longitude,
+            int? cid, string name, int? facility, int? rating,
+            bool requestsContactMe, bool isCurrent, bool isContactMe,
+            bool isHighlighted, bool isNext, bool isLikelyNext,
+            bool isPinned, bool isStandbyTuned, bool isSelcalActive,
+            string stationName = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -67,9 +83,12 @@ namespace Handoff.Plugin
             RequestsContactMe = requestsContactMe;
             IsCurrent = isCurrent;
             IsContactMe = isContactMe;
-            IsLikelyNextCandidate = isLikelyNextCandidate;
-            IsApproaching = isApproaching;
             IsHighlighted = isHighlighted;
+            IsNext = isNext;
+            IsLikelyNext = isLikelyNext;
+            IsPinned = isPinned;
+            IsStandbyTuned = isStandbyTuned;
+            IsSelcalActive = isSelcalActive;
             StationName = stationName;
         }
     }

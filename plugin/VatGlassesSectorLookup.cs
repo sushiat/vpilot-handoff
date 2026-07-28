@@ -106,6 +106,40 @@ namespace Handoff.Plugin
             return matches;
         }
 
+        /// <summary>
+        /// Same as FindContainingSectors, but skips the altitude-band check entirely -- horizontal
+        /// polygon containment only. Used for CTR (bucket 6d, docs/controller-ranking.md): real
+        /// VATSIM top-down coverage means an online enroute Center covers straight to the ground
+        /// for anything inside its lateral boundary once staffed, regardless of the nominal FL its
+        /// data lists as a floor (that FL shows up in the controller's own info string, not as a
+        /// hard boundary on responsibility) -- so gating CTR containment on the published band
+        /// would wrongly exclude a legitimately-covering Center.
+        /// </summary>
+        public static IReadOnlyList<VatGlassesSectorMatch> FindContainingSectorsIgnoringAltitude(
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            double lat,
+            double lon)
+        {
+            var matches = new List<VatGlassesSectorMatch>();
+
+            foreach (var kv in regions)
+            {
+                foreach (var sector in kv.Value.Airspace)
+                {
+                    foreach (var level in sector.Levels)
+                    {
+                        if (!BoundingBoxMayContain(lat, lon, level, 0)) continue;
+                        if (IsPointInPolygon(lat, lon, level))
+                        {
+                            matches.Add(new VatGlassesSectorMatch(kv.Key, sector, level));
+                        }
+                    }
+                }
+            }
+
+            return matches;
+        }
+
         /// <summary>Standard ray-casting point-in-polygon test against a sector level's ring (closed last-&gt;first).</summary>
         public static bool IsPointInPolygon(double lat, double lon, VatGlassesSectorLevel level)
         {

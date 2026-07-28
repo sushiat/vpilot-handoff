@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Fleck;
 
 namespace Handoff.Plugin
@@ -32,13 +33,20 @@ namespace Handoff.Plugin
         private readonly FlightPlanModel _flightPlanState;
         private readonly VatsimDataFeedModel _vatsimDataFeed;
         private readonly NearbyAircraftModel _nearbyAircraft;
-        private readonly SelcalActiveModel _selcalActive;
+        private readonly HandoffControllerStateModel _controllerState;
         private readonly PilotSessionModel _pilotSession;
         private readonly OperationProgressModel _operationProgress;
         private readonly Action<string> _logDebug;
         private WebSocketServer _server;
+        private Timer _broadcastTimer;
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, SelcalActiveModel selcalActive, PilotSessionModel pilotSession, OperationProgressModel operationProgress, Action<string> logDebug = null)
+        // Decoupled from Recompute() -- internal ranking stays fully event-driven/reactive, but
+        // diffing "did anything meaningful change" is intractable for SimConnect-driven fields
+        // (distance/heading/altitude) without running the whole bucket 6-9 geometry anyway, so
+        // the wire broadcast just goes out on a fixed cadence instead.
+        private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(1);
+
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -46,7 +54,7 @@ namespace Handoff.Plugin
             _flightPlanState = flightPlanState ?? throw new ArgumentNullException(nameof(flightPlanState));
             _vatsimDataFeed = vatsimDataFeed ?? throw new ArgumentNullException(nameof(vatsimDataFeed));
             _nearbyAircraft = nearbyAircraft ?? throw new ArgumentNullException(nameof(nearbyAircraft));
-            _selcalActive = selcalActive ?? throw new ArgumentNullException(nameof(selcalActive));
+            _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
             _logDebug = logDebug;
@@ -64,7 +72,7 @@ namespace Handoff.Plugin
                     socket.OnMessage = message => OnMessage(message, socket);
                 });
 
-                _controllerRanking.Changed += (s, e) => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
+                _broadcastTimer = new Timer(_ => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes)), null, BroadcastInterval, BroadcastInterval);
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
                 _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
@@ -100,7 +108,7 @@ namespace Handoff.Plugin
             lock (_gate) { _sockets.Add(socket); }
             Log("Client connected: " + socket.ConnectionInfo.ClientIpAddress);
 
-            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current));
+            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
             socket.Send(BuildFlightPlanMessage());
@@ -185,13 +193,13 @@ namespace Handoff.Plugin
                     _ = _flightPlanState.RefreshAsync();
                     break;
                 case ClientCommand.TypePinController:
-                    _controllerRanking.SetPinnedController(command.Callsign);
+                    _controllerState.SetPinnedController(command.Callsign);
                     break;
                 case ClientCommand.TypeClearPinnedController:
-                    _controllerRanking.ClearPinnedController();
+                    _controllerState.ClearPinnedController();
                     break;
                 case ClientCommand.TypeDismissSelcal:
-                    _selcalActive.Clear(command.Callsign);
+                    _controllerState.ClearSelcal(command.Callsign);
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);

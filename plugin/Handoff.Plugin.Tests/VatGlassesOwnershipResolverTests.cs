@@ -15,7 +15,7 @@ namespace Handoff.Plugin.Tests
         public void ResolveOnlineController_FirstEntryOnline_ReturnsIt()
         {
             var chain = new List<string> { "AI", "IEA" };
-            var online = new List<Controller> { new Controller("LOVV_CTR", 13350, 48, 16) };
+            var online = new List<HandoffController> { new HandoffController("LOVV_CTR", 13350, 48, 16) };
 
             var result = VatGlassesOwnershipResolver.ResolveOnlineController(chain, Positions, online);
 
@@ -26,7 +26,7 @@ namespace Handoff.Plugin.Tests
         public void ResolveOnlineController_FirstOffline_FallsToSecond()
         {
             var chain = new List<string> { "AI", "IEA" };
-            var online = new List<Controller> { new Controller("LOWI_CTR", 12800, 47, 11) };
+            var online = new List<HandoffController> { new HandoffController("LOWI_CTR", 12800, 47, 11) };
 
             var result = VatGlassesOwnershipResolver.ResolveOnlineController(chain, Positions, online);
 
@@ -37,7 +37,7 @@ namespace Handoff.Plugin.Tests
         public void ResolveOnlineController_NothingOnline_ReturnsNull()
         {
             var chain = new List<string> { "AI", "IEA" };
-            var online = new List<Controller>();
+            var online = new List<HandoffController>();
 
             var result = VatGlassesOwnershipResolver.ResolveOnlineController(chain, Positions, online);
 
@@ -47,7 +47,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void ResolveOnlineController_EmptyChain_ReturnsNull()
         {
-            var result = VatGlassesOwnershipResolver.ResolveOnlineController(new List<string>(), Positions, new List<Controller> { new Controller("LOVV_CTR", 13350, 48, 16) });
+            var result = VatGlassesOwnershipResolver.ResolveOnlineController(new List<string>(), Positions, new List<HandoffController> { new HandoffController("LOVV_CTR", 13350, 48, 16) });
             Assert.Null(result);
         }
 
@@ -56,7 +56,7 @@ namespace Handoff.Plugin.Tests
         {
             var chain = new List<string> { "AI" };
             // Online but as GND, not CTR -- shouldn't match the AI position's CTR type.
-            var online = new List<Controller> { new Controller("LOVV_GND", 12100, 48, 16) };
+            var online = new List<HandoffController> { new HandoffController("LOVV_GND", 12100, 48, 16) };
 
             var result = VatGlassesOwnershipResolver.ResolveOnlineController(chain, Positions, online);
 

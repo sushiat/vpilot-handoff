@@ -20,11 +20,12 @@ namespace Handoff.Plugin
             Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) }
         };
 
-        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers)
+        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers, double? etaMinutes = null)
         {
             var payload = new
             {
                 type = "controllers",
+                etaMinutes,
                 controllers = controllers.Select(c => new
                 {
                     callsign = c.Callsign,
@@ -39,9 +40,12 @@ namespace Handoff.Plugin
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
-                    isLikelyNextCandidate = c.IsLikelyNextCandidate,
-                    isApproaching = c.IsApproaching,
-                    isHighlighted = c.IsHighlighted
+                    isHighlighted = c.IsHighlighted,
+                    isNext = c.IsNext,
+                    isLikelyNext = c.IsLikelyNext,
+                    isPinned = c.IsPinned,
+                    isStandbyTuned = c.IsStandbyTuned,
+                    isSelcalActive = c.IsSelcalActive
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);

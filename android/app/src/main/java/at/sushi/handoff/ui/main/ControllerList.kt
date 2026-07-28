@@ -90,7 +90,7 @@ private val badgeLabels = mapOf(
     ControllerBadge.STBY to "STBY",
     ControllerBadge.CONTACT_ME to "CONTACT ME",
     ControllerBadge.NEXT to "NEXT",
-    ControllerBadge.APPROACHING to "APPROACHING",
+    ControllerBadge.NEXT_LIKELY to "NEXT?",
     ControllerBadge.PINNED to "PINNED",
     ControllerBadge.SELCAL to "SELCAL"
 )
@@ -100,10 +100,6 @@ fun ControllerList(
     controllers: List<Controller>,
     com1Active: Int?,
     com2Active: Int?,
-    com1Standby: Int?,
-    com2Standby: Int?,
-    pinnedCallsign: String?,
-    selcalActiveCallsigns: Set<String>,
     onTogglePin: (String) -> Unit,
     onOpenChatWith: (String) -> Unit,
     onTuneCom1Active: (Int) -> Unit,
@@ -153,7 +149,7 @@ fun ControllerList(
             ).size.width
             with(density) { widthPx.toDp() }
         }
-        // A newly badged row (TUNED/CONTACT_ME/NEXT/APPROACHING/PINNED/SELCAL) can land above
+        // A newly badged row (TUNED/STBY/CONTACT_ME/NEXT/NEXT_LIKELY/PINNED/SELCAL) can land above
         // whatever's currently in the viewport if the pilot has scrolled down -- easy to miss
         // entirely, worst of all for CONTACT_ME. Auto-scroll to the top whenever the *set* of
         // badged callsigns gains a new member, not on every recompute (badges flipping off, or a
@@ -161,13 +157,9 @@ fun ControllerList(
         // position around).
         val listState = rememberLazyListState()
         var previousBadgedCallsigns by remember { mutableStateOf<Set<String>?>(null) }
-        LaunchedEffect(controllers, com1Active, com2Active, com1Standby, com2Standby, pinnedCallsign, selcalActiveCallsigns) {
+        LaunchedEffect(controllers, com1Active, com2Active) {
             val currentBadged = controllers.filter { controller ->
-                controllerBadges(
-                    controller, com1Active, com2Active, com1Standby, com2Standby,
-                    isPinned = controller.callsign == pinnedCallsign,
-                    selcalActive = controller.callsign in selcalActiveCallsigns
-                ).isNotEmpty()
+                controllerBadges(controller, com1Active, com2Active).isNotEmpty()
             }.mapTo(mutableSetOf()) { it.callsign }
 
             val previous = previousBadgedCallsigns
@@ -194,10 +186,6 @@ fun ControllerList(
                     frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
                     com2Active = com2Active,
-                    com1Standby = com1Standby,
-                    com2Standby = com2Standby,
-                    isPinned = controller.callsign == pinnedCallsign,
-                    selcalActive = controller.callsign in selcalActiveCallsigns,
                     onTogglePin = { onTogglePin(controller.callsign) },
                     onOpenChat = { onOpenChatWith(controller.callsign) },
                     onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
@@ -232,10 +220,6 @@ private fun ControllerRow(
     frequencyTextWidth: Dp,
     com1Active: Int?,
     com2Active: Int?,
-    com1Standby: Int?,
-    com2Standby: Int?,
-    isPinned: Boolean,
-    selcalActive: Boolean,
     onTogglePin: () -> Unit,
     onOpenChat: () -> Unit,
     onTuneCom1Active: () -> Unit,
@@ -246,7 +230,7 @@ private fun ControllerRow(
 ) {
     val colors = LocalHandoffColors.current
     val rowColors = controllerRowColors(controller, com1Active, com2Active, colors)
-    val badges = controllerBadges(controller, com1Active, com2Active, com1Standby, com2Standby, isPinned, selcalActive)
+    val badges = controllerBadges(controller, com1Active, com2Active)
     var menuOpen by remember { mutableStateOf(false) }
 
     val rowPhaseA = rememberFlashPhaseA(rowColors.isFlashing)
@@ -459,7 +443,7 @@ private fun ControllerRow(
             stationName = suffixName,
             realNameOrCid = realNameOrCid,
             ratingLabel = ratingLabel,
-            showDismissSelcal = selcalActive,
+            showDismissSelcal = controller.isSelcalActive,
             onTuneCom1Active = { menuOpen = false; onTuneCom1Active() },
             onTuneCom2Active = { menuOpen = false; onTuneCom2Active() },
             onTuneCom1Standby = { menuOpen = false; onTuneCom1Standby() },

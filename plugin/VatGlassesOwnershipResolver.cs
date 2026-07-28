@@ -20,10 +20,10 @@ namespace Handoff.Plugin
         /// feed use, but callsign prefix + type is the same signal
         /// ControllerRankingModel.RouteMatched/ParseControllerTier already trust elsewhere.
         /// </summary>
-        public static Controller ResolveOnlineController(
+        public static HandoffController ResolveOnlineController(
             IReadOnlyList<string> chain,
             IReadOnlyDictionary<string, VatGlassesPosition> positions,
-            IReadOnlyCollection<Controller> onlineControllers)
+            IReadOnlyCollection<HandoffController> onlineControllers)
         {
             if (chain == null) return null;
 
