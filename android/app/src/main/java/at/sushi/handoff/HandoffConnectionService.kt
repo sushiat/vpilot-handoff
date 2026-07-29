@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.IBinder
+import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -30,6 +31,7 @@ import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
+import at.sushi.handoff.ui.theme.RowColorThemeStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +51,7 @@ class HandoffConnectionService : Service() {
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
+        const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         // Handled in onStartCommand -- the notification's "Quit" action (only ever shown/tapped
@@ -69,6 +72,7 @@ class HandoffConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob())
     private var connectionJob: Job? = null
     private var pingJob: Job? = null
+    private var quitRequested = false
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
     private lateinit var notifier: HandoffNotifier
@@ -159,7 +163,13 @@ class HandoffConnectionService : Service() {
             // tappable, only while fully backgrounded and hammering away with no pilot watching,
             // exactly the "I'm not flying for days, stop this" case. onDestroy (triggered by
             // stopSelf) handles the rest of the teardown -- cancelling jobs, closing the socket,
-            // unregistering receivers.
+            // unregistering receivers -- and then, since quitRequested is set, kills the whole
+            // process. A service-only stop isn't enough: MainActivity survives backgrounding
+            // (it's merely stopped, not destroyed), so on relaunch Android just resumes that
+            // existing Activity instead of recreating it -- and startConnectionService() only
+            // runs from onCreate(), so the service would never come back. Killing the process
+            // guarantees the next launch is a genuine fresh start.
+            quitRequested = true
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -175,6 +185,9 @@ class HandoffConnectionService : Service() {
         unregisterReceiver(powerConnectedReceiver)
         instance = null
         super.onDestroy()
+        if (quitRequested) {
+            Process.killProcess(Process.myPid())
+        }
     }
 
     /** ACTION_BATTERY_CHANGED is a sticky broadcast -- registering for it with a null receiver
@@ -251,6 +264,11 @@ class HandoffConnectionService : Service() {
         prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
         }
+        HandoffState.setHideTunedControllers(prefs.getBoolean(PrefKeyHideTunedControllers, false))
+        // Issue #21 -- resolves the persisted active row-color theme id against the saved list /
+        // built-in presets, falling back to DefaultRowColorPalette (RowColorThemeStore's own
+        // default) if unset/deleted.
+        HandoffState.setRowColorPalette(RowColorThemeStore.resolveActivePalette(prefs))
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {

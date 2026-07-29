@@ -7,6 +7,8 @@ import at.sushi.handoff.protocol.NearbyAircraftMessage
 import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
+import at.sushi.handoff.ui.theme.DefaultRowColorPalette
+import at.sushi.handoff.ui.theme.RowColorPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -101,8 +103,21 @@ object HandoffState {
     private val _theme = MutableStateFlow(ThemeMode.SYSTEM)
     val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
 
+    // Issue #21 -- the active row-color palette (facility/COM hues + text-contrast threshold).
+    // Persisted separately by RowColorThemeStore, not this class's simple string prefs, since it
+    // can point at one of several saved themes rather than a single primitive.
+    private val _rowColorPalette = MutableStateFlow(DefaultRowColorPalette)
+    val rowColorPalette: StateFlow<RowColorPalette> = _rowColorPalette.asStateFlow()
+
     private val _defaultChannelSpacing = MutableStateFlow(ChannelSpacing.KHZ_25)
     val defaultChannelSpacing: StateFlow<ChannelSpacing> = _defaultChannelSpacing.asStateFlow()
+
+    // "Hide tuned" controller-list filter -- once a station is actually tuned (isCurrent), chat
+    // with it happens over the radio, not this app's private chat, so the row stops carrying much
+    // information; easy to re-show by unchecking. Deliberately scoped to isCurrent only, not
+    // isStandbyTuned -- a standby-loaded station isn't being talked to yet, still worth seeing.
+    private val _hideTunedControllers = MutableStateFlow(false)
+    val hideTunedControllers: StateFlow<Boolean> = _hideTunedControllers.asStateFlow()
 
     private val _keypadBlockMode = MutableStateFlow(KeypadBlockMode.BLOCK_INVALID)
     val keypadBlockMode: StateFlow<KeypadBlockMode> = _keypadBlockMode.asStateFlow()
@@ -202,8 +217,16 @@ object HandoffState {
         _theme.value = mode
     }
 
+    fun setRowColorPalette(palette: RowColorPalette) {
+        _rowColorPalette.value = palette
+    }
+
     fun setDefaultChannelSpacing(spacing: ChannelSpacing) {
         _defaultChannelSpacing.value = spacing
+    }
+
+    fun setHideTunedControllers(hide: Boolean) {
+        _hideTunedControllers.value = hide
     }
 
     fun setKeypadBlockMode(mode: KeypadBlockMode) {

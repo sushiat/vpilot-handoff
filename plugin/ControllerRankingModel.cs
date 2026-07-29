@@ -14,7 +14,10 @@ namespace Handoff.Plugin
     ///
     ///   1. Currently-tuned controller(s) -- IsCurrent. COM1 and COM2 can each independently
     ///      match a different real online station; both get IsCurrent, COM1 ordered first.
-    ///   2. IsStandbyTuned -- frequency loaded into COM1 or COM2 standby.
+    ///   2. IsStandbyTuned -- frequency loaded into COM1 or COM2 standby. Same COM1-before-COM2
+    ///      ordering as bucket 1 (issue #21 Android-side feedback: this was missing, so COM2's
+    ///      standby station could land above COM1's whenever its tier/callsign happened to sort
+    ///      first under the plain tier-then-alpha fallback).
     ///   3. IsContactMe -- outstanding contact-me request.
     ///   4. IsSelcalActive -- active SELCAL alert.
     ///   5. IsPinned -- manual bookmark (SetPinnedController), never a stand-in for IsCurrent.
@@ -329,7 +332,7 @@ namespace Handoff.Plugin
 
             var finalOrder = new List<HandoffController>();
             finalOrder.AddRange(OrderCurrentBucket(controllers, currentCallsigns, radio));
-            finalOrder.AddRange(OrderByTierThenAlpha(remaining.Where(c => standbyCallsigns.Contains(c.Callsign))));
+            finalOrder.AddRange(OrderStandbyBucket(remaining.Where(c => standbyCallsigns.Contains(c.Callsign)), radio));
             finalOrder.AddRange(OrderByTierThenAlpha(remaining.Where(c => contactMeCallsigns.Contains(c.Callsign))));
             finalOrder.AddRange(OrderByTierThenAlpha(remaining.Where(c => selcalCallsigns.Contains(c.Callsign))));
             finalOrder.AddRange(OrderByTierThenAlpha(remaining.Where(c => pinnedCallsigns.Contains(c.Callsign))));
@@ -379,6 +382,28 @@ namespace Handoff.Plugin
             var com1Match = radio.Com1Frequency.HasValue ? current.FirstOrDefault(c => c.Frequency == radio.Com1Frequency.Value) : null;
             var rest = current.Where(c => !ReferenceEquals(c, com1Match));
             return com1Match != null ? new[] { com1Match }.Concat(rest) : current;
+        }
+
+        /// <summary>Bucket 2 -- same COM1-before-COM2 rule as <see cref="OrderCurrentBucket"/>.
+        /// Any leftover entries beyond the (at most 2) COM1/COM2 standby matches -- only possible
+        /// if multiple online stations share the exact same standby frequency -- fall back to the
+        /// previous tier-then-alpha ordering.</summary>
+        private static IEnumerable<HandoffController> OrderStandbyBucket(IEnumerable<HandoffController> standby, RadioState radio)
+        {
+            var standbyList = standby.ToList();
+            if (standbyList.Count <= 1) return standbyList;
+
+            var com1Match = radio.Com1StandbyFrequency.HasValue ? standbyList.FirstOrDefault(c => c.Frequency == radio.Com1StandbyFrequency.Value) : null;
+            var com2Match = radio.Com2StandbyFrequency.HasValue
+                ? standbyList.FirstOrDefault(c => c.Frequency == radio.Com2StandbyFrequency.Value && !ReferenceEquals(c, com1Match))
+                : null;
+            var rest = OrderByTierThenAlpha(standbyList.Where(c => !ReferenceEquals(c, com1Match) && !ReferenceEquals(c, com2Match)));
+
+            var ordered = new List<HandoffController>();
+            if (com1Match != null) ordered.Add(com1Match);
+            if (com2Match != null) ordered.Add(com2Match);
+            ordered.AddRange(rest);
+            return ordered;
         }
 
         private static IEnumerable<HandoffController> OrderByTierThenAlpha(IEnumerable<HandoffController> controllers) =>

@@ -10,6 +10,29 @@ once it has its first release.
 
 ### Added
 
+- Android: controller row-color theme editor (issue #21) — a "🎨" entry point
+  in Settings' Appearance section opens a dialog to customize the 6 facility
+  hues (DEL/GND/TWR/APP-DEP/CTR/ATIS), the text-contrast threshold, where
+  default (non-highlighted) rows sit on a white↔highlight↔black continuum,
+  and an extra dark-theme-only darkening offset applied to every row. Ships
+  with Default plus deuteranopia-safe/protanopia-safe presets, and supports
+  multiple named saved themes (SharedPreferences-persisted JSON, local to the
+  device). Preview cards render through the same real row-coloring/badge
+  logic as the live list (not flat swatches), and hue selection uses a
+  drag-around hue wheel instead of a linear slider. COM1/COM2 tuned stay
+  fixed teal/rose constants, not user-editable — same as the contact-me
+  alert yellow and SELCAL red.
+- Android: controller list groups (tuned / other flagged-highlighted / plain,
+  see `docs/controller-ranking.md`'s buckets) get extra spacing between them
+  for a clearer at-a-glance separation, and a "Hide tuned" checkbox (next to
+  the "CONTROLLERS · N" count, persisted) hides `isCurrent`/`isStandbyTuned`
+  rows — once a station is actually tuned, chat with it happens over the
+  radio, not this app's private chat. Pinned rows stay visible either way.
+- Android: the COM1/COM2 top-bar buttons (active and standby) show the
+  currently-tuned station's callsign as a small line below the frequency,
+  Garmin-style — looked up by frequency match against the live controller
+  list, blank (not collapsed) when nothing matches so all three buttons in a
+  row stay height-aligned.
 - Plugin: controller-ranking redesign (issue #18) replacing the two-flag
   `isLikelyNextCandidate`/`isApproaching` system with three flags --
   `isHighlighted` (relevance/visibility), `isNext` (confident, singular), and
@@ -252,6 +275,11 @@ once it has its first release.
 
 ### Fixed
 
+- Plugin: standby bucket (`IsStandbyTuned`) had no COM1-before-COM2 ordering
+  rule, unlike the tuned bucket -- COM2's standby-loaded station could rank
+  above COM1's whenever its tier/callsign happened to sort first under the
+  tier-then-alpha fallback. `OrderStandbyBucket` now mirrors the tuned
+  bucket's `OrderCurrentBucket` rule.
 - Android: a dropped plugin connection could go silently unrecoverable with
   no diagnostic trace at all (`HandoffWebSocketClient`'s `onFailure`/
   `onClosed` logged nothing). Added logging across the connection/reconnect
