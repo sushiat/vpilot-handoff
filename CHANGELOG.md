@@ -93,25 +93,6 @@ once it has its first release.
   XFER key) and for the top-bar tap-to-swap, replacing two separate
   commands that visibly landed over a second apart due to
   `Handoff.RadioHost`'s per-command SimConnect settle-wait.
-
-### Changed
-
-- Plugin: the "Quit Handoff" button/confirmation dialog removed from
-  `SettingsDialog` -- the foreground-service notification's own "Quit"
-  action already covers this, and better (no need to open Settings first).
-- Android: private-chat "nearby aircraft" list shows more rows (6, up from
-  4) before scrolling.
-
-### Fixed
-
-- Android: a dropped plugin connection could go silently unrecoverable with
-  no diagnostic trace at all (`HandoffWebSocketClient`'s `onFailure`/
-  `onClosed` logged nothing). Added logging across the connection/reconnect
-  path so a future drop is actually debuggable.
-- Plugin: `isPinned` was never actually wired into the Android row-color
-  decision -- a plain pinned row with no other flag fell through to the
-  same desaturated "unrelated station" look as an untouched row.
-
 - Project scaffold: `plugin/` (.NET Framework 4.8, buildable via `dotnet build`) and
   `android/` (native Kotlin, plain Gradle project) skeletons, no application logic yet.
 - VS Code multi-root workspace (`Handoff.code-workspace`) with build tasks for both
@@ -258,8 +239,23 @@ once it has its first release.
 
 ### Changed
 
+- Plugin: the "Quit Handoff" button/confirmation dialog removed from
+  `SettingsDialog` -- the foreground-service notification's own "Quit"
+  action already covers this, and better (no need to open Settings first).
+- Android: private-chat "nearby aircraft" list shows more rows (6, up from
+  4) before scrolling.
 - Plugin: dropped CTR's proximity-based `isLikelyNextCandidate` fallback — with no sector
   geometry yet (see #11), it could flag an unrelated, distant CTR controller as "next" purely
   by closest-lat/lon, regardless of phase of flight or actual range. CTR now only ever earns
   `isLikelyNextCandidate` via a genuine flight-plan route match; the proximity signal moved to
   the new cosmetic `isHighlighted` field instead (see Added).
+
+### Fixed
+
+- Android: a dropped plugin connection could go silently unrecoverable with
+  no diagnostic trace at all (`HandoffWebSocketClient`'s `onFailure`/
+  `onClosed` logged nothing). Added logging across the connection/reconnect
+  path so a future drop is actually debuggable.
+- Plugin: `isPinned` was never actually wired into the Android row-color
+  decision -- a plain pinned row with no other flag fell through to the
+  same desaturated "unrelated station" look as an untouched row.
