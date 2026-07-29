@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -593,6 +594,7 @@ private val contactMeCapableFacilities = listOf(
  *  trigger one). Alternates against the fixed alert yellow every 500ms exactly like the real row,
  *  plus a warning line if any contact-me-capable facility hue sits within
  *  [HazardYellowWarningThresholdDegrees] of it. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ContactMeFlashDemo(palette: RowColorPalette) {
     val colors = LocalHandoffColors.current
@@ -619,14 +621,15 @@ private fun ContactMeFlashDemo(palette: RowColorPalette) {
             .background(demoColor, RoundedCornerShape(10.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // Callsign and badge stacked (not inline) -- matches how the real row puts the badge
-        // *under* the callsign (see PreviewCard/ControllerRow), and avoids the badge's own Box
-        // getting squeezed narrow enough at split-screen widths to wrap "CONTACT ME" one letter
-        // per line instead of just not fitting inline.
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("LOVV_CTR", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = demoText)
+        // FlowRow instead of a fixed Row/Column choice -- inline when there's room, wrapping the
+        // badge onto its own line only when there genuinely isn't, with no manual width breakpoint
+        // to pick/maintain. (An earlier version hardcoded a Column/stacked layout, which wasted
+        // vertical space at any width wide enough to fit both inline.)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("LOVV_CTR", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = demoText, modifier = Modifier.align(Alignment.CenterVertically))
             Box(
                 Modifier
+                    .align(Alignment.CenterVertically)
                     .background(demoBadgeBg, RoundedCornerShape(5.dp))
                     .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {

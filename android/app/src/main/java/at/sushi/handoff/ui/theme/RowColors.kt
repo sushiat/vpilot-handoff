@@ -210,9 +210,12 @@ fun controllerRowColors(
         else -> null
     }
     val tunedBadgeBackground = tunedHue?.let { FacilityColors.fullColor(it).bg }
-    val tunedBadgeText = tunedBadgeBackground?.let {
-        if (perceptualLightness(it) < palette.textLightnessThreshold) Color.White else nearBlackText
-    }
+    // Always white, not the usual perceptualLightness-threshold decision -- feedback: COM1's teal
+    // read fine with the computed near-black text in isolation, but next to COM2's white-on-rose
+    // the two badges looked inconsistent, and COM1 read as "darker" than the formula's nominal
+    // input suggested on the real device. Both COM1/COM2 badges are meant to look like one
+    // consistent chip style, not independently optimized per hue.
+    val tunedBadgeText = tunedBadgeBackground?.let { Color.White }
 
     return RowColors(backgroundColor, borderColor, text, badgeBackground, contactMeActive, tunedBadgeText, tunedBadgeBackground)
 }

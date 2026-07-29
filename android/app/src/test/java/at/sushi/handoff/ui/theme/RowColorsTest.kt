@@ -96,23 +96,18 @@ class RowColorsTest {
     }
 
     @Test
-    fun controllerRowColors_com1TunedBadgeGetsNearBlackTextFromTheRealPerceptualLightness() {
-        // COM1-tuned's teal (real perceptualLightness ~56) reads noticeably better in black than
-        // a threshold on the *nominal* OKLCH input would give it (nominal 58% alone reads as
-        // "should be white") -- confirmed on-device. This hue only ever lives on the TUNED/STBY
-        // badge now (issue #21), never the row background, but the same real-luminance-based
-        // decision still applies, against tunedBadgeText.
+    fun controllerRowColors_com1TunedBadgeAlwaysGetsWhiteText() {
+        // Not the usual perceptualLightness-threshold decision -- feedback: COM1's teal read fine
+        // with near-black text in isolation, but inconsistent next to COM2's white-on-rose badge,
+        // and read "darker" than the formula's nominal input suggested on the real device. Both
+        // COM1/COM2 badges are meant to look like one consistent chip style.
         val current = controller(isCurrent = true)
         val result = controllerRowColors(current, com1Active = 23725, com2Active = null, colors = LightHandoffColors)
-        assertEquals(nearBlackText, result.tunedBadgeText)
+        assertEquals(androidx.compose.ui.graphics.Color.White, result.tunedBadgeText)
     }
 
     @Test
-    fun controllerRowColors_com2TunedBadgeGetsWhiteTextUnderTheSameFormula() {
-        // COM2-tuned's rose computes a *lower* real perceptualLightness (~49) than COM1's teal
-        // (~56) despite sharing the same nominal L58 input -- the formula genuinely can't put
-        // both COM1 and COM2 on the same side of one threshold without contradicting one of them,
-        // so this is the accepted trade-off: COM2 renders white here.
+    fun controllerRowColors_com2TunedBadgeAlsoAlwaysGetsWhiteText() {
         val com2 = controller(frequency = 18000, isCurrent = true)
         val result = controllerRowColors(com2, com1Active = null, com2Active = 18000, colors = LightHandoffColors)
         assertEquals(androidx.compose.ui.graphics.Color.White, result.tunedBadgeText)
@@ -135,12 +130,10 @@ class RowColorsTest {
 
     @Test
     fun controllerRowColors_standbyTunedBadgeUsesSameTunedHueTextFormulaAsCurrent() {
-        // isCurrent and isStandbyTuned share the identical border/badge treatment (issue #21) --
-        // same com1TunedHue input as controllerRowColors_com1TunedBadgeGetsNearBlackTextFromTheRealPerceptualLightness,
-        // so this should land on the exact same near-black result.
+        // isCurrent and isStandbyTuned share the identical border/badge treatment (issue #21).
         val standby = controller(isStandbyTuned = true)
         val result = controllerRowColors(standby, com1Active = null, com2Active = null, colors = LightHandoffColors, com1Standby = standby.frequency)
-        assertEquals(nearBlackText, result.tunedBadgeText)
+        assertEquals(androidx.compose.ui.graphics.Color.White, result.tunedBadgeText)
     }
 
     @Test
