@@ -69,6 +69,30 @@ once it has its first release.
   much hue/chroma shift a color's real perceived brightness.
 - Android: the pin icon tilts 45 degrees when a controller is pinned, in
   addition to the existing color change.
+- Plugin: `RankedController.StationName` (issue #11) -- a human station
+  display name (e.g. "Bremen Radar" for `EDWW_N_CTR`), preferring a name
+  extracted from the controller's own live ATIS/info text
+  (`VatAtisStationNameExtractor`, patterns confirmed against a live VATSIM
+  feed scan) and falling back to a name composed from vatspy-data-project's
+  FIR/airport names plus a region-aware suffix table
+  (`VatSpyStationNaming`/`VatSpyDataModel`). Also adds a second, coarser
+  vatspy FIR-polygon fallback tier -- VATGlasses polygon, else vatspy, else
+  distance -- to the CTR-tier ranking buckets (6d, 8a, and bucket 9's CTR
+  ordering) for regions VATGlasses doesn't cover. Raw ATIS text is also
+  carried onto the wire (`textAtis`) for future client UI.
+- Android: controller-row tune-menu redesigned around ATIS text -- the
+  COM1/COM2/STBY/STBY grid switches from 2x2 to a single 4-column row when
+  the controller's ATIS has a long line, showing the full (scrollable) ATIS
+  text below the grid; the dialog's background/border/text now mirror the
+  row's own facility color instead of a generic surface color.
+- Plugin/Android: new `setCom1ActiveAndStandbyFrequency`/
+  `setCom2ActiveAndStandbyFrequency` command sets active and standby
+  together in one round trip -- used for a "transfer" (activate a
+  just-tuned frequency while preserving the previously-active one into
+  standby, matching real flip-flop avionics like the Garmin G3000 GTC's
+  XFER key) and for the top-bar tap-to-swap, replacing two separate
+  commands that visibly landed over a second apart due to
+  `Handoff.RadioHost`'s per-command SimConnect settle-wait.
 
 ### Changed
 
