@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -460,6 +464,7 @@ private fun ControllerRow(
             stationName = suffixName,
             realNameOrCid = realNameOrCid,
             ratingLabel = ratingLabel,
+            textAtis = controller.textAtis,
             showDismissSelcal = controller.isSelcalActive,
             onTuneCom1Active = { menuOpen = false; onTuneCom1Active() },
             onTuneCom2Active = { menuOpen = false; onTuneCom2Active() },
@@ -507,10 +512,11 @@ private fun RatingBadge(label: String, contentColor: Color, background: Color) {
     }
 }
 
-/** The floating popover opened by tapping anywhere on a row except its icon buttons -- a 2x2
- *  COM1/COM2/STBY/STBY tune grid, plus a Dismiss SELCAL button when this row has an active,
- *  undismissed alert. Built on material3's DropdownMenu for free anchoring/outside-tap-dismiss;
- *  its content is fully custom-styled rather than using DropdownMenuItem's default look. */
+/** The floating popover opened by tapping anywhere on a row except its icon buttons -- a
+ *  COM1/COM2/STBY/STBY tune grid, an ATIS text panel when this controller has one, and a Dismiss
+ *  SELCAL button when this row has an active, undismissed alert. Built on material3's
+ *  DropdownMenu for free anchoring/outside-tap-dismiss; its content is fully custom-styled rather
+ *  than using DropdownMenuItem's default look. */
 @Composable
 private fun ControllerTuneMenu(
     expanded: Boolean,
@@ -520,6 +526,7 @@ private fun ControllerTuneMenu(
     stationName: String?,
     realNameOrCid: String?,
     ratingLabel: String?,
+    textAtis: List<String>?,
     showDismissSelcal: Boolean,
     onTuneCom1Active: () -> Unit,
     onTuneCom2Active: () -> Unit,
@@ -528,8 +535,17 @@ private fun ControllerTuneMenu(
     onDismissSelcal: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
+    // Grid switches from 2x2 (COM1/COM2 then STBY/STBY) to a single 4-column row (COM1, STBY,
+    // COM2, STBY) whenever the ATIS text has a long line -- a 2x2 grid stacked above tall ATIS
+    // text would push it further down/require more scrolling than trading grid rows for the
+    // extra popover width is worth. The design's reference markup fixes the popover at 280dp in
+    // both cases (not the 220->280dp width toggle its own prose describes) -- the markup is
+    // authoritative here, so width stays constant and only the grid's row/column split changes.
+    val hasAtis = !textAtis.isNullOrEmpty()
+    val wideGrid = hasAtis && textAtis!!.any { it.length > 30 }
+
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        Column(Modifier.widthIn(min = 220.dp).padding(12.dp)) {
+        Column(Modifier.width(280.dp).padding(12.dp)) {
             Text(
                 "$callsign · $frequencyLabel",
                 fontSize = 12.sp,
@@ -548,16 +564,22 @@ private fun ControllerTuneMenu(
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active)
-                TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active)
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby)
-                TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby)
+            if (wideGrid) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby, verticalPadding = 12.dp)
+                    TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby, verticalPadding = 12.dp)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active, verticalPadding = 12.dp)
+                    TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active, verticalPadding = 12.dp)
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby, verticalPadding = 12.dp)
+                }
             }
             if (showDismissSelcal) {
                 TuneMenuButton(
@@ -567,6 +589,28 @@ private fun ControllerTuneMenu(
                     background = colors.attentionBg,
                     contentColor = colors.attention
                 )
+            }
+            if (hasAtis) {
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .heightIn(max = 120.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    textAtis!!.forEach { line ->
+                        Text(
+                            line,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 17.5.sp,
+                            color = colors.textMuted
+                        )
+                    }
+                }
             }
         }
     }
@@ -578,20 +622,21 @@ private fun TuneMenuButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     background: androidx.compose.ui.graphics.Color? = null,
-    contentColor: androidx.compose.ui.graphics.Color? = null
+    contentColor: androidx.compose.ui.graphics.Color? = null,
+    verticalPadding: Dp = 10.dp
 ) {
     val colors = LocalHandoffColors.current
     Box(
         modifier
             .background(background ?: colors.panelAlt, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(vertical = verticalPadding),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             color = contentColor ?: colors.text
         )
     }

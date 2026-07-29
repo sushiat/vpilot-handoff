@@ -22,10 +22,15 @@ data class Controller(
     val name: String? = null,
     val facility: Int? = null,
     val rating: Int? = null,
-    // VatSpy-sourced facility/airport display name (e.g. "Heathrow Tower") -- always null until
-    // that integration exists on the plugin side. Falls back to facilitySuffixName(callsign)
-    // client-side until then; see docs/protocol.md.
+    // Facility/airport display name (e.g. "Heathrow Tower"), plugin-composed from the
+    // controller's own ATIS text or vatspy-data-project (docs/protocol.md, docs/controller-
+    // ranking.md). Null whenever neither source yields anything confident -- falls back to
+    // facilitySuffixName(callsign) client-side in that case.
     val stationName: String? = null,
+    // Raw ATIS/info lines, unprocessed (VATSIM data feed's "text_atis") -- stationName above is
+    // a derived summary of just the first line; this is the full text for the tune-menu's ATIS
+    // panel. Null when the controller hasn't set one or the feed omits it for this callsign.
+    val textAtis: List<String>? = null,
     // Priority-ranking flags -- see docs/protocol.md and docs/controller-ranking.md. All
     // server-authoritative: the client never re-derives one of these from other data it happens
     // to have (e.g. comparing frequency against radioState's standby fields) -- issue #18.

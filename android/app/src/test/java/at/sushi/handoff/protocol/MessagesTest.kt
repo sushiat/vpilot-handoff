@@ -33,7 +33,23 @@ class MessagesTest {
         assertEquals(false, controller.isPinned)
         assertEquals(false, controller.isStandbyTuned)
         assertEquals(false, controller.isSelcalActive)
+        assertNull(controller.stationName)
+        assertNull(controller.textAtis)
         assertNull(message.etaMinutes)
+    }
+
+    @Test
+    fun decodesControllersMessage_StationNameAndTextAtis() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
+               "stationName":"Heathrow Tower","textAtis":["Heathrow Tower","Submit feedback at vats.im/atcfb"]}
+            ]}
+        """.trimIndent()
+
+        val controller = (decodeServerMessage(json) as ControllersMessage).controllers.single()
+        assertEquals("Heathrow Tower", controller.stationName)
+        assertEquals(listOf("Heathrow Tower", "Submit feedback at vats.im/atcfb"), controller.textAtis)
     }
 
     @Test
