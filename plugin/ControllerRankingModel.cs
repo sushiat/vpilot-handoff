@@ -19,15 +19,18 @@ namespace Handoff.Plugin
     ///   4. IsSelcalActive -- active SELCAL alert.
     ///   5. IsPinned -- manual bookmark (SetPinnedController), never a stand-in for IsCurrent.
     ///   6. On-ground (AGL &lt; 50ft) relevance: IsHighlighted (flight-plan match, unconditional;
-    ///      else polygon containment where VATGlasses has it, else a tight radius fallback for
-    ///      DEL/GND/TWR/APP; CTR is polygon-only, no radius fallback at all) and IsNext/
-    ///      IsLikelyNext (chain-walk over the highlighted set, tie-detected).
+    ///      else polygon containment -- VATGlasses where it has coverage, else a vatspy FIR
+    ///      polygon for CTR (issue #11) -- else a tight radius fallback for DEL/GND/TWR/APP; CTR
+    ///      is polygon-only, no radius fallback at all) and IsNext/IsLikelyNext (chain-walk over
+    ///      the highlighted set, tie-detected).
     ///   7. Airborne TWR/APP relevance: concentric-radius highlight/next for TWR; a flat-radius
     ///      highlight + route/heading-convergence next for APP, confidence-capped when not on
     ///      the flight plan.
     ///   8. Airborne CTR relevance: lateral+vertical convergence prediction (satisfied-or-
-    ///      converging), tie-banded next/likely-next, plus an independent ETA readout.
-    ///   9. Everything else -- the original issue #8 chain-tier-then-distance fallback.
+    ///      converging), VATGlasses-or-vatspy same as bucket 6, tie-banded next/likely-next, plus
+    ///      an independent ETA readout.
+    ///   9. Everything else -- the original issue #8 chain-tier-then-distance fallback, except the
+    ///      CTR tier group prefers a currently-polygon-contained candidate first (issue #11).
     ///
     /// Within buckets 6/7/8: IsNext first, then IsLikelyNext (distance only -- ties are guaranteed
     /// same-tier by construction), then plain IsHighlighted (chain tier then distance).
@@ -112,6 +115,7 @@ namespace Handoff.Plugin
         private readonly VatsimDataFeedModel _vatsimFeed;
         private readonly PilotSessionModel _pilotSession;
         private readonly VatGlassesDataModel _vatGlassesData;
+        private readonly VatSpyDataModel _vatSpyData;
         private readonly Action<string> _logDebug;
         private readonly Func<DateTimeOffset> _now;
 
@@ -124,6 +128,12 @@ namespace Handoff.Plugin
         private readonly HashSet<string> _tieBandCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _groundPolygonContainmentCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _ctrSatisfiedCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Issue #11: vatspy is a second, coarser polygon tier -- VATGlasses polygon, else vatspy
+        // FIR polygon, else nothing/plain distance -- so it gets its own dead-band commit sets,
+        // parallel to the VATGlasses ones above, at every site that chain applies (6d, 8a, 9).
+        private readonly HashSet<string> _groundVatSpyContainmentCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _ctrVatSpySatisfiedCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<ControllerTier, string> _committedLeader = new Dictionary<ControllerTier, string>();
         private readonly Dictionary<ControllerTier, string> _pendingChallenger = new Dictionary<ControllerTier, string>();
@@ -143,7 +153,7 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
-        public ControllerRankingModel(HandoffControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, PilotSessionModel pilotSession, VatGlassesDataModel vatGlassesData, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
+        public ControllerRankingModel(HandoffControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, PilotSessionModel pilotSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
         {
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _radioState = radioState ?? throw new ArgumentNullException(nameof(radioState));
@@ -151,6 +161,7 @@ namespace Handoff.Plugin
             _vatsimFeed = vatsimFeed ?? throw new ArgumentNullException(nameof(vatsimFeed));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _vatGlassesData = vatGlassesData ?? throw new ArgumentNullException(nameof(vatGlassesData));
+            _vatSpyData = vatSpyData ?? throw new ArgumentNullException(nameof(vatSpyData));
             _logDebug = logDebug;
             _now = now ?? (() => DateTimeOffset.Now);
 
@@ -160,6 +171,7 @@ namespace Handoff.Plugin
             _vatsimFeed.Changed += (s, e) => Recompute();
             _pilotSession.Changed += (s, e) => Recompute();
             _vatGlassesData.Changed += (s, e) => Recompute();
+            _vatSpyData.Changed += (s, e) => Recompute();
 
             Recompute();
         }
@@ -263,12 +275,13 @@ namespace Handoff.Plugin
             // enroute Center prediction.
             var bucketCandidates = remaining.Where(c => !excludedFromRest.Contains(c.Callsign)).ToList();
             var vatGlassesRegions = _vatGlassesData.Regions;
+            var vatSpyBoundaries = _vatSpyData.FirBoundaries;
             var highlightBlocks = new List<HighlightResult>();
 
             if (isOnGround)
             {
                 currentTierGroundWalkStartRank = currentTier.HasValue ? (int)currentTier.Value : -1;
-                var groundResult = ComputeGroundHighlight(bucketCandidates, controllers, routeAirport, telemetry, vatGlassesRegions);
+                var groundResult = ComputeGroundHighlight(bucketCandidates, controllers, routeAirport, telemetry, vatGlassesRegions, vatSpyBoundaries);
                 highlightBlocks.Add(groundResult);
                 excludedFromRest.UnionWith(groundResult.HighlightedCallsigns);
                 _etaMinutes = null; // Bucket 8c only ever applies airborne.
@@ -281,7 +294,7 @@ namespace Handoff.Plugin
                 excludedFromRest.UnionWith(bucket7Result.HighlightedCallsigns);
 
                 var ctrCandidates = bucketCandidates.Where(c => c.Callsign.ParseControllerTier() == ControllerTier.Center).ToList();
-                var bucket8Result = ComputeBucket8Highlight(ctrCandidates, controllers, flightPlan, telemetry, pressureAltitudeFl, qnhTrueAltitudeFl, vatGlassesRegions, currentCallsigns);
+                var bucket8Result = ComputeBucket8Highlight(ctrCandidates, controllers, flightPlan, telemetry, pressureAltitudeFl, qnhTrueAltitudeFl, vatGlassesRegions, vatSpyBoundaries, currentCallsigns);
                 highlightBlocks.Add(bucket8Result);
                 excludedFromRest.UnionWith(bucket8Result.HighlightedCallsigns);
 
@@ -293,11 +306,25 @@ namespace Handoff.Plugin
             var likelyNextCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.LikelyNextCallsigns), StringComparer.OrdinalIgnoreCase);
 
             // Bucket 9 -- everything else, original issue #8 chain-tier-then-distance fallback.
+            // Issue #11: within the CTR tier group specifically, candidates whose FIR is
+            // currently contained (VATGlasses or vatspy polygon) sort ahead of the rest of the
+            // tier -- ordering-only, no new flag, same as the rest of bucket 9.
             var rest = remaining.Where(c => !excludedFromRest.Contains(c.Callsign)).ToList();
             var orderedRest = new List<HandoffController>();
             foreach (var tierGroup in rest.GroupBy(c => c.Callsign.ParseControllerTier()).OrderBy(g => ChainDistance(g.Key, currentTier)))
             {
-                orderedRest.AddRange(OrderTierByRouteThenDistance(tierGroup.Key, tierGroup.ToList(), routeAirport, telemetry));
+                if (tierGroup.Key == ControllerTier.Center && telemetry.Latitude.HasValue && telemetry.Longitude.HasValue)
+                {
+                    var containedNow = ContainedCtrCallsigns(tierGroup, vatGlassesRegions, vatSpyBoundaries, controllers, telemetry.Latitude.Value, telemetry.Longitude.Value);
+                    var containedGroup = tierGroup.Where(c => containedNow.Contains(c.Callsign)).ToList();
+                    var uncontainedGroup = tierGroup.Where(c => !containedNow.Contains(c.Callsign)).ToList();
+                    orderedRest.AddRange(OrderTierByRouteThenDistance(tierGroup.Key, containedGroup, routeAirport, telemetry));
+                    orderedRest.AddRange(OrderTierByRouteThenDistance(tierGroup.Key, uncontainedGroup, routeAirport, telemetry));
+                }
+                else
+                {
+                    orderedRest.AddRange(OrderTierByRouteThenDistance(tierGroup.Key, tierGroup.ToList(), routeAirport, telemetry));
+                }
             }
 
             var finalOrder = new List<HandoffController>();
@@ -335,7 +362,7 @@ namespace Handoff.Plugin
                     isPinned: c.IsPinned,
                     isStandbyTuned: !isCurrent && standbyFrequencies.Contains(c.Frequency),
                     isSelcalActive: c.SelcalExpiresAtUtc.HasValue,
-                    stationName: null);
+                    stationName: VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData));
             }).ToList();
 
             lock (_gate) { _current = ranked; }
@@ -548,6 +575,85 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
+        /// Issue #11: vatspy equivalent of ResolveContainedCallsigns -- every online CTR
+        /// controller whose FIR boundary contains ownship right now. Only ever consulted where
+        /// VATGlasses had nothing (see the CTR ground/8a "satisfied" call sites) -- VATGlasses
+        /// stays strictly preferred wherever it has coverage, since it's the more precise source.
+        /// </summary>
+        private static HashSet<string> ResolveVatSpyContainedCallsigns(
+            IReadOnlyList<VatSpyFirBoundary> matches,
+            IReadOnlyCollection<HandoffController> onlineControllers)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var boundary in matches)
+            {
+                foreach (var owner in VatSpyOwnershipResolver.ResolveOnlineControllers(boundary, onlineControllers))
+                {
+                    result.Add(owner.Callsign);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Issue #11: vatspy equivalent of PassesContainmentDeadband, against VatSpyFirBoundary instead of a VATGlasses sector level.</summary>
+        private bool PassesVatSpyContainmentDeadband(
+            HashSet<string> committed,
+            HandoffController controller,
+            bool isContainedNow,
+            IReadOnlyList<VatSpyFirBoundary> boundaries,
+            double lat,
+            double lon)
+        {
+            if (isContainedNow)
+            {
+                committed.Add(controller.Callsign);
+                return true;
+            }
+
+            if (!committed.Contains(controller.Callsign)) return false;
+
+            var boundary = FindAnyVatSpyBoundaryForController(controller, boundaries);
+            var staysIn = boundary != null && VatSpyBoundaryLookup.DistanceToBoundaryNm(lat, lon, boundary) <= PolygonContainmentDeadbandMarginNm;
+            if (!staysIn) committed.Remove(controller.Callsign);
+            return staysIn;
+        }
+
+        /// <summary>Issue #11: vatspy equivalent of FindAnySectorLevelForController -- the first vatspy boundary whose callsign prefixes resolve to this specific controller.</summary>
+        private static VatSpyFirBoundary FindAnyVatSpyBoundaryForController(HandoffController controller, IReadOnlyList<VatSpyFirBoundary> boundaries)
+        {
+            foreach (var boundary in boundaries)
+            {
+                if (boundary.CallsignPrefixes.Any(prefix => controller.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    && controller.Callsign.ParseControllerTier() == ControllerTier.Center)
+                {
+                    return boundary;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Issue #11, bucket 9's CTR polygon-preference ordering: every candidate (restricted to the given set) whose FIR polygon -- VATGlasses or vatspy -- contains (lat, lon) right now.</summary>
+        private static HashSet<string> ContainedCtrCallsigns(
+            IEnumerable<HandoffController> candidates,
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyList<VatSpyFirBoundary> vatSpyBoundaries,
+            IReadOnlyCollection<HandoffController> allOnlineControllers,
+            double lat,
+            double lon)
+        {
+            var candidateCallsigns = new HashSet<string>(candidates.Select(c => c.Callsign), StringComparer.OrdinalIgnoreCase);
+
+            var vatGlassesMatches = VatGlassesSectorLookup.FindContainingSectorsIgnoringAltitude(regions, lat, lon);
+            var contained = ResolveContainedCallsigns(vatGlassesMatches, regions, allOnlineControllers);
+
+            var vatSpyMatches = VatSpyBoundaryLookup.FindContainingBoundaries(vatSpyBoundaries, lat, lon);
+            contained.UnionWith(ResolveVatSpyContainedCallsigns(vatSpyMatches, allOnlineControllers));
+
+            contained.IntersectWith(candidateCallsigns);
+            return contained;
+        }
+
+        /// <summary>
         /// Bucket 6 -- on-ground (AGL&lt;50ft) relevance, spanning DEL/GND/TWR/APP/CTR together
         /// since 6e's chain-walk needs them in one combined set. 6a: flight-plan match, any tier
         /// including ATIS/Other, unconditional once online. 6b/6c: DEL/GND/TWR/APP -- VATGlasses
@@ -560,11 +666,13 @@ namespace Handoff.Plugin
             IReadOnlyCollection<HandoffController> allOnlineControllers,
             string routeAirport,
             OwnshipTelemetry telemetry,
-            IReadOnlyDictionary<string, VatGlassesRegionData> regions)
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyList<VatSpyFirBoundary> vatSpyBoundaries)
         {
             var result = new HighlightResult { Candidates = candidates };
             PruneDeadbandCommitted(_groundRadiusCommitted, candidates.Select(c => c.Callsign));
             PruneDeadbandCommitted(_groundPolygonContainmentCommitted, candidates.Select(c => c.Callsign));
+            PruneDeadbandCommitted(_groundVatSpyContainmentCommitted, candidates.Select(c => c.Callsign));
             if (candidates.Count == 0) return result;
 
             var byCallsign = candidates.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
@@ -587,6 +695,7 @@ namespace Handoff.Plugin
 
             var polygonContainedNonCtr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var polygonContainedCtr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var vatSpyContainedCtr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (hasPosition)
             {
                 var altitudeAware = VatGlassesSectorLookup.FindContainingSectors(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, pressureAltitudeFl, qnhTrueAltitudeFl);
@@ -594,6 +703,11 @@ namespace Handoff.Plugin
 
                 var horizontalOnly = VatGlassesSectorLookup.FindContainingSectorsIgnoringAltitude(regions, telemetry.Latitude.Value, telemetry.Longitude.Value);
                 polygonContainedCtr = ResolveContainedCallsigns(horizontalOnly, regions, allOnlineControllers);
+
+                // Issue #11: vatspy FIR-polygon fallback, only consulted for CTR (6d) -- vatspy has
+                // no airport-level shapes, so DEL/GND/TWR/APP never gain anything from it.
+                var vatSpyMatches = VatSpyBoundaryLookup.FindContainingBoundaries(vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value);
+                vatSpyContainedCtr = ResolveVatSpyContainedCallsigns(vatSpyMatches, allOnlineControllers);
             }
 
             // Distance for tie/order purposes only (OrderHighlightBucket's "IsLikelyNext by
@@ -627,7 +741,8 @@ namespace Handoff.Plugin
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     case ControllerTier.Center:
-                        if (hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                            || (hasPosition && PassesVatSpyContainmentDeadband(_groundVatSpyContainmentCommitted, c, vatSpyContainedCtr.Contains(c.Callsign), vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value)))
                             result.HighlightedCallsigns.Add(c.Callsign);
                         break;
                     default:
@@ -853,6 +968,52 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
+        /// Issue #11: vatspy equivalent of FindEnteringOwnerMatches, CTR-only (vatspy has no
+        /// APP/DEP-level polygons at all, see docs/controller-ranking.md) -- used only where
+        /// VATGlasses has no sector data for a given candidate at all (callers gate on
+        /// FindAnySectorLevelForController returning null), same precedence rule as the
+        /// "satisfied" fallback.
+        /// </summary>
+        private List<(HandoffController Owner, VatSpyBoundaryLookup.VatSpyApproachMatch Match)> FindVatSpyEnteringOwnerMatches(
+            OwnshipTelemetry telemetry,
+            FlightPlan flightPlan,
+            IReadOnlyList<VatSpyFirBoundary> vatSpyBoundaries,
+            IReadOnlyCollection<HandoffController> allOnlineControllers,
+            double routeMaxNm,
+            double headingMaxNm)
+        {
+            var result = new List<(HandoffController, VatSpyBoundaryLookup.VatSpyApproachMatch)>();
+            if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
+
+            IReadOnlyList<VatSpyBoundaryLookup.VatSpyApproachMatch> approachMatches;
+            var remainingWaypoints = _routeInvalidatedByDiversion
+                ? new List<FlightPlanWaypoint>()
+                : RemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
+
+            if (remainingWaypoints.Count > 0)
+            {
+                approachMatches = VatSpyBoundaryLookup.FindApproachingBoundariesAlongRoute(vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, routeMaxNm);
+            }
+            else if (telemetry.HeadingDegrees.HasValue)
+            {
+                approachMatches = VatSpyBoundaryLookup.FindApproachingBoundariesAlongHeading(vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, headingMaxNm);
+            }
+            else
+            {
+                return result;
+            }
+
+            foreach (var approach in approachMatches)
+            {
+                foreach (var owner in VatSpyOwnershipResolver.ResolveOnlineControllers(approach.Boundary, allOnlineControllers))
+                {
+                    result.Add((owner, approach));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Bucket 8 -- airborne CTR relevance. 8a: lateral route/heading convergence (150nm/100nm,
         /// same as before) AND vertical -- either satisfied (already in the band, any flight
         /// state, no margin) or converging (sustained climb/descent trend within a widened 5000ft
@@ -869,6 +1030,7 @@ namespace Handoff.Plugin
             double? pressureAltitudeFl,
             double? qnhTrueAltitudeFl,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyList<VatSpyFirBoundary> vatSpyBoundaries,
             HashSet<string> currentCallsigns)
         {
             var result = new HighlightResult { Candidates = candidates };
@@ -878,6 +1040,7 @@ namespace Handoff.Plugin
             // bucketCandidates' own exclusions, so a committed callsign should only actually drop
             // once it's genuinely offline, not merely excluded from this tick's candidate list.
             PruneDeadbandCommitted(_ctrSatisfiedCommitted, allOnlineControllers.Select(c => c.Callsign));
+            PruneDeadbandCommitted(_ctrVatSpySatisfiedCommitted, allOnlineControllers.Select(c => c.Callsign));
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             int verticalTrendSign;
@@ -914,12 +1077,49 @@ namespace Handoff.Plugin
                 if (staysIn) combined.Add((owner, 0)); else _ctrSatisfiedCommitted.Remove(callsign);
             }
 
+            // Issue #11: vatspy "satisfied" fallback -- only for CTR controllers VATGlasses has no
+            // sector data for at all (FindAnySectorLevelForController null), same precedence rule
+            // as bucket 6d. No vertical band to check at all (top-down coverage, same rationale as
+            // 6d's CTR containment).
+            var vatSpyContainingMatches = VatSpyBoundaryLookup.FindContainingBoundaries(vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value);
+            var vatSpyContainedCallsigns = ResolveVatSpyContainedCallsigns(vatSpyContainingMatches, allOnlineControllers);
+            foreach (var callsign in vatSpyContainedCallsigns)
+            {
+                if (currentCallsigns.Contains(callsign) || containedCallsigns.Contains(callsign)) continue;
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
+                if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
+                _ctrVatSpySatisfiedCommitted.Add(owner.Callsign);
+                combined.Add((owner, 0));
+            }
+
+            foreach (var callsign in _ctrVatSpySatisfiedCommitted.Where(cs => !vatSpyContainedCallsigns.Contains(cs)).ToList())
+            {
+                if (currentCallsigns.Contains(callsign)) { _ctrVatSpySatisfiedCommitted.Remove(callsign); continue; }
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) { _ctrVatSpySatisfiedCommitted.Remove(callsign); continue; }
+                var boundary = FindAnyVatSpyBoundaryForController(owner, vatSpyBoundaries);
+                var staysIn = boundary != null && VatSpyBoundaryLookup.DistanceToBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, boundary) <= PolygonContainmentDeadbandMarginNm;
+                if (staysIn) combined.Add((owner, 0)); else _ctrVatSpySatisfiedCommitted.Remove(callsign);
+            }
+
             // "Converging" -- lateral entering AND vertical satisfied-or-converging.
             foreach (var (owner, approach) in FindEnteringOwnerMatches(telemetry, flightPlan, regions, allOnlineControllers, ControllerTier.Center, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
             {
                 if (currentCallsigns.Contains(owner.Callsign)) continue;
                 if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue; // already counted as "satisfied" above
                 if (!IsVerticallySatisfiedOrConverging(approach.Match.Level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend)) continue;
+                combined.Add((owner, approach.DistanceNauticalMiles));
+            }
+
+            // Issue #11: vatspy "converging" fallback, same VATGlasses-has-no-data precedence gate
+            // as the satisfied fallback above. Vertical is trivially satisfied -- no band data to
+            // check against at all.
+            foreach (var (owner, approach) in FindVatSpyEnteringOwnerMatches(telemetry, flightPlan, vatSpyBoundaries, allOnlineControllers, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
+            {
+                if (currentCallsigns.Contains(owner.Callsign)) continue;
+                if (containedCallsigns.Contains(owner.Callsign) || vatSpyContainedCallsigns.Contains(owner.Callsign)) continue; // already counted as "satisfied"
+                if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
                 combined.Add((owner, approach.DistanceNauticalMiles));
             }
 

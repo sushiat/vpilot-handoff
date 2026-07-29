@@ -65,7 +65,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "name": "John Smith",
       "facility": 4,
       "rating": 5,
-      "stationName": null,
+      "stationName": "Heathrow Tower",
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
@@ -86,9 +86,13 @@ given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP
 `rating` is display-only, never used in ranking.
 
 `stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`),
-expected to be VatSpy-sourced -- see issue #13. Always `null` for now; no VatSpy integration
-exists yet. Until it's populated, clients should keep parsing just the facility-suffix word
-from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
+composed from vatspy-data-project's FIR/airport names plus a small suffix-by-tier-and-region
+table (issue #11) -- see `VatSpyStationNaming.ComposeDisplayName` and
+docs/controller-ranking.md's "vatspy station names and FIR-polygon fallback" section. `null`
+whenever the callsign's ICAO prefix isn't in vatspy's data or the tier has no defined suffix
+(ATIS/`Other`, or a genuinely unlisted airport/FIR) -- clients should keep the callsign-suffix
+parsing fallback (Tower/Ground/Delivery/etc.) for those cases rather than assuming this field is
+always populated.
 
 Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
 order received and never re-sort or re-tag client-side. Every flag below is computed and sent
