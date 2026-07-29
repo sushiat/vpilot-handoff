@@ -36,6 +36,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import at.sushi.handoff.ChannelSpacing
 import at.sushi.handoff.ConnectionStatus
+import at.sushi.handoff.HandoffState
 import at.sushi.handoff.KeypadBlockMode
 import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.network.HandoffDiscoveryClient
@@ -87,6 +88,7 @@ fun SettingsDialog(
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
     onDismiss: () -> Unit,
+    onOpenRowColorEditor: () -> Unit,
     onSave: (
         host: String?,
         simbriefUserId: String?,
@@ -177,14 +179,36 @@ fun SettingsDialog(
                             HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
 
                             SectionLabel("APPEARANCE")
-                            ToggleRow(
-                                listOf(
-                                    ToggleOption(ThemeMode.SYSTEM, "System"),
-                                    ToggleOption(ThemeMode.LIGHT, "Light"),
-                                    ToggleOption(ThemeMode.DARK, "Dark")
-                                ),
-                                theme
-                            ) { theme = it }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(Modifier.weight(1f)) {
+                                    ToggleRow(
+                                        listOf(
+                                            ToggleOption(ThemeMode.SYSTEM, "System"),
+                                            ToggleOption(ThemeMode.LIGHT, "Light"),
+                                            ToggleOption(ThemeMode.DARK, "Dark")
+                                        ),
+                                        theme
+                                    ) {
+                                        // Applied live (not just carried into the onSave payload
+                                        // at close) -- feedback: adjusting row colors right after
+                                        // switching theme required closing Settings first just to
+                                        // see the new theme take effect.
+                                        theme = it
+                                        HandoffState.setTheme(it)
+                                    }
+                                }
+                                // Issue #21 -- opens the row-color theme editor. A small icon
+                                // button tucked next to the System/Light/Dark toggle rather than
+                                // a new full-width row, per the issue's own entry-point proposal.
+                                Box(
+                                    Modifier
+                                        .background(colors.panelAlt, RoundedCornerShape(8.dp))
+                                        .clickable(onClick = onOpenRowColorEditor)
+                                        .padding(horizontal = 10.dp, vertical = 9.dp)
+                                ) {
+                                    Text("🎨", fontSize = 14.sp)
+                                }
+                            }
 
                             SectionLabel("PLUGIN CONNECTION")
                             FieldLabel("Manual IP (if discovery fails)")

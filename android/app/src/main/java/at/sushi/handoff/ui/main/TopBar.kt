@@ -45,6 +45,14 @@ fun TopBar(
     radioState: RadioStateMessage,
     lastMessageLabel: String?,
     unreadCount: Int,
+    // The station currently tuned on each COM, if any -- shown as a small third line under the
+    // frequency (Garmin-style: freq, then station identifier below it). Looked up by the caller
+    // from the live controller list (a frequency match, not the isCurrent flag -- see
+    // MainScreen.kt) since TopBar itself has no access to that list.
+    com1Callsign: String?,
+    com2Callsign: String?,
+    com1StandbyCallsign: String?,
+    com2StandbyCallsign: String?,
     onSwapCom1: () -> Unit,
     onSwapCom2: () -> Unit,
     onOpenCom1Dialog: () -> Unit,
@@ -113,6 +121,7 @@ fun TopBar(
                         large = true,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
+                        callsign = com1Callsign,
                         onClick = onSwapCom1
                     )
                     FrequencyButton(
@@ -122,6 +131,7 @@ fun TopBar(
                         large = true,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
+                        callsign = com2Callsign,
                         onClick = onSwapCom2
                     )
                     XpdrButton(Modifier.weight(1f).fillMaxHeight(), radioState, isNarrow = isNarrow, showModeCBadge = showModeCBadge, availableWidth = buttonContentWidth, onClick = onOpenXpdrDialog)
@@ -137,6 +147,7 @@ fun TopBar(
                         large = false,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
+                        callsign = com1StandbyCallsign,
                         onClick = onOpenCom1Dialog
                     )
                     FrequencyButton(
@@ -146,6 +157,7 @@ fun TopBar(
                         large = false,
                         isNarrow = isNarrow,
                         availableWidth = buttonContentWidth,
+                        callsign = com2StandbyCallsign,
                         onClick = onOpenCom2Dialog
                     )
                     MsgButton(
@@ -201,6 +213,11 @@ private fun AppHeaderRow() {
     }
 }
 
+// Shared by FrequencyButton's callsign line and XpdrButton's matching blank line, so the two
+// stay pixel-identical and the row's three "main line" frequency values (122.800 / ---- / 2000)
+// line up regardless of which buttons have real third-line content.
+private val CallsignLineFontSize = 11.sp
+
 @Composable
 private fun RowScope.FrequencyButton(
     modifier: Modifier = Modifier,
@@ -209,6 +226,13 @@ private fun RowScope.FrequencyButton(
     large: Boolean,
     isNarrow: Boolean,
     availableWidth: androidx.compose.ui.unit.Dp,
+    // Station tuned on this COM at this frequency (active or standby), Garmin-style third line
+    // below the frequency -- passed for all 4 COM buttons (active + standby), never XPDR/MSG.
+    // Rendered even when null (as an empty line) so every button's height -- and therefore the
+    // whole row's frequency-value alignment -- doesn't depend on whether a station happens to be
+    // tuned there (feedback: without this, STBY buttons came out visibly shorter than the active
+    // row above them whenever nothing was on standby).
+    callsign: String? = null,
     onClick: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
@@ -236,7 +260,28 @@ private fun RowScope.FrequencyButton(
             color = colors.text.copy(alpha = if (large) 1f else 0.75f),
             availableWidth = availableWidth
         )
+        CallsignLine(callsign ?: "", colors.textMuted)
     }
+}
+
+/** Shared by [FrequencyButton]'s real callsign line and [XpdrButton]'s blank matching one --
+ *  disables legacy Android font-padding (the same fix already used elsewhere in this app, e.g.
+ *  BadgePill/RatingBadge) since the default per-line leading was reading as a distractingly wide
+ *  gap directly under the frequency value (feedback: "much tighter"). */
+@Composable
+private fun CallsignLine(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        text,
+        fontSize = CallsignLineFontSize,
+        fontWeight = FontWeight.Medium,
+        fontFamily = RobotoMono,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        style = androidx.compose.ui.text.TextStyle(
+            platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+        )
+    )
 }
 
 /** Renders a "DDD.DDD"-shaped frequency value, splitting it into two explicit lines at the
@@ -350,6 +395,10 @@ private fun RowScope.XpdrButton(
                 color = colors.text,
                 availableWidth = availableWidth
             )
+            // Blank line matching FrequencyButton's callsign line exactly -- XPDR has no
+            // equivalent content, but needs the same reserved height so the row's "main line"
+            // frequency values (122.800 / ---- / 2000) stay aligned across all three buttons.
+            CallsignLine("", colors.text)
         }
         // Dropped entirely once COM1/COM2 actually go two-line (showModeCBadge, measured in
         // TopBar) rather than at the earlier isNarrow threshold -- that hid it far too eagerly,
@@ -449,6 +498,9 @@ private fun RowScope.MsgButton(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            // Blank line matching the COM STBY buttons' new callsign line -- keeps this row's
+            // three buttons the same height regardless of whether either STBY has a station tuned.
+            CallsignLine("", colors.textMuted)
         }
         // Always visible (not just when unread > 0) -- greyed out and showing "0" when there's
         // nothing new, same always-there treatment as the Mode C badge, rather than the button

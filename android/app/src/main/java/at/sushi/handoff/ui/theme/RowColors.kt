@@ -16,11 +16,24 @@ data class RowColors(
     val border: Color,
     val text: Color,
     val badgeBackground: Color,
-    val isFlashing: Boolean
+    val isFlashing: Boolean,
+    // Non-null only for isCurrent/isStandbyTuned rows -- the TUNED/STBY badge gets its own fixed
+    // COM1/COM2-hue color (see controllerRowColors) instead of the row's normal badgeBackground,
+    // so it needs its own text/background pair. Every other badge (PINNED, NEXT, SELCAL, ...)
+    // keeps the normal pair -- the row's background/border are always just the facility color.
+    val tunedBadgeText: Color? = null,
+    val tunedBadgeBackground: Color? = null
 )
 
 /** The near-black text color the reference uses instead of pure black (`rgba(0,0,0,.82)`). */
 val nearBlackText = Color.Black.copy(alpha = 0.82f)
+
+/** Scales this color's RGB channels toward black by [amount] (0 = unchanged, 1 = pure black) --
+ *  RowColorPalette.darkModeOffset's implementation. A plain per-channel scale rather than an
+ *  OKLCH-based recomputation since it needs to apply uniformly to an already-resolved [Color] from
+ *  either fullColor or fadedColor, not just one specific hue/lightness/chroma call site. */
+private fun Color.darkenTowardBlack(amount: Float): Color =
+    copy(red = red * (1f - amount), green = green * (1f - amount), blue = blue * (1f - amount))
 
 /** Last underscore-delimited token of a callsign (e.g. "LOWW_N_GND" -> "GND"), used as a
  *  callsign-only fallback for facility classification before the VATSIM data feed has enriched
@@ -35,20 +48,20 @@ private fun facilitySuffix(callsign: String): String =
  *  indistinguishably from DEL (250 vs DEL's 255, both blue) until the next feed poll. So an
  *  unenriched controller is classified from its callsign suffix instead, matching
  *  [facilitySuffixName]; only a truly unrecognized suffix falls back to hue 250. */
-fun facilityHue(controller: Controller): Float {
-    if (controller.callsign.endsWith("_ATIS")) return FacilityColors.ATIS_HUE
+fun facilityHue(controller: Controller, palette: RowColorPalette = DefaultRowColorPalette): Float {
+    if (controller.callsign.endsWith("_ATIS")) return palette.atisHue
     return when (controller.facility) {
-        2 -> FacilityColors.DEL_HUE
-        3 -> FacilityColors.GND_HUE
-        4 -> FacilityColors.TWR_HUE
-        5 -> FacilityColors.APP_DEP_HUE
-        6 -> FacilityColors.CTR_HUE
+        2 -> palette.delHue
+        3 -> palette.gndHue
+        4 -> palette.twrHue
+        5 -> palette.appDepHue
+        6 -> palette.ctrHue
         else -> when (facilitySuffix(controller.callsign)) {
-            "DEL" -> FacilityColors.DEL_HUE
-            "GND" -> FacilityColors.GND_HUE
-            "TWR" -> FacilityColors.TWR_HUE
-            "APP", "DEP" -> FacilityColors.APP_DEP_HUE
-            "CTR" -> FacilityColors.CTR_HUE
+            "DEL" -> palette.delHue
+            "GND" -> palette.gndHue
+            "TWR" -> palette.twrHue
+            "APP", "DEP" -> palette.appDepHue
+            "CTR" -> palette.ctrHue
             else -> 250f
         }
     }
@@ -63,8 +76,8 @@ private fun isTowerFacility(controller: Controller): Boolean =
 /** The row's full-saturation color if it were flagged (isCurrent/contact-me/next/likelyNext) --
  *  exposed separately from [controllerRowColors] since the chat panel's SELCAL bubble also needs
  *  a station's "own color" as its non-flashing phase. */
-fun facilityColor(controller: Controller): Color {
-    val hue = facilityHue(controller)
+fun facilityColor(controller: Controller, palette: RowColorPalette = DefaultRowColorPalette): Color {
+    val hue = facilityHue(controller, palette)
     val isAtis = controller.callsign.endsWith("_ATIS")
     return when {
         isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f).bg
@@ -124,7 +137,9 @@ fun controllerBadges(
 
 /** COM1 gets [FacilityColors.TUNED_HUE] (teal), COM2 gets [FacilityColors.COM2_TUNED_HUE]
  *  (rose) -- a row tuned/standby-loaded on both at once (same frequency on both radios) defaults
- *  to COM1's color rather than picking arbitrarily. */
+ *  to COM1's color rather than picking arbitrarily. Fixed constants, not palette-driven (issue
+ *  #21: after trying a dedicated hue/border for these, they're hardcoded now, same as the
+ *  contact-me alert yellow and SELCAL red). */
 private fun tunedHueFor(frequency: Int, com1Frequency: Int?, com2Frequency: Int?): Float = when {
     frequency == com1Frequency -> FacilityColors.TUNED_HUE
     frequency == com2Frequency -> FacilityColors.COM2_TUNED_HUE
@@ -132,63 +147,85 @@ private fun tunedHueFor(frequency: Int, com1Frequency: Int?, com2Frequency: Int?
 }
 
 /** Row background/border/text per the reference's `fullColor`/`fadedColor`/`textColorForL`:
- *  - isCurrent always wins: solid COM1/COM2 tuned color (see [tunedHueFor]), regardless of
- *    anything else.
- *  - else an unresolved contact-me / likely-next / approaching / pinned flag: solid facility
- *    color (TWR gets L48/C0.22, a flagged ATIS gets L85/C0.19, everything else the L58/C0.16
- *    default) -- and if it's specifically an unresolved contact-me row, [RowColors.isFlashing] is
- *    true so the caller alternates this against hazard-yellow.
- *  - else if isStandbyTuned: a darker, less saturated shade of whichever COM's tuned color it'll
- *    become active on (L38/C0.12) -- distinguishable from both the bright tuned color and the
- *    plain desaturated facility background below.
- *  - else: the same facility hue, desaturated per-theme (still faintly visible), no border.
+ *  - Background is the facility color (full-saturation flagged treatment for isCurrent/
+ *    isStandbyTuned/contact-me/next/likelyNext/highlighted/pinned; TWR gets L48/C0.22, a flagged
+ *    ATIS gets L85/C0.19, everything else L58/C0.16) or the desaturated faded background
+ *    (see [FacilityColors.fadedColor]) for a plain, unflagged row.
+ *  - Border always matches the background's own facility color -- issue #21 tried a dedicated
+ *    COM1/COM2-hue border (and a gradient fill) to make isCurrent/isStandbyTuned "pop" more, but
+ *    it complicated the row's otherwise clean/consistent look for a state that's already
+ *    unambiguous from the tuned-frequency readout, the row's position (bucket 1/2, see
+ *    docs/controller-ranking.md), and the TUNED/STBY badge -- which now carries the distinct
+ *    fixed teal/rose color instead ([RowColors.tunedBadgeBackground]/[tunedBadgeText]).
+ *  - An unresolved contact-me row still flashes ([RowColors.isFlashing]) against hazard-yellow.
  *  Text color is picked from [perceptualLightness] of the *actual rendered* background (real sRGB
  *  relative luminance), not the nominal OKLCH lightness value fed into fullColor/fadedColor -- a
  *  flat threshold on that nominal input ignores how much hue/chroma shift a color's real
- *  perceived brightness (confirmed on-device: COM1-tuned's teal and GND's green share the same
- *  nominal L58 input, but read completely differently in black text). Threshold tuned to 54,
- *  which cleanly separates every on-device-confirmed case (COM1 tuned real L*~56 wants black;
- *  GND/CTR/TWR/standby-tuned all sit at real L*~39-53 and want white) -- see RowColorsTest.
- *  Badge chip background is white-22%-alpha on dark rows, black-10%-alpha on light rows. */
+ *  perceived brightness. Threshold defaults to 54 (user-adjustable, see
+ *  RowColorPalette.textLightnessThreshold) -- see RowColorsTest. Badge chip background is
+ *  white-22%-alpha on dark rows, black-10%-alpha on light rows. */
 fun controllerRowColors(
     controller: Controller,
     com1Active: Int?,
     com2Active: Int?,
     colors: HandoffColors,
     com1Standby: Int? = null,
-    com2Standby: Int? = null
+    com2Standby: Int? = null,
+    palette: RowColorPalette = DefaultRowColorPalette
 ): RowColors {
-    val hue = facilityHue(controller)
+    val hue = facilityHue(controller, palette)
     val isAtis = controller.callsign.endsWith("_ATIS")
     val contactMeActive = isContactMeActive(controller, com1Active, com2Active)
 
     val col = when {
-        controller.isCurrent -> FacilityColors.fullColor(tunedHueFor(controller.frequency, com1Active, com2Active))
         // isHighlighted/isPinned are no-badge-color signals -- pinned in particular is a manual
         // bookmark the pilot deliberately set, so it should never read as visually less relevant
         // than an untouched, plain station -- both earn the same full-saturation treatment as a
-        // badged row (contact-me/next/likelyNext) but don't add anything themselves to
-        // controllerBadges beyond their own PINNED tag, and (unlike an unresolved contact-me row)
-        // never flash -- see docs/protocol.md.
-        contactMeActive || controller.isNext || controller.isLikelyNext || controller.isHighlighted || controller.isPinned -> when {
+        // badged row (contact-me/next/likelyNext/isCurrent/isStandbyTuned) but don't add anything
+        // themselves to controllerBadges beyond their own PINNED tag, and (unlike an unresolved
+        // contact-me row) never flash -- see docs/protocol.md.
+        controller.isCurrent || controller.isStandbyTuned || contactMeActive || controller.isNext ||
+            controller.isLikelyNext || controller.isHighlighted || controller.isPinned -> when {
             isAtis -> FacilityColors.fullColor(hue, 85f, 0.19f)
             isTowerFacility(controller) -> FacilityColors.fullColor(hue, 48f, 0.22f)
             else -> FacilityColors.fullColor(hue)
         }
-        // Just a shade or two darker than the full L58/C0.16 tuned color -- not the big drop down
-        // to fadedColor's near-gray L92/L26. A standby-prepared station should read as an almost-
-        // as-vivid variant of its eventual tuned color, not lumped in visually with the plain
-        // desaturated "nothing going on" rows.
-        controller.isStandbyTuned -> FacilityColors.fullColor(
-            tunedHueFor(controller.frequency, com1Standby, com2Standby),
-            lightnessPercent = 50f,
-            chroma = 0.15f
-        )
-        else -> FacilityColors.fadedColor(hue, colors.isDark)
+        else -> FacilityColors.fadedColor(hue, isAtis, isTowerFacility(controller), palette.fadedBrightnessOffset)
     }
 
-    val isWhiteText = perceptualLightness(col.bg) < 54f
+    // Extra uniform darkening, dark theme only, applied on top of everything above -- including
+    // highlighted/tuned rows. Applied before the text-contrast decision below so black-vs-white
+    // still tracks the *actually rendered* (dimmed) background, not the pre-dim value.
+    val darkModeDim = if (colors.isDark) palette.darkModeOffset else 0f
+    val backgroundColor = col.bg.darkenTowardBlack(darkModeDim)
+    val borderColor = col.border.darkenTowardBlack(darkModeDim)
+
+    val isWhiteText = perceptualLightness(backgroundColor) < palette.textLightnessThreshold
     val text = if (isWhiteText) Color.White else nearBlackText
     val badgeBackground = if (isWhiteText) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.1f)
-    return RowColors(col.bg, col.border, text, badgeBackground, contactMeActive)
+
+    val tunedHue = when {
+        controller.isCurrent -> tunedHueFor(controller.frequency, com1Active, com2Active)
+        controller.isStandbyTuned -> tunedHueFor(controller.frequency, com1Standby, com2Standby)
+        else -> null
+    }
+    val tunedBadgeBackground = tunedHue?.let { FacilityColors.fullColor(it).bg }
+    val tunedBadgeText = tunedBadgeBackground?.let {
+        if (perceptualLightness(it) < palette.textLightnessThreshold) Color.White else nearBlackText
+    }
+
+    return RowColors(backgroundColor, borderColor, text, badgeBackground, contactMeActive, tunedBadgeText, tunedBadgeBackground)
+}
+
+/** Which of the 3 visually-distinct groups a row falls into, in the same order the server already
+ *  sorts the list (see docs/controller-ranking.md's buckets 1-9) -- tuned (buckets 1-2), other
+ *  flagged/highlighted (3-8), or plain (bucket 9). Mirrors [controllerRowColors]' own branching
+ *  exactly (not the doc's bucket numbers directly) so the boundary this drives -- extra spacing
+ *  between groups in the list, see ControllerList.kt -- always lines up with an actual visible
+ *  background-color transition, never a spacing change with no color change beside it. */
+fun controllerRowGroup(controller: Controller, com1Active: Int?, com2Active: Int?): Int = when {
+    controller.isCurrent || controller.isStandbyTuned -> 1
+    isContactMeActive(controller, com1Active, com2Active) || controller.isNext ||
+        controller.isLikelyNext || controller.isHighlighted || controller.isPinned -> 2
+    else -> 3
 }

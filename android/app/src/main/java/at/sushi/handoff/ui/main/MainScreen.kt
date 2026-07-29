@@ -52,9 +52,14 @@ import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
+import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
 import at.sushi.handoff.ui.dialogs.SettingsDialog
 import at.sushi.handoff.ui.dialogs.XpdrDialog
 import at.sushi.handoff.ui.theme.HandoffTheme
+import at.sushi.handoff.ui.theme.DefaultRowColorPalette
+import at.sushi.handoff.ui.theme.RowColorThemeStore
+import at.sushi.handoff.ui.theme.SavedRowColorTheme
+import java.util.UUID
 
 /** True only once [condition] has held continuously for [delayMs] -- used to distinguish "this
  *  data source is genuinely missing" from "still waiting on a normal fetch/poll cycle" (a plugin
@@ -140,8 +145,9 @@ private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationPr
 @Composable
 fun MainScreen() {
     val theme by HandoffState.theme.collectAsState()
+    val rowColorPalette by HandoffState.rowColorPalette.collectAsState()
 
-    HandoffTheme(theme) {
+    HandoffTheme(theme, rowColorPalette) {
         MainScreenContent()
     }
 }
@@ -185,6 +191,7 @@ private fun MainScreenContent() {
     val flightPlanMismatch = flightPlan.vatsimOrigin != null && flightPlan.simbriefOrigin != null &&
         (flightPlan.vatsimOrigin != flightPlan.simbriefOrigin || flightPlan.vatsimDestination != flightPlan.simbriefDestination)
     val flightPlanWarning = flightPlanMismatch || vatsimMissing
+    val hideTunedControllers by HandoffState.hideTunedControllers.collectAsState()
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
     val theme by HandoffState.theme.collectAsState()
@@ -208,6 +215,7 @@ private fun MainScreenContent() {
     var comDialogOpen by remember { mutableStateOf<Int?>(null) } // 1 or 2
     var xpdrDialogOpen by remember { mutableStateOf(false) }
     var settingsDialogOpen by remember { mutableStateOf(false) }
+    var rowColorDialogOpen by remember { mutableStateOf(false) }
     var nearbyDialogOpen by remember { mutableStateOf(false) }
     var footerExpanded by remember { mutableStateOf(false) }
     var chatOpen by remember { mutableStateOf(false) }
@@ -329,7 +337,10 @@ private fun MainScreenContent() {
         Row(
             Modifier
                 .fillMaxHeight()
-                .let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(440.dp) else it.fillMaxSize() }
+                // Bumped from 440dp -- long real-world callsigns (e.g. "EDMM_ALB_CTR") were
+                // pushing frequency/badges/icons out of the fixed-width fullscreen panel. Widens
+                // at the chat space's expense, which has the room to spare.
+                .let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(500.dp) else it.fillMaxSize() }
                 .clip(mainPanelShape)
                 .background(colors.panel)
         ) {
@@ -344,6 +355,13 @@ private fun MainScreenContent() {
                 lastMessageLabel = activeChatTab
                     ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
+                // Frequency match, not the isCurrent flag -- a station can be isCurrent on either
+                // COM independently (docs/controller-ranking.md bucket 1), so matching by the
+                // radio's own actual tuned frequency is the more direct/authoritative lookup.
+                com1Callsign = controllers.controllers.find { it.frequency == radioState.com1Frequency }?.callsign,
+                com2Callsign = controllers.controllers.find { it.frequency == radioState.com2Frequency }?.callsign,
+                com1StandbyCallsign = controllers.controllers.find { it.frequency == radioState.com1StandbyFrequency }?.callsign,
+                com2StandbyCallsign = controllers.controllers.find { it.frequency == radioState.com2StandbyFrequency }?.callsign,
                 // Single combined command, not two separate sends -- the plugin queues and
                 // settle-waits each command independently, so two separate writes land over a
                 // second apart even though the underlying SimConnect events are near-instant.
@@ -386,6 +404,12 @@ private fun MainScreenContent() {
                 com2Active = radioState.com2Frequency,
                 com1Standby = radioState.com1StandbyFrequency,
                 com2Standby = radioState.com2StandbyFrequency,
+                hideTuned = hideTunedControllers,
+                onToggleHideTuned = {
+                    val newValue = !hideTunedControllers
+                    prefs.edit { putBoolean(HandoffConnectionService.PrefKeyHideTunedControllers, newValue) }
+                    HandoffState.setHideTunedControllers(newValue)
+                },
                 onTogglePin = { callsign ->
                     val isPinned = controllers.controllers.find { it.callsign == callsign }?.isPinned == true
                     if (isPinned) {
@@ -496,6 +520,7 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             onDismiss = { settingsDialogOpen = false },
+            onOpenRowColorEditor = { rowColorDialogOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)
@@ -515,6 +540,44 @@ private fun MainScreenContent() {
         )
     }
 
+    if (rowColorDialogOpen) {
+        val rowColorPalette by HandoffState.rowColorPalette.collectAsState()
+        var savedThemes by remember { mutableStateOf(RowColorThemeStore.loadSavedThemes(prefs)) }
+        var activeThemeId by remember { mutableStateOf(RowColorThemeStore.loadActiveThemeId(prefs)) }
+
+        RowColorThemeDialog(
+            initialPalette = rowColorPalette,
+            savedThemes = savedThemes,
+            activeThemeId = activeThemeId,
+            onDismiss = { rowColorDialogOpen = false },
+            onActivate = { id, palette ->
+                activeThemeId = id
+                RowColorThemeStore.saveActiveThemeId(prefs, id)
+                HandoffState.setRowColorPalette(palette)
+            },
+            onSaveTheme = { name, palette ->
+                // Editing an already-saved theme and saving under its same name overwrites that
+                // entry (keeps its id) rather than piling up duplicates -- any other name creates
+                // a new saved theme.
+                val existing = savedThemes.find { it.name == name }
+                val newTheme = SavedRowColorTheme(id = existing?.id ?: UUID.randomUUID().toString(), name = name, palette = palette)
+                savedThemes = savedThemes.filterNot { it.id == newTheme.id } + newTheme
+                RowColorThemeStore.saveSavedThemes(prefs, savedThemes)
+                activeThemeId = newTheme.id
+                RowColorThemeStore.saveActiveThemeId(prefs, newTheme.id)
+                HandoffState.setRowColorPalette(palette)
+            },
+            onDeleteTheme = { id ->
+                savedThemes = savedThemes.filterNot { it.id == id }
+                RowColorThemeStore.saveSavedThemes(prefs, savedThemes)
+                if (activeThemeId == id) {
+                    activeThemeId = null
+                    RowColorThemeStore.saveActiveThemeId(prefs, null)
+                    HandoffState.setRowColorPalette(DefaultRowColorPalette)
+                }
+            }
+        )
+    }
 }
 
 /** Shows/hides the [ChatOverlayWindow] as a side effect of [visible] -- the overlay is a real

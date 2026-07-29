@@ -21,11 +21,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -39,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.platform.LocalDensity
@@ -54,8 +58,10 @@ import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.ui.theme.ControllerBadge
 import at.sushi.handoff.ui.theme.FacilityColors
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.ui.theme.LocalRowColorPalette
 import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
+import at.sushi.handoff.ui.theme.controllerRowGroup
 import at.sushi.handoff.ui.theme.facilitySuffixName
 import at.sushi.handoff.ui.theme.oklch
 import kotlinx.coroutines.delay
@@ -107,6 +113,8 @@ fun ControllerList(
     com2Active: Int?,
     com1Standby: Int?,
     com2Standby: Int?,
+    hideTuned: Boolean,
+    onToggleHideTuned: () -> Unit,
     onTogglePin: (String) -> Unit,
     onOpenChatWith: (String) -> Unit,
     onTuneCom1Active: (Int) -> Unit,
@@ -125,20 +133,52 @@ fun ControllerList(
     // pure white) is what this inherited by design, but on the actual tablet display that
     // reads as a visible off-white rather than matching the panel-colored top bar/footer --
     // using colors.panel here instead, per the user's explicit call on the real device.
+    // Filtered once here so the count text, column-width measurement, scroll-to-top effect, and
+    // the LazyColumn itself all agree on exactly the same set of rows -- including the group-gap
+    // logic below, which naturally stops inserting a gap for a tuned row that isn't in this list
+    // at all anymore rather than needing its own separate hiding rule. Covers both isCurrent and
+    // isStandbyTuned. Pinned rows are exempt either way -- pinning is a deliberate manual choice,
+    // "hide tuned" shouldn't override it.
+    val visibleControllers = if (hideTuned) {
+        controllers.filter { !(it.isCurrent || it.isStandbyTuned) || it.isPinned }
+    } else {
+        controllers
+    }
+
     Column(modifier.fillMaxWidth().background(colors.panel)) {
-        Text(
-            "CONTROLLERS · ${controllers.size}",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.textMuted,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "CONTROLLERS · ${visibleControllers.size}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.textMuted
+            )
+            // Once a station is actually tuned, chat with it happens over the radio, not this
+            // app's private chat -- easy to bring back by unchecking. onCheckedChange = null on
+            // the Checkbox itself since the whole Row is the click target, not just the box.
+            Row(
+                Modifier.clickable(onClick = onToggleHideTuned),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Hide tuned", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.textMuted)
+                Checkbox(
+                    checked = hideTuned,
+                    onCheckedChange = null,
+                    modifier = Modifier.scale(0.75f),
+                    colors = CheckboxDefaults.colors(checkedColor = colors.accent, uncheckedColor = colors.textMuted)
+                )
+            }
+        }
         // Shared across every row so the frequency column lines up regardless of individual
         // callsign length -- matches the original JS reference's own formula exactly
         // (`Math.max(90, longestCallsign * 8.5 + 10)`), just carried over from a static
         // `widthIn(min = 90.dp)` that never actually read the list's real callsigns.
-        val callsignColWidth = remember(controllers) {
-            val longest = controllers.maxOfOrNull { it.callsign.length } ?: 0
+        val callsignColWidth = remember(visibleControllers) {
+            val longest = visibleControllers.maxOfOrNull { it.callsign.length } ?: 0
             maxOf(90f, longest * 8.5f + 10f).dp
         }
         // Measured once (the format is always exactly "DDD.DDD", per RadioFrequency.format --
@@ -164,8 +204,8 @@ fun ControllerList(
         // position around).
         val listState = rememberLazyListState()
         var previousBadgedCallsigns by remember { mutableStateOf<Set<String>?>(null) }
-        LaunchedEffect(controllers, com1Active, com2Active) {
-            val currentBadged = controllers.filter { controller ->
+        LaunchedEffect(visibleControllers, com1Active, com2Active) {
+            val currentBadged = visibleControllers.filter { controller ->
                 controllerBadges(controller, com1Active, com2Active).isNotEmpty()
             }.mapTo(mutableSetOf()) { it.callsign }
 
@@ -186,7 +226,17 @@ fun ControllerList(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Rendered in exactly the order the server sent it -- never re-sorted client-side.
-            items(controllers, key = { it.callsign }) { controller ->
+            // An extra 10dp gap is added above the first row of a new group (tuned -> other
+            // flagged/highlighted -> plain, see controllerRowGroup) on top of the normal 6dp --
+            // feedback: once the tuned border experiment was dropped, there was no visual
+            // separation left between "my radio", "worth noticing", and "just ambient traffic" at
+            // a glance beyond color alone (5dp was tried first and judged too subtle to notice).
+            itemsIndexed(visibleControllers, key = { _, controller -> controller.callsign }) { index, controller ->
+                val previousGroup = visibleControllers.getOrNull(index - 1)?.let { controllerRowGroup(it, com1Active, com2Active) }
+                val thisGroup = controllerRowGroup(controller, com1Active, com2Active)
+                if (previousGroup != null && previousGroup != thisGroup) {
+                    Spacer(Modifier.height(10.dp))
+                }
                 ControllerRow(
                     controller = controller,
                     callsignColWidth = callsignColWidth,
@@ -240,7 +290,8 @@ private fun ControllerRow(
     onDismissSelcal: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
-    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby)
+    val palette = LocalRowColorPalette.current
+    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby, palette)
     val badges = controllerBadges(controller, com1Active, com2Active)
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -301,6 +352,10 @@ private fun ControllerRow(
                 )
             }
 
+            // isCurrent/isStandbyTuned no longer get any special border treatment -- issue #21
+            // feedback dropped that experiment (ring, gradient dip, max-intensity color all
+            // tried and reverted) in favor of a fixed-color TUNED/STBY badge plus extra spacing
+            // between row groups (see controllerRowGroup below) instead.
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -327,10 +382,17 @@ private fun ControllerRow(
                         if (badges.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 badges.forEach { badge ->
-                                    if (badge == ControllerBadge.SELCAL) {
-                                        BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
-                                    } else {
-                                        BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
+                                    when {
+                                        badge == ControllerBadge.SELCAL ->
+                                            BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
+                                        // TUNED/STBY reuse the row's dedicated COM1/COM2 border
+                                        // color on the badge itself (issue #21) -- but only
+                                        // outside the yellow flash phase, so it doesn't fight the
+                                        // contact-me alert for attention during that brief window.
+                                        (badge == ControllerBadge.TUNED || badge == ControllerBadge.STBY) &&
+                                            !(rowColors.isFlashing && !rowPhaseA) && rowColors.tunedBadgeBackground != null ->
+                                            BadgePill(badgeLabels.getValue(badge), rowColors.tunedBadgeText ?: text, rowColors.tunedBadgeBackground)
+                                        else -> BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
                                     }
                                 }
                             }

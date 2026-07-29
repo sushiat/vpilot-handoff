@@ -122,6 +122,25 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BothComStandbyFrequenciesLoaded_Com1OrderedAheadOfCom2RegardlessOfTierOrAlpha()
+        {
+            // Callsigns/tiers deliberately chosen so the old tier-then-alpha-only fallback would
+            // have ranked the COM2 match first (APP tier and "AAAA" both sort ahead of GND/"ZZZZ")
+            // -- issue #21 Android-side feedback caught bucket 2 missing the COM1-before-COM2 rule
+            // bucket 1 already had.
+            AddController("AAAA_APP", 12345); // COM2 standby match
+            AddController("ZZZZ_GND", 23725); // COM1 standby match
+            _radio.Current = new RadioState(null, null, 23725, 12345, false, null, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            var ranked = model.Current.ToList();
+            Assert.Equal("ZZZZ_GND", ranked[0].Callsign);
+            Assert.Equal("AAAA_APP", ranked[1].Callsign);
+            Assert.True(ranked[0].IsStandbyTuned);
+            Assert.True(ranked[1].IsStandbyTuned);
+        }
+
+        [Fact]
         public void ContactMeController_RanksJustBelowCurrent()
         {
             AddController("EGLL_TWR", 23725);

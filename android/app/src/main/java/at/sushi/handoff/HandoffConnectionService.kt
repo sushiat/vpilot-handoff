@@ -30,6 +30,7 @@ import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
+import at.sushi.handoff.ui.theme.RowColorThemeStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +50,7 @@ class HandoffConnectionService : Service() {
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
+        const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         // Handled in onStartCommand -- the notification's "Quit" action (only ever shown/tapped
@@ -251,6 +253,11 @@ class HandoffConnectionService : Service() {
         prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
         }
+        HandoffState.setHideTunedControllers(prefs.getBoolean(PrefKeyHideTunedControllers, false))
+        // Issue #21 -- resolves the persisted active row-color theme id against the saved list /
+        // built-in presets, falling back to DefaultRowColorPalette (RowColorThemeStore's own
+        // default) if unset/deleted.
+        HandoffState.setRowColorPalette(RowColorThemeStore.resolveActivePalette(prefs))
     }
 
     private fun onConnectionStateChanged(connected: Boolean) {

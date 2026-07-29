@@ -79,7 +79,13 @@ object FacilityColors {
     // from COM1's teal to read as clearly distinct at a glance, not just a similar shade.
     const val COM2_TUNED_HUE = 340f
 
-    val hazardYellow = oklch(0.88f, 0.19f, 98f)
+    // Exposed as a named hue (not just baked into hazardYellow below) so the row-color theme
+    // editor (issue #21) can warn when a user-picked facility hue drifts close enough to make the
+    // contact-me flash unreadable -- a yellow-on-yellow "blink" that's really no blink at all.
+    // Deliberately not itself user-editable: moving this fixed point doesn't prevent a chosen
+    // facility hue from converging on wherever it landed, it just relocates the same risk.
+    const val HAZARD_YELLOW_HUE = 98f
+    val hazardYellow = oklch(0.88f, 0.19f, HAZARD_YELLOW_HUE)
 
     /** The saturated background/border shown for isCurrent / an unresolved contact-me / next /
      *  approaching row. [lightnessPercent]/[chromaAt100] default to the reference's L58/C0.16;
@@ -90,11 +96,28 @@ object FacilityColors {
         return FacilityColor(bg, border)
     }
 
-    /** The desaturated background shown for a row with no active flags -- border is
-     *  transparent, matching the reference exactly (no border ring on faded rows). */
-    fun fadedColor(hue: Float, isDark: Boolean): FacilityColor {
-        val lightnessPercent = if (isDark) 26f else 92f
-        val chroma = if (isDark) 0.02f else 0.025f
+    /** The desaturated background shown for a row with no active flags -- border is transparent,
+     *  matching the reference exactly (no border ring on faded rows). issue #21 feedback landed
+     *  on a proper white <-> highlight <-> black continuum: [offset] is 0 at dead center (matches
+     *  [fullColor]'s own output for this hue *exactly*, including the TWR/ATIS overrides -- the
+     *  earlier fixed-L58/C0.16 "none" anchor didn't account for those, so a TWR/ATIS faded row
+     *  could never actually reach its own highlighted color even at the brightest setting),
+     *  -1 is pure black, +1 is pure white -- both ends fully desaturated (chroma 0), same as
+     *  [fullColor]'s hue-independent black/white extremes would be. Deliberately unclamped in
+     *  intent beyond -1..1 by the UI (not by this function) -- full creative range, including
+     *  choices that hurt to look at, is the point of a user-editable theme. Theme-independent by
+     *  construction (the highlight color itself doesn't vary between light/dark), unlike the
+     *  earlier per-theme-branching version -- the same [offset] now renders identically in both
+     *  themes, and RowColorPalette.fadedBrightnessOffset is the single knob governing both
+     *  instead of only ever affecting dark mode. */
+    fun fadedColor(hue: Float, isAtis: Boolean, isTower: Boolean, offset: Float = -0.5f): FacilityColor {
+        val (baseLightness, baseChroma) = when {
+            isAtis -> 85f to 0.19f
+            isTower -> 48f to 0.22f
+            else -> 58f to 0.16f
+        }
+        val lightnessPercent = if (offset >= 0f) baseLightness + (100f - baseLightness) * offset else baseLightness * (1f + offset)
+        val chroma = baseChroma * (1f - kotlin.math.abs(offset))
         return FacilityColor(oklch(lightnessPercent / 100f, chroma, hue), Color.Transparent)
     }
 }
@@ -102,8 +125,17 @@ object FacilityColors {
 val LocalHandoffColors: ProvidableCompositionLocal<HandoffColors> =
     staticCompositionLocalOf { LightHandoffColors }
 
+/** The active row-color palette (issue #21) -- defaults to the pre-#21 hardcoded hues so any
+ *  composable that reads this outside of [HandoffTheme] (e.g. a preview) still renders correctly. */
+val LocalRowColorPalette: ProvidableCompositionLocal<RowColorPalette> =
+    staticCompositionLocalOf { DefaultRowColorPalette }
+
 @Composable
-fun HandoffTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
+fun HandoffTheme(
+    themeMode: ThemeMode,
+    rowColorPalette: RowColorPalette = DefaultRowColorPalette,
+    content: @Composable () -> Unit
+) {
     val useDark = when (themeMode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
@@ -111,7 +143,10 @@ fun HandoffTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
     }
     val colors = if (useDark) DarkHandoffColors else LightHandoffColors
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalHandoffColors provides colors) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalHandoffColors provides colors,
+        LocalRowColorPalette provides rowColorPalette
+    ) {
         MaterialTheme(colorScheme = if (useDark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()) {
             content()
         }
