@@ -133,7 +133,7 @@ fun ComTuningDialog(
                 onClick = { commitValue?.let { onSetActive(ChannelGrid.toMegahertz(it)) }; onDismiss() }
             ) {
                 Icon(
-                    painterResource(R.drawable.ic_handover_mark),
+                    painterResource(R.drawable.ic_handoff_mark),
                     contentDescription = "Set active",
                     tint = iconTint
                 )

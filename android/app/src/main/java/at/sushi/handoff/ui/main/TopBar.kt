@@ -36,7 +36,7 @@ import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
-/** The main screen's top bar: the app's own header ("Handover" wordmark + "by sushi.at" +
+/** The main screen's top bar: the app's own header ("Handoff" wordmark + "by sushi.at" +
  *  version, per issue #13's Assets section) above a 3x2 grid (COM1/COM2/XPDR active row,
  *  COM1/COM2/MSG standby row) per screen 1. Tapping a COM active button swaps it with standby
  *  immediately (no dialog); tapping a standby button opens that COM's tuning dialog. */
@@ -183,12 +183,12 @@ private fun AppHeaderRow() {
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(
-            painterResource(R.drawable.ic_handover_mark),
+            painterResource(R.drawable.ic_handoff_mark),
             contentDescription = null,
             tint = colors.textMuted,
             modifier = Modifier.size(18.dp)
         )
-        Text("Handover", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
+        Text("Handoff", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
         Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
         Box(Modifier.weight(1f))
         Text(
