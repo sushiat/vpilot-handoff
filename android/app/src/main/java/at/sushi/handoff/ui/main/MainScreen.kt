@@ -40,8 +40,10 @@ import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.SendPrivateMessageCommand
 import at.sushi.handoff.protocol.SendRadioMessageCommand
+import at.sushi.handoff.protocol.SetCom1ActiveAndStandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetCom1FrequencyCommand
 import at.sushi.handoff.protocol.SetCom1StandbyFrequencyCommand
+import at.sushi.handoff.protocol.SetCom2ActiveAndStandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetCom2FrequencyCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
@@ -342,17 +344,28 @@ private fun MainScreenContent() {
                 lastMessageLabel = activeChatTab
                     ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
+                // Single combined command, not two separate sends -- the plugin queues and
+                // settle-waits each command independently, so two separate writes land over a
+                // second apart even though the underlying SimConnect events are near-instant.
                 onSwapCom1 = {
                     val active = radioState.com1Frequency
                     val standby = radioState.com1StandbyFrequency
-                    if (standby != null) send(SetCom1FrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(standby)))
-                    if (active != null) send(SetCom1StandbyFrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(active)))
+                    if (standby != null && active != null) {
+                        send(SetCom1ActiveAndStandbyFrequencyCommand(
+                            megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(standby),
+                            standbyMegahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(active)
+                        ))
+                    }
                 },
                 onSwapCom2 = {
                     val active = radioState.com2Frequency
                     val standby = radioState.com2StandbyFrequency
-                    if (standby != null) send(SetCom2FrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(standby)))
-                    if (active != null) send(SetCom2StandbyFrequencyCommand(megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(active)))
+                    if (standby != null && active != null) {
+                        send(SetCom2ActiveAndStandbyFrequencyCommand(
+                            megahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(standby),
+                            standbyMegahertz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(active)
+                        ))
+                    }
                 },
                 onOpenCom1Dialog = { comDialogOpen = 1 },
                 onOpenCom2Dialog = { comDialogOpen = 2 },
@@ -439,8 +452,26 @@ private fun MainScreenContent() {
             defaultSpacing = defaultChannelSpacing,
             keypadBlockMode = keypadBlockMode,
             onDismiss = { comDialogOpen = null },
+            // Mirrors the real G3000 GTC's XFER button: entry always lands in standby first,
+            // and "activate" is that standby write plus a transfer swap, not a bare overwrite of
+            // active -- the previously-active frequency lands in standby afterward, same as the
+            // real unit, rather than leaving whatever was already in standby untouched/stale.
+            // Sent as one combined command, not two separate sends -- see
+            // SetCom1ActiveAndStandbyFrequencyCommand's doc comment for why that matters here.
             onSetActive = { mhz ->
-                send(if (comNumber == 1) SetCom1FrequencyCommand(megahertz = mhz) else SetCom2FrequencyCommand(megahertz = mhz))
+                val previousActive = if (comNumber == 1) radioState.com1Frequency else radioState.com2Frequency
+                if (previousActive != null) {
+                    val previousActiveMhz = at.sushi.handoff.protocol.RadioFrequency.toMegahertz(previousActive)
+                    send(if (comNumber == 1) {
+                        SetCom1ActiveAndStandbyFrequencyCommand(megahertz = mhz, standbyMegahertz = previousActiveMhz)
+                    } else {
+                        SetCom2ActiveAndStandbyFrequencyCommand(megahertz = mhz, standbyMegahertz = previousActiveMhz)
+                    })
+                } else {
+                    // No previously-active frequency known yet (e.g. just connected) -- nothing
+                    // meaningful to preserve into standby, so a plain active-only write.
+                    send(if (comNumber == 1) SetCom1FrequencyCommand(megahertz = mhz) else SetCom2FrequencyCommand(megahertz = mhz))
+                }
             },
             onSetStandby = { mhz ->
                 send(if (comNumber == 1) SetCom1StandbyFrequencyCommand(megahertz = mhz) else SetCom2StandbyFrequencyCommand(megahertz = mhz))

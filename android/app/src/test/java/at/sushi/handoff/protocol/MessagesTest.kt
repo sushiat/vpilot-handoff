@@ -257,6 +257,18 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesSetCom1ActiveAndStandbyFrequencyCommand() {
+        val json = SetCom1ActiveAndStandbyFrequencyCommand(megahertz = 123.725, standbyMegahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom1ActiveAndStandbyFrequency","megahertz":123.725,"standbyMegahertz":121.9}""", json)
+    }
+
+    @Test
+    fun encodesSetCom2ActiveAndStandbyFrequencyCommand() {
+        val json = SetCom2ActiveAndStandbyFrequencyCommand(megahertz = 118.3, standbyMegahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom2ActiveAndStandbyFrequency","megahertz":118.3,"standbyMegahertz":121.9}""", json)
+    }
+
+    @Test
     fun encodesSetTransponderCodeCommand() {
         val json = SetTransponderCodeCommand(transponderCode = 1200).encode()
         assertEquals("""{"type":"setTransponderCode","transponderCode":1200}""", json)

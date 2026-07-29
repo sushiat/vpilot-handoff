@@ -390,6 +390,29 @@ knob turn and are honored.
 {"type": "setCom2StandbyFrequency", "megahertz": 121.9}
 ```
 
+### `setCom1ActiveAndStandbyFrequency` / `setCom2ActiveAndStandbyFrequency`
+
+Sets active and standby together as one round trip -- e.g. a "transfer" (activate a just-typed
+frequency while preserving whatever was previously active into standby, matching real
+flip-flop avionics like the Garmin G3000 GTC's XFER key -- entry always lands in standby first,
+and "activate" is that standby write plus a transfer swap, never a bare overwrite of active) or
+a plain COM1/COM2 active↔standby swap. `megahertz` is the new active frequency,
+`standbyMegahertz` the new standby frequency; both plain decimal MHz, same range/validation as
+the single-field commands above.
+
+Prefer this over sending two separate `setComXFrequency`/`setComXStandbyFrequency` commands for
+this kind of paired update: the plugin forwards each command to `Handoff.RadioHost` as an
+independent queued operation, and each one blocks that queue for its own ~1.1s SimConnect
+settle-wait before the next command is even dequeued -- two separate commands land the two
+writes over a second apart, even though the underlying SimConnect events themselves are
+near-instant. This command transmits both events back-to-back with a single settle-wait,
+landing them together.
+
+```json
+{"type": "setCom1ActiveAndStandbyFrequency", "megahertz": 123.725, "standbyMegahertz": 121.9}
+{"type": "setCom2ActiveAndStandbyFrequency", "megahertz": 118.3, "standbyMegahertz": 121.9}
+```
+
 ### `setTransponderCode`
 
 Sets the squawk code. `transponderCode` is a plain decimal 4-digit code, each digit 0-7 (the

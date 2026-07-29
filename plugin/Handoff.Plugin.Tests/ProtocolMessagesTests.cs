@@ -409,6 +409,26 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_SetCom1ActiveAndStandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom1ActiveAndStandbyFrequency\",\"megahertz\":123.725,\"standbyMegahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom1ActiveAndStandbyFrequency, command.Type);
+            Assert.Equal(123.725, command.Megahertz);
+            Assert.Equal(121.9, command.StandbyMegahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom2ActiveAndStandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom2ActiveAndStandbyFrequency\",\"megahertz\":118.3,\"standbyMegahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom2ActiveAndStandbyFrequency, command.Type);
+            Assert.Equal(118.3, command.Megahertz);
+            Assert.Equal(121.9, command.StandbyMegahertz);
+        }
+
+        [Fact]
         public void ParseClientCommand_SetTransponderCode()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setTransponderCode\",\"transponderCode\":1200}");

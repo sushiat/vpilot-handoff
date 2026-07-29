@@ -243,6 +243,31 @@ data class SetCom2StandbyFrequencyCommand(
     override fun encode() = json.encodeToString(SetCom2StandbyFrequencyCommand.serializer(), this)
 }
 
+/** Combined active+standby write in one round trip -- e.g. a "transfer" (activate a just-tuned
+ *  frequency while preserving whatever was previously active into standby, matching real
+ *  flip-flop avionics like the G3000 GTC's XFER key) or a plain swap. Prefer this over sending
+ *  separate SetComXFrequencyCommand/SetComXStandbyFrequencyCommand calls for that kind of
+ *  paired update -- the plugin queues and settle-waits each command independently, so two
+ *  separate commands land the writes over a second apart even though the underlying SimConnect
+ *  events are near-instant. */
+@Serializable
+data class SetCom1ActiveAndStandbyFrequencyCommand(
+    val type: String = "setCom1ActiveAndStandbyFrequency",
+    val megahertz: Double,
+    val standbyMegahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom1ActiveAndStandbyFrequencyCommand.serializer(), this)
+}
+
+@Serializable
+data class SetCom2ActiveAndStandbyFrequencyCommand(
+    val type: String = "setCom2ActiveAndStandbyFrequency",
+    val megahertz: Double,
+    val standbyMegahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom2ActiveAndStandbyFrequencyCommand.serializer(), this)
+}
+
 @Serializable
 data class SetTransponderCodeCommand(
     val type: String = "setTransponderCode",

@@ -179,6 +179,52 @@ namespace Handoff.RadioHost
             SetFrequencyViaEvent("COM2 standby", megahertz, Events.SetCom2StandbyFrequencyHz, () => _lastCom2StandbyFrequencyMhz);
         }
 
+        /// <summary>
+        /// Sets active and standby together as one operation -- e.g. a "transfer" (activate a
+        /// just-tuned frequency while preserving whatever was previously active into standby,
+        /// matching real flip-flop avionics like the G3000 GTC's XFER key) or a plain swap.
+        /// Transmits both SimConnect events back-to-back with a single settle-wait at the end,
+        /// not one per event -- doing this as two separate SetFrequencyViaEvent calls from the
+        /// caller would serialize them behind ProcessCommandQueue's single worker thread, each
+        /// blocking for SettleWaitMs before the next one even starts, so the two writes would
+        /// land over a second apart despite both SimConnect events themselves being near-instant.
+        /// </summary>
+        public void SetCom1ActiveAndStandbyFrequency(double activeMegahertz, double standbyMegahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(activeMegahertz);
+            RadioFrequency.ValidateAirbandRange(standbyMegahertz);
+            SetActiveAndStandbyViaEvents(
+                "COM1", activeMegahertz, Events.SetCom1FrequencyHz, standbyMegahertz, Events.SetCom1StandbyFrequencyHz,
+                () => _lastCom1FrequencyMhz, () => _lastCom1StandbyFrequencyMhz);
+        }
+
+        public void SetCom2ActiveAndStandbyFrequency(double activeMegahertz, double standbyMegahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(activeMegahertz);
+            RadioFrequency.ValidateAirbandRange(standbyMegahertz);
+            SetActiveAndStandbyViaEvents(
+                "COM2", activeMegahertz, Events.SetCom2FrequencyHz, standbyMegahertz, Events.SetCom2StandbyFrequencyHz,
+                () => _lastCom2FrequencyMhz, () => _lastCom2StandbyFrequencyMhz);
+        }
+
+        private void SetActiveAndStandbyViaEvents(
+            string label, double activeMegahertz, Events activeEventId, double standbyMegahertz, Events standbyEventId,
+            Func<double> readActive, Func<double> readStandby)
+        {
+            var activeHz = (uint)Math.Round(activeMegahertz * 1_000_000);
+            var standbyHz = (uint)Math.Round(standbyMegahertz * 1_000_000);
+            Logger.Log(
+                "Setting " + label + " active+standby via SimConnect events: active=" + activeMegahertz +
+                " MHz, standby=" + standbyMegahertz + " MHz");
+            TransmitPriorityEvent(activeEventId, activeHz);
+            TransmitPriorityEvent(standbyEventId, standbyHz);
+
+            Thread.Sleep(SettleWaitMs);
+            Logger.Log(
+                label + " active now reads " + readActive() + " MHz (target " + activeMegahertz +
+                "), standby now reads " + readStandby() + " MHz (target " + standbyMegahertz + ").");
+        }
+
         public void SetTransponderCode(int squawk)
         {
             Handoff.Plugin.TransponderCode.ValidateSquawkRange(squawk);

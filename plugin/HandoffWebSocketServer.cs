@@ -183,6 +183,14 @@ namespace Handoff.Plugin
                 case ClientCommand.TypeSetCom2StandbyFrequency:
                     if (command.Megahertz.HasValue) _radioState.SetCom2StandbyFrequency(command.Megahertz.Value);
                     break;
+                case ClientCommand.TypeSetCom1ActiveAndStandbyFrequency:
+                    if (command.Megahertz.HasValue && command.StandbyMegahertz.HasValue)
+                        _radioState.SetCom1ActiveAndStandbyFrequency(command.Megahertz.Value, command.StandbyMegahertz.Value);
+                    break;
+                case ClientCommand.TypeSetCom2ActiveAndStandbyFrequency:
+                    if (command.Megahertz.HasValue && command.StandbyMegahertz.HasValue)
+                        _radioState.SetCom2ActiveAndStandbyFrequency(command.Megahertz.Value, command.StandbyMegahertz.Value);
+                    break;
                 case ClientCommand.TypeSetTransponderCode:
                     if (command.TransponderCode.HasValue) _radioState.SetTransponderCode(command.TransponderCode.Value);
                     break;

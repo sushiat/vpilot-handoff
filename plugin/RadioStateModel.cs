@@ -161,6 +161,38 @@ namespace Handoff.Plugin
             SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2StandbyFrequency, Megahertz = megahertz });
         }
 
+        /// <summary>
+        /// Sets active and standby together as a single IPC round trip -- e.g. a "transfer"
+        /// (activate a just-tuned frequency while preserving whatever was previously active into
+        /// standby) or a plain swap. One command instead of two separate Set*Frequency calls
+        /// avoids each being queued/settle-waited independently on Handoff.RadioHost's single
+        /// command-processing thread, which otherwise lands the two writes over a second apart
+        /// -- see RadioSimConnectClient.SetCom1ActiveAndStandbyFrequency.
+        /// </summary>
+        public void SetCom1ActiveAndStandbyFrequency(double activeMegahertz, double standbyMegahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(activeMegahertz);
+            RadioFrequency.ValidateAirbandRange(standbyMegahertz);
+            SendCommand(new RadioIpcMessage
+            {
+                Type = RadioIpcMessage.TypeSetCom1ActiveAndStandbyFrequency,
+                Megahertz = activeMegahertz,
+                StandbyMegahertz = standbyMegahertz
+            });
+        }
+
+        public void SetCom2ActiveAndStandbyFrequency(double activeMegahertz, double standbyMegahertz)
+        {
+            RadioFrequency.ValidateAirbandRange(activeMegahertz);
+            RadioFrequency.ValidateAirbandRange(standbyMegahertz);
+            SendCommand(new RadioIpcMessage
+            {
+                Type = RadioIpcMessage.TypeSetCom2ActiveAndStandbyFrequency,
+                Megahertz = activeMegahertz,
+                StandbyMegahertz = standbyMegahertz
+            });
+        }
+
         public void SetTransponderCode(int squawk)
         {
             TransponderCode.ValidateSquawkRange(squawk);
