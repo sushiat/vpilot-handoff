@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.IBinder
+import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -71,6 +72,7 @@ class HandoffConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob())
     private var connectionJob: Job? = null
     private var pingJob: Job? = null
+    private var quitRequested = false
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
     private lateinit var notifier: HandoffNotifier
@@ -161,7 +163,13 @@ class HandoffConnectionService : Service() {
             // tappable, only while fully backgrounded and hammering away with no pilot watching,
             // exactly the "I'm not flying for days, stop this" case. onDestroy (triggered by
             // stopSelf) handles the rest of the teardown -- cancelling jobs, closing the socket,
-            // unregistering receivers.
+            // unregistering receivers -- and then, since quitRequested is set, kills the whole
+            // process. A service-only stop isn't enough: MainActivity survives backgrounding
+            // (it's merely stopped, not destroyed), so on relaunch Android just resumes that
+            // existing Activity instead of recreating it -- and startConnectionService() only
+            // runs from onCreate(), so the service would never come back. Killing the process
+            // guarantees the next launch is a genuine fresh start.
+            quitRequested = true
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -177,6 +185,9 @@ class HandoffConnectionService : Service() {
         unregisterReceiver(powerConnectedReceiver)
         instance = null
         super.onDestroy()
+        if (quitRequested) {
+            Process.killProcess(Process.myPid())
+        }
     }
 
     /** ACTION_BATTERY_CHANGED is a sticky broadcast -- registering for it with a null receiver
