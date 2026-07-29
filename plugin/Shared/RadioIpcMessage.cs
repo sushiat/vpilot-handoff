@@ -14,6 +14,13 @@ namespace Handoff.Plugin
         public const string TypeSetCom2Frequency = "setCom2Frequency";
         public const string TypeSetCom1StandbyFrequency = "setCom1StandbyFrequency";
         public const string TypeSetCom2StandbyFrequency = "setCom2StandbyFrequency";
+        // Combined active+standby write in one round trip -- used for a "transfer" (activate a
+        // just-typed/selected frequency while preserving whatever was previously active into
+        // standby, matching real flip-flop avionics) or a plain swap, without paying the latency
+        // of two separate queued commands each blocking on their own settle-wait. See
+        // RadioSimConnectClient.SetCom1ActiveAndStandbyFrequency.
+        public const string TypeSetCom1ActiveAndStandbyFrequency = "setCom1ActiveAndStandbyFrequency";
+        public const string TypeSetCom2ActiveAndStandbyFrequency = "setCom2ActiveAndStandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
 
         public string Type { get; set; }
@@ -38,7 +45,11 @@ namespace Handoff.Plugin
         public double? SeaLevelPressureHpa { get; set; }
 
         // TypeSetCom1Frequency / TypeSetCom2Frequency / TypeSetCom1StandbyFrequency /
-        // TypeSetCom2StandbyFrequency (plugin -> host)
+        // TypeSetCom2StandbyFrequency (plugin -> host): the single frequency to set.
+        // TypeSetCom1ActiveAndStandbyFrequency / TypeSetCom2ActiveAndStandbyFrequency
+        // (plugin -> host): Megahertz is the new active frequency, StandbyMegahertz the new
+        // standby frequency, applied together.
         public double? Megahertz { get; set; }
+        public double? StandbyMegahertz { get; set; }
     }
 }

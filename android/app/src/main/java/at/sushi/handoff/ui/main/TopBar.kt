@@ -36,7 +36,7 @@ import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
-/** The main screen's top bar: the app's own header ("Handover" wordmark + "by sushi.at" +
+/** The main screen's top bar: the app's own header ("Handoff" wordmark + "by sushi.at" +
  *  version, per issue #13's Assets section) above a 3x2 grid (COM1/COM2/XPDR active row,
  *  COM1/COM2/MSG standby row) per screen 1. Tapping a COM active button swaps it with standby
  *  immediately (no dialog); tapping a standby button opens that COM's tuning dialog. */
@@ -183,12 +183,12 @@ private fun AppHeaderRow() {
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(
-            painterResource(R.drawable.ic_handover_mark),
+            painterResource(R.drawable.ic_handoff_mark),
             contentDescription = null,
             tint = colors.textMuted,
             modifier = Modifier.size(18.dp)
         )
-        Text("Handover", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
+        Text("Handoff", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
         Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
         Box(Modifier.weight(1f))
         Text(
@@ -261,6 +261,15 @@ private fun RowScope.FrequencyButton(
  *  size within [availableWidth]. Shared between [FrequencyValueText]'s own line-splitting decision
  *  and TopBar's Mode C badge visibility -- the badge needs to disappear at exactly the same point
  *  the COM values actually go two-line, not at the earlier/coarser isNarrow threshold. */
+// The single-line render otherwise has zero margin at the exact width this flips at --
+// naturalWidth <= availableWidthPx let it stay on one line flush against the button's content
+// edge, close enough that the last digit visually touches/overlaps the button's rounded corner
+// even though it's technically still inside the rectangular content bounds (confirmed on-device:
+// COM1/COM2 at "122.800"/"124.850" read as clipped at exactly this boundary). A few dp of margin
+// on the comparison flips to two-line slightly before that point instead, trading a little extra
+// two-line frequency for guaranteed breathing room on the one-line case.
+private val FrequencySplitSafetyMargin = 4.dp
+
 @Composable
 private fun rememberFrequencyNeedsSplit(
     value: String,
@@ -275,7 +284,9 @@ private fun rememberFrequencyNeedsSplit(
     val naturalWidth = remember(value, fontSize, fontWeight) {
         textMeasurer.measure(value, textStyle).size.width
     }
-    val availableWidthPx = remember(availableWidth, density) { with(density) { availableWidth.roundToPx() } }
+    val availableWidthPx = remember(availableWidth, density) {
+        with(density) { (availableWidth - FrequencySplitSafetyMargin).coerceAtLeast(0.dp).roundToPx() }
+    }
     return dotIndex >= 0 && naturalWidth > availableWidthPx
 }
 

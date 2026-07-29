@@ -19,6 +19,7 @@ namespace Handoff.Plugin
         private NearbyAircraftModel _nearbyAircraft;
         private OperationProgressModel _operationProgress;
         private VatGlassesDataModel _vatGlassesData;
+        private VatSpyDataModel _vatSpyData;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
 
@@ -79,7 +80,11 @@ namespace Handoff.Plugin
             // WebSocket server.
             _vatGlassesData = new VatGlassesDataModel(_operationProgress, _broker.PostDebugMessage);
 
-            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _pilotSession, _vatGlassesData, _broker.PostDebugMessage);
+            // Same disk-cache-only-at-construction shape as VatGlassesDataModel above -- see
+            // VatSpyDataModel's own doc comment (issue #11).
+            _vatSpyData = new VatSpyDataModel(_operationProgress, _broker.PostDebugMessage);
+
+            _controllerRanking = new ControllerRankingModel(_controllerState, _radioState, _flightPlanState, _vatsimDataFeed, _pilotSession, _vatGlassesData, _vatSpyData, _broker.PostDebugMessage);
 
             // Nearby-aircraft events aren't tied to the VATSIM connection either (wiring is just
             // event subscriptions, same as ControllerStateModel/ChatModel) -- IBroker simply
@@ -92,6 +97,9 @@ namespace Handoff.Plugin
             // startup or its VATSIM network handling.
             new Thread(() => _vatGlassesData.SyncAsync().GetAwaiter().GetResult())
             { Name = "VatGlassesDataModel.Startup", IsBackground = true }.Start();
+
+            new Thread(() => _vatSpyData.SyncAsync().GetAwaiter().GetResult())
+            { Name = "VatSpyDataModel.Startup", IsBackground = true }.Start();
 
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status

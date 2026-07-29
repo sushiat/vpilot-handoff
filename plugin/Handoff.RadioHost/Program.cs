@@ -140,6 +140,14 @@ namespace Handoff.RadioHost
                         case RadioIpcMessage.TypeSetCom2StandbyFrequency:
                             if (message.Megahertz.HasValue) radio.SetCom2StandbyFrequency(message.Megahertz.Value);
                             break;
+                        case RadioIpcMessage.TypeSetCom1ActiveAndStandbyFrequency:
+                            if (message.Megahertz.HasValue && message.StandbyMegahertz.HasValue)
+                                radio.SetCom1ActiveAndStandbyFrequency(message.Megahertz.Value, message.StandbyMegahertz.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetCom2ActiveAndStandbyFrequency:
+                            if (message.Megahertz.HasValue && message.StandbyMegahertz.HasValue)
+                                radio.SetCom2ActiveAndStandbyFrequency(message.Megahertz.Value, message.StandbyMegahertz.Value);
+                            break;
                         case RadioIpcMessage.TypeSetTransponderCode:
                             if (message.TransponderCode.HasValue) radio.SetTransponderCode(message.TransponderCode.Value);
                             break;

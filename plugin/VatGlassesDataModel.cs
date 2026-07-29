@@ -93,6 +93,7 @@ namespace Handoff.Plugin
 
             if (latestSha == null)
             {
+                Log("Update check failed -- using cached data.");
                 _operationProgress.Finish(operationId, "VatGlasses update check failed -- using cached data.", success: false);
                 return;
             }
@@ -100,6 +101,7 @@ namespace Handoff.Plugin
             var cachedSha = ReadCachedSha();
             if (cachedSha != null && string.Equals(cachedSha, latestSha, StringComparison.Ordinal))
             {
+                Log("Data up to date (commit " + latestSha + ").");
                 _operationProgress.Finish(operationId, "VatGlasses data up to date");
                 return;
             }
@@ -117,6 +119,7 @@ namespace Handoff.Plugin
 
             if (files == null || files.Count == 0)
             {
+                Log("File listing failed -- using cached data.");
                 _operationProgress.Finish(operationId, "VatGlasses file listing failed -- using cached data.", success: false);
                 return;
             }
@@ -180,10 +183,12 @@ namespace Handoff.Plugin
             if (succeededCount == files.Count)
             {
                 WriteShaMarker(latestSha);
+                Log($"Data updated ({succeededCount}/{files.Count} files, commit {latestSha}).");
                 _operationProgress.Finish(operationId, "VatGlasses data updated");
             }
             else
             {
+                Log($"Sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.");
                 _operationProgress.Finish(operationId, $"VatGlasses sync incomplete ({succeededCount}/{files.Count} files) -- will retry next startup.", success: false);
             }
         }

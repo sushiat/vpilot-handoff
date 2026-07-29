@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -448,25 +452,33 @@ private fun ControllerRow(
                     FrequencyText(Modifier.padding(top = if (badges.isEmpty()) 0.dp else 6.dp))
                 }
             }
-        }
 
-        // Always shows full detail regardless of what the row itself had to hide for space --
-        // nothing is truly lost to the width-based overflow above, just relocated here.
-        ControllerTuneMenu(
-            expanded = menuOpen,
-            onDismiss = { menuOpen = false },
-            callsign = controller.callsign,
-            frequencyLabel = RadioFrequency.format(controller.frequency),
-            stationName = suffixName,
-            realNameOrCid = realNameOrCid,
-            ratingLabel = ratingLabel,
-            showDismissSelcal = controller.isSelcalActive,
-            onTuneCom1Active = { menuOpen = false; onTuneCom1Active() },
-            onTuneCom2Active = { menuOpen = false; onTuneCom2Active() },
-            onTuneCom1Standby = { menuOpen = false; onTuneCom1Standby() },
-            onTuneCom2Standby = { menuOpen = false; onTuneCom2Standby() },
-            onDismissSelcal = { menuOpen = false; onDismissSelcal() }
-        )
+            // Always shows full detail regardless of what the row itself had to hide for space --
+            // nothing is truly lost to the width-based overflow above, just relocated here.
+            // Nested inside BoxWithConstraints (not a sibling in the outer Box) purely to read
+            // maxWidth -- DropdownMenu is a Popup under the hood, so it's not actually laid out
+            // within these bounds, just capped to no wider than the row it opened from.
+            ControllerTuneMenu(
+                expanded = menuOpen,
+                onDismiss = { menuOpen = false },
+                callsign = controller.callsign,
+                frequencyLabel = RadioFrequency.format(controller.frequency),
+                stationName = suffixName,
+                realNameOrCid = realNameOrCid,
+                ratingLabel = ratingLabel,
+                textAtis = controller.textAtis,
+                rowBackground = rowColors.background,
+                rowBorder = rowColors.border,
+                rowText = rowColors.text,
+                rowWidth = maxWidth,
+                showDismissSelcal = controller.isSelcalActive,
+                onTuneCom1Active = { menuOpen = false; onTuneCom1Active() },
+                onTuneCom2Active = { menuOpen = false; onTuneCom2Active() },
+                onTuneCom1Standby = { menuOpen = false; onTuneCom1Standby() },
+                onTuneCom2Standby = { menuOpen = false; onTuneCom2Standby() },
+                onDismissSelcal = { menuOpen = false; onDismissSelcal() }
+            )
+        }
     }
 }
 
@@ -507,10 +519,16 @@ private fun RatingBadge(label: String, contentColor: Color, background: Color) {
     }
 }
 
-/** The floating popover opened by tapping anywhere on a row except its icon buttons -- a 2x2
- *  COM1/COM2/STBY/STBY tune grid, plus a Dismiss SELCAL button when this row has an active,
- *  undismissed alert. Built on material3's DropdownMenu for free anchoring/outside-tap-dismiss;
- *  its content is fully custom-styled rather than using DropdownMenuItem's default look. */
+// Overall cap on ControllerTuneMenu's height -- generous enough that header/detail/grid/ATIS
+// never hit it on a typical tablet screen, but present so the dialog degrades to an internal
+// scroll instead of an unreachable clip if it ever does (see ControllerTuneMenu's own comment).
+private val MaxDialogHeight = 480.dp
+
+/** The floating popover opened by tapping anywhere on a row except its icon buttons -- a
+ *  COM1/COM2/STBY/STBY tune grid, an ATIS text panel when this controller has one, and a Dismiss
+ *  SELCAL button when this row has an active, undismissed alert. Built on material3's
+ *  DropdownMenu for free anchoring/outside-tap-dismiss; its content is fully custom-styled rather
+ *  than using DropdownMenuItem's default look. */
 @Composable
 private fun ControllerTuneMenu(
     expanded: Boolean,
@@ -520,6 +538,21 @@ private fun ControllerTuneMenu(
     stationName: String?,
     realNameOrCid: String?,
     ratingLabel: String?,
+    textAtis: List<String>?,
+    // The row's own (non-flashing "phase A") background/border/text -- reusing
+    // controllerRowColors' output rather than re-deriving anything here, so this stays correct
+    // if/when facility colors become user-themeable (that all flows through HandoffColors/
+    // FacilityColors already; this composable never touches a hue/lightness value directly).
+    // Deliberately the stable base colors, not whatever the row is live-flashing between --
+    // a flashing dialog background would fight the pilot's focus on the buttons/ATIS text they
+    // opened this for.
+    rowBackground: Color,
+    rowBorder: Color,
+    rowText: Color,
+    // The row card's own measured width (BoxWithConstraints.maxWidth from ControllerRow) -- caps
+    // the popover so it never reads as wider than the row it opened from, while still capping at
+    // TargetMaxWidth on a wide/fullscreen layout rather than growing unbounded.
+    rowWidth: Dp,
     showDismissSelcal: Boolean,
     onTuneCom1Active: () -> Unit,
     onTuneCom2Active: () -> Unit,
@@ -528,13 +561,53 @@ private fun ControllerTuneMenu(
     onDismissSelcal: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        Column(Modifier.widthIn(min = 220.dp).padding(12.dp)) {
+    // Grid switches from 2x2 (COM1/COM2 then STBY/STBY) to a single 4-column row (COM1, STBY,
+    // COM2, STBY) whenever the ATIS text has a long line -- a 2x2 grid stacked above tall ATIS
+    // text would push it further down/require more scrolling than trading grid rows for the
+    // extra popover width is worth. The design's reference markup fixes the popover at a single
+    // width in both cases (not the 220->280dp width toggle its own prose describes) -- the markup
+    // is authoritative here, so width stays constant and only the grid's row/column split changes.
+    // Widened from the design's 280dp to a 300dp target, and every font size in this dialog
+    // bumped +2sp, per the user's real-device readability call -- verified against a live
+    // screenshot at the user's actual (narrow) split-screen ratio to confirm 300dp still clears
+    // the app window's right edge with margin to spare; a full +30dp (310dp) would have landed
+    // flush against it. Capped at the row's own width, not just a flat 300dp -- a popover visibly
+    // wider than the row it opened from read as misaligned; this way it only ever matches or
+    // narrows from the row's width, never overhangs it.
+    val hasAtis = !textAtis.isNullOrEmpty()
+    val wideGrid = hasAtis && textAtis!!.any { it.length > 30 }
+    val width = minOf(300.dp, rowWidth)
+    // A muted variant of the row's own text color for secondary lines (header/detail/ATIS) --
+    // same "copy the foreground, don't reach for an unrelated muted token" approach as the row
+    // itself uses for its real-name/CID line (ControllerRow: text.copy(alpha = 0.75f)).
+    val mutedRowText = rowText.copy(alpha = 0.75f)
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(14.dp),
+        containerColor = rowBackground,
+        border = androidx.compose.foundation.BorderStroke(1.dp, rowBorder)
+    ) {
+        // The whole dialog scrolls as one unit, capped at MaxDialogHeight -- previously only the
+        // ATIS text had its own 120dp scroll area, with no height cap on the dialog as a whole.
+        // That worked fine at the design's fixed width, but once the popover started narrowing to
+        // match a narrow row (see rowWidth above), each ATIS line wraps across more visual lines,
+        // growing the whole assembly's natural height past what the Popup had room for near the
+        // screen edge -- and since only the ATIS sub-section was scrollable, the excess (the last
+        // line or two) was silently clipped with no way to reach it, not gracefully scrolled.
+        Column(
+            Modifier
+                .width(width)
+                .heightIn(max = MaxDialogHeight)
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp)
+        ) {
             Text(
                 "$callsign · $frequencyLabel",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.textMuted
+                color = mutedRowText
             )
             // Always shown in full here regardless of what the row itself had to hide for width
             // -- the popover isn't space-constrained the way the row is, so there's no need to
@@ -543,21 +616,27 @@ private fun ControllerTuneMenu(
             if (detailLine.isNotEmpty()) {
                 Text(
                     detailLine,
-                    fontSize = 11.sp,
-                    color = colors.textMuted.copy(alpha = 0.8f),
+                    fontSize = 13.sp,
+                    color = mutedRowText.copy(alpha = mutedRowText.alpha * 0.8f),
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active)
-                TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active)
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby)
-                TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby)
+            if (wideGrid) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby, verticalPadding = 12.dp)
+                    TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby, verticalPadding = 12.dp)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TuneMenuButton("COM1", Modifier.weight(1f), onTuneCom1Active, verticalPadding = 12.dp)
+                    TuneMenuButton("COM2", Modifier.weight(1f), onTuneCom2Active, verticalPadding = 12.dp)
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom1Standby, verticalPadding = 12.dp)
+                    TuneMenuButton("STBY", Modifier.weight(1f), onTuneCom2Standby, verticalPadding = 12.dp)
+                }
             }
             if (showDismissSelcal) {
                 TuneMenuButton(
@@ -567,6 +646,24 @@ private fun ControllerTuneMenu(
                     background = colors.attentionBg,
                     contentColor = colors.attention
                 )
+            }
+            if (hasAtis) {
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(rowBorder))
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    textAtis!!.forEach { line ->
+                        Text(
+                            line,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 20.3.sp,
+                            color = mutedRowText
+                        )
+                    }
+                }
             }
         }
     }
@@ -578,20 +675,21 @@ private fun TuneMenuButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     background: androidx.compose.ui.graphics.Color? = null,
-    contentColor: androidx.compose.ui.graphics.Color? = null
+    contentColor: androidx.compose.ui.graphics.Color? = null,
+    verticalPadding: Dp = 10.dp
 ) {
     val colors = LocalHandoffColors.current
     Box(
         modifier
             .background(background ?: colors.panelAlt, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(vertical = verticalPadding),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
             color = contentColor ?: colors.text
         )
     }

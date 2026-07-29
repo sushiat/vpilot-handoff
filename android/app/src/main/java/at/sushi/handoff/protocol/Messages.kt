@@ -22,10 +22,15 @@ data class Controller(
     val name: String? = null,
     val facility: Int? = null,
     val rating: Int? = null,
-    // VatSpy-sourced facility/airport display name (e.g. "Heathrow Tower") -- always null until
-    // that integration exists on the plugin side. Falls back to facilitySuffixName(callsign)
-    // client-side until then; see docs/protocol.md.
+    // Facility/airport display name (e.g. "Heathrow Tower"), plugin-composed from the
+    // controller's own ATIS text or vatspy-data-project (docs/protocol.md, docs/controller-
+    // ranking.md). Null whenever neither source yields anything confident -- falls back to
+    // facilitySuffixName(callsign) client-side in that case.
     val stationName: String? = null,
+    // Raw ATIS/info lines, unprocessed (VATSIM data feed's "text_atis") -- stationName above is
+    // a derived summary of just the first line; this is the full text for the tune-menu's ATIS
+    // panel. Null when the controller hasn't set one or the feed omits it for this callsign.
+    val textAtis: List<String>? = null,
     // Priority-ranking flags -- see docs/protocol.md and docs/controller-ranking.md. All
     // server-authoritative: the client never re-derives one of these from other data it happens
     // to have (e.g. comparing frequency against radioState's standby fields) -- issue #18.
@@ -236,6 +241,31 @@ data class SetCom2StandbyFrequencyCommand(
     val megahertz: Double
 ) : ClientCommand {
     override fun encode() = json.encodeToString(SetCom2StandbyFrequencyCommand.serializer(), this)
+}
+
+/** Combined active+standby write in one round trip -- e.g. a "transfer" (activate a just-tuned
+ *  frequency while preserving whatever was previously active into standby, matching real
+ *  flip-flop avionics like the G3000 GTC's XFER key) or a plain swap. Prefer this over sending
+ *  separate SetComXFrequencyCommand/SetComXStandbyFrequencyCommand calls for that kind of
+ *  paired update -- the plugin queues and settle-waits each command independently, so two
+ *  separate commands land the writes over a second apart even though the underlying SimConnect
+ *  events are near-instant. */
+@Serializable
+data class SetCom1ActiveAndStandbyFrequencyCommand(
+    val type: String = "setCom1ActiveAndStandbyFrequency",
+    val megahertz: Double,
+    val standbyMegahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom1ActiveAndStandbyFrequencyCommand.serializer(), this)
+}
+
+@Serializable
+data class SetCom2ActiveAndStandbyFrequencyCommand(
+    val type: String = "setCom2ActiveAndStandbyFrequency",
+    val megahertz: Double,
+    val standbyMegahertz: Double
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom2ActiveAndStandbyFrequencyCommand.serializer(), this)
 }
 
 @Serializable

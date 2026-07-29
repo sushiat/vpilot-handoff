@@ -33,7 +33,23 @@ class MessagesTest {
         assertEquals(false, controller.isPinned)
         assertEquals(false, controller.isStandbyTuned)
         assertEquals(false, controller.isSelcalActive)
+        assertNull(controller.stationName)
+        assertNull(controller.textAtis)
         assertNull(message.etaMinutes)
+    }
+
+    @Test
+    fun decodesControllersMessage_StationNameAndTextAtis() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
+               "stationName":"Heathrow Tower","textAtis":["Heathrow Tower","Submit feedback at vats.im/atcfb"]}
+            ]}
+        """.trimIndent()
+
+        val controller = (decodeServerMessage(json) as ControllersMessage).controllers.single()
+        assertEquals("Heathrow Tower", controller.stationName)
+        assertEquals(listOf("Heathrow Tower", "Submit feedback at vats.im/atcfb"), controller.textAtis)
     }
 
     @Test
@@ -238,6 +254,18 @@ class MessagesTest {
     fun encodesSetCom2StandbyFrequencyCommand() {
         val json = SetCom2StandbyFrequencyCommand(megahertz = 121.9).encode()
         assertEquals("""{"type":"setCom2StandbyFrequency","megahertz":121.9}""", json)
+    }
+
+    @Test
+    fun encodesSetCom1ActiveAndStandbyFrequencyCommand() {
+        val json = SetCom1ActiveAndStandbyFrequencyCommand(megahertz = 123.725, standbyMegahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom1ActiveAndStandbyFrequency","megahertz":123.725,"standbyMegahertz":121.9}""", json)
+    }
+
+    @Test
+    fun encodesSetCom2ActiveAndStandbyFrequencyCommand() {
+        val json = SetCom2ActiveAndStandbyFrequencyCommand(megahertz = 118.3, standbyMegahertz = 121.9).encode()
+        assertEquals("""{"type":"setCom2ActiveAndStandbyFrequency","megahertz":118.3,"standbyMegahertz":121.9}""", json)
     }
 
     @Test

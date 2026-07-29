@@ -65,7 +65,8 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "name": "John Smith",
       "facility": 4,
       "rating": 5,
-      "stationName": null,
+      "stationName": "Heathrow Tower",
+      "textAtis": ["Heathrow Tower", "INITIAL CLIMB AS CHARTED chartfox.org/EGKK", "Submit feedback at vats.im/atcfb"],
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
@@ -85,10 +86,22 @@ doesn't expose them) and are `null` until that feed's ~15s-lagged enrichment sol
 given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP, 6=CTR`);
 `rating` is display-only, never used in ranking.
 
-`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`),
-expected to be VatSpy-sourced -- see issue #13. Always `null` for now; no VatSpy integration
-exists yet. Until it's populated, clients should keep parsing just the facility-suffix word
-from the callsign (Tower/Ground/Delivery/etc.), not depend on this field being non-null.
+`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`). Two
+sources, in preference order (issue #11): the controller's own live ATIS/info text (the public
+VATSIM data feed's `text_atis`) when it parses cleanly into a name (`VatAtisStationNameExtractor`
+-- the controller's own live self-description, preferred when present and confidently parsed),
+else a name composed from vatspy-data-project's FIR/airport names plus a small
+suffix-by-tier-and-region table (`VatSpyStationNaming.ComposeDisplayName`) -- see
+docs/controller-ranking.md's "vatspy station names and FIR-polygon fallback" section. `null`
+whenever neither source yields anything confident -- clients should keep the callsign-suffix
+parsing fallback (Tower/Ground/Delivery/etc.) for those cases rather than assuming this field is
+always populated.
+
+`textAtis` is the controller's raw ATIS/info lines, unprocessed (the VATSIM data feed's own
+`text_atis` array, multi-line) -- `stationName` above is a derived summary of just its first
+line; this is the full text for richer client UI to show later (e.g. a COM-tune-menu detail
+panel -- not yet built on the Android side as of this field's addition). `null` whenever the
+controller hasn't set one or the feed omits the field for that callsign.
 
 Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
 order received and never re-sort or re-tag client-side. Every flag below is computed and sent
@@ -375,6 +388,29 @@ knob turn and are honored.
 {"type": "setCom2Frequency", "megahertz": 118.3}
 {"type": "setCom1StandbyFrequency", "megahertz": 121.9}
 {"type": "setCom2StandbyFrequency", "megahertz": 121.9}
+```
+
+### `setCom1ActiveAndStandbyFrequency` / `setCom2ActiveAndStandbyFrequency`
+
+Sets active and standby together as one round trip -- e.g. a "transfer" (activate a just-typed
+frequency while preserving whatever was previously active into standby, matching real
+flip-flop avionics like the Garmin G3000 GTC's XFER key -- entry always lands in standby first,
+and "activate" is that standby write plus a transfer swap, never a bare overwrite of active) or
+a plain COM1/COM2 active↔standby swap. `megahertz` is the new active frequency,
+`standbyMegahertz` the new standby frequency; both plain decimal MHz, same range/validation as
+the single-field commands above.
+
+Prefer this over sending two separate `setComXFrequency`/`setComXStandbyFrequency` commands for
+this kind of paired update: the plugin forwards each command to `Handoff.RadioHost` as an
+independent queued operation, and each one blocks that queue for its own ~1.1s SimConnect
+settle-wait before the next command is even dequeued -- two separate commands land the two
+writes over a second apart, even though the underlying SimConnect events themselves are
+near-instant. This command transmits both events back-to-back with a single settle-wait,
+landing them together.
+
+```json
+{"type": "setCom1ActiveAndStandbyFrequency", "megahertz": 123.725, "standbyMegahertz": 121.9}
+{"type": "setCom2ActiveAndStandbyFrequency", "megahertz": 118.3, "standbyMegahertz": 121.9}
 ```
 
 ### `setTransponderCode`

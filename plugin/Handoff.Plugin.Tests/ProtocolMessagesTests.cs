@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -49,6 +50,40 @@ namespace Handoff.Plugin.Tests
             Assert.False((bool)controller["isStandbyTuned"]);
             Assert.False((bool)controller["isSelcalActive"]);
             Assert.Equal(JTokenType.Null, controller["stationName"].Type);
+            Assert.Equal(JTokenType.Null, controller["textAtis"].Type);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_TextAtis_SerializedAsArray()
+        {
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_TWR", 23725, 51.4775, -0.4614, 1234567, "John Smith", 4, 5,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    stationName: "Heathrow Tower",
+                    textAtis: new[] { "Heathrow Tower", "Submit feedback at vats.im/atcfb" })
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+            var textAtis = (JArray)json["controllers"][0]["textAtis"];
+
+            Assert.Equal(new[] { "Heathrow Tower", "Submit feedback at vats.im/atcfb" }, textAtis.Select(t => (string)t));
+        }
+
+        [Fact]
+        public void RankedController_EmptyTextAtisArray_NormalizesToNull()
+        {
+            var controller = new RankedController(
+                "EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null,
+                requestsContactMe: false, isCurrent: false, isContactMe: false,
+                isHighlighted: false, isNext: false, isLikelyNext: false,
+                isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                textAtis: new List<string>());
+
+            Assert.Null(controller.TextAtis);
         }
 
         [Fact]
@@ -371,6 +406,26 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal(ClientCommand.TypeSetCom2StandbyFrequency, command.Type);
             Assert.Equal(121.9, command.Megahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom1ActiveAndStandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom1ActiveAndStandbyFrequency\",\"megahertz\":123.725,\"standbyMegahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom1ActiveAndStandbyFrequency, command.Type);
+            Assert.Equal(123.725, command.Megahertz);
+            Assert.Equal(121.9, command.StandbyMegahertz);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom2ActiveAndStandbyFrequency()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom2ActiveAndStandbyFrequency\",\"megahertz\":118.3,\"standbyMegahertz\":121.9}");
+
+            Assert.Equal(ClientCommand.TypeSetCom2ActiveAndStandbyFrequency, command.Type);
+            Assert.Equal(118.3, command.Megahertz);
+            Assert.Equal(121.9, command.StandbyMegahertz);
         }
 
         [Fact]

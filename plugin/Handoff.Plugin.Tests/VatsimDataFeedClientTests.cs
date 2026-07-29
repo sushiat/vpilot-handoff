@@ -66,6 +66,30 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseControllers_ParsesTextAtis_MultiLine()
+        {
+            var json = @"{
+                ""controllers"": [
+                    {""callsign"": ""EGLL_TWR"", ""cid"": 1, ""facility"": 4, ""text_atis"": [""Heathrow Tower"", ""Submit feedback at vats.im/atcfb""]}
+                ]
+            }";
+
+            var controller = VatsimDataFeedClient.ParseControllers(json).Single();
+
+            Assert.Equal(new[] { "Heathrow Tower", "Submit feedback at vats.im/atcfb" }, controller.TextAtis);
+        }
+
+        [Fact]
+        public void ParseControllers_MissingTextAtis_IsEmptyNotNull()
+        {
+            var json = @"{""controllers"": [{""callsign"": ""EGLL_TWR"", ""cid"": 1, ""facility"": 4}]}";
+
+            var controller = VatsimDataFeedClient.ParseControllers(json).Single();
+
+            Assert.Empty(controller.TextAtis);
+        }
+
+        [Fact]
         public void ParsePilots_ParsesFiledFlightPlan()
         {
             var json = @"{

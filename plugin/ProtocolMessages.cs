@@ -37,6 +37,7 @@ namespace Handoff.Plugin
                     facility = c.Facility,
                     rating = c.Rating,
                     stationName = c.StationName,
+                    textAtis = c.TextAtis,
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,

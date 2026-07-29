@@ -14,6 +14,14 @@ namespace Handoff.Plugin
         public const string TypeSetCom2Frequency = "setCom2Frequency";
         public const string TypeSetCom1StandbyFrequency = "setCom1StandbyFrequency";
         public const string TypeSetCom2StandbyFrequency = "setCom2StandbyFrequency";
+        // Combined active+standby write in one round trip -- e.g. a "transfer" (activate a
+        // just-tuned frequency while preserving whatever was previously active into standby,
+        // matching real flip-flop avionics like the G3000 GTC's XFER key) or a plain swap.
+        // Avoids the visible ~1s+ gap of sending two separate setComXFrequency/
+        // setComXStandbyFrequency commands, each queued and settle-waited independently on
+        // Handoff.RadioHost's side -- see RadioStateModel.SetCom1ActiveAndStandbyFrequency.
+        public const string TypeSetCom1ActiveAndStandbyFrequency = "setCom1ActiveAndStandbyFrequency";
+        public const string TypeSetCom2ActiveAndStandbyFrequency = "setCom2ActiveAndStandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
         public const string TypeSetSimbriefCredentials = "setSimbriefCredentials";
         public const string TypeRefreshFlightPlan = "refreshFlightPlan";
@@ -40,7 +48,12 @@ namespace Handoff.Plugin
         // setCom1Frequency / setCom2Frequency / setCom1StandbyFrequency /
         // setCom2StandbyFrequency -- plain MHz, not the compressed-integer format used
         // everywhere else in the protocol (see docs/protocol.md for why).
+        // setCom1ActiveAndStandbyFrequency / setCom2ActiveAndStandbyFrequency -- Megahertz is
+        // the new active frequency; StandbyMegahertz (below) the new standby frequency.
         public double? Megahertz { get; set; }
+
+        // setCom1ActiveAndStandbyFrequency / setCom2ActiveAndStandbyFrequency only.
+        public double? StandbyMegahertz { get; set; }
 
         // setTransponderCode -- plain decimal squawk (e.g. 1200), not BCD.
         public int? TransponderCode { get; set; }

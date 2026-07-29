@@ -25,6 +25,11 @@ namespace Handoff.Plugin.Tests
         // via CreateVatGlassesDataModel below.
         private readonly VatGlassesDataModel _vatGlassesData = new VatGlassesDataModel(
             new OperationProgressModel(), cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+        // Same "nonexistent cache directory -> stays empty" shape as _vatGlassesData above --
+        // tests that don't care about vatspy geometry/naming exercise the unchanged fallback
+        // path. VatSpy-specific tests build their own model via CreateVatSpyDataModel below.
+        private readonly VatSpyDataModel _vatSpyData = new VatSpyDataModel(
+            new OperationProgressModel(), cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
 
         public ControllerRankingModelTests()
         {
@@ -37,8 +42,8 @@ namespace Handoff.Plugin.Tests
             if (File.Exists(_configPath)) File.Delete(_configPath);
         }
 
-        private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null, VatGlassesDataModel vatGlassesData = null) =>
-            new ControllerRankingModel(_controllerState, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _pilotSession, vatGlassesData ?? _vatGlassesData, now: now);
+        private ControllerRankingModel CreateModel(FlightPlanModel flightPlan = null, Func<DateTimeOffset> now = null, VatGlassesDataModel vatGlassesData = null, VatSpyDataModel vatSpyData = null) =>
+            new ControllerRankingModel(_controllerState, _radio, flightPlan ?? NoOpFlightPlan(), _vatsimFeed, _pilotSession, vatGlassesData ?? _vatGlassesData, vatSpyData ?? _vatSpyData, now: now);
 
         private FlightPlanModel NoOpFlightPlan() =>
             new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
@@ -343,7 +348,7 @@ namespace Handoff.Plugin.Tests
             AddController("EDDF_CTR", 12100);
             AddController("LZIB_CTR", 12200);
 
-            var model = new ControllerRankingModel(_controllerState, _radio, simbriefPlan, vatsimFeed, _pilotSession, _vatGlassesData);
+            var model = new ControllerRankingModel(_controllerState, _radio, simbriefPlan, vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 500, 90, 48.5, 16.9, DateTimeOffset.Now);
             _radio.RaiseChanged();
 
@@ -358,6 +363,19 @@ namespace Handoff.Plugin.Tests
             var snapshot = new VatsimDataFeedSnapshot(
                 new List<VatsimControllerInfo>(),
                 new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
+            var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
+            var raised = new ManualResetEventSlim();
+            feed.Changed += (s, e) => raised.Set();
+            feed.Start();
+            raised.Wait(TimeSpan.FromSeconds(5));
+            return feed;
+        }
+
+        private VatsimDataFeedModel CreateVatsimFeedWithController(string callsign, IReadOnlyList<string> textAtis)
+        {
+            var snapshot = new VatsimDataFeedSnapshot(
+                new List<VatsimControllerInfo> { new VatsimControllerInfo(callsign, 1, "Test Controller", 4, 3, textAtis) },
+                new List<VatsimPilotInfo>());
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
             var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
@@ -903,6 +921,162 @@ namespace Handoff.Plugin.Tests
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
         }
 
+        // ---- Issue #11: vatspy station names and FIR-polygon fallback -----------------------
+
+        [Fact]
+        public void Bucket6d_Ctr_NoVatGlassesCoverage_VatSpyPolygonContainment_HighlightedAndNext()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Center", "TEST"));
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(vatSpyData: vatSpy); // default (empty) _vatGlassesData -- vatspy is the only coverage.
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsHighlighted);
+            Assert.True(ranked.IsNext);
+        }
+
+        [Fact]
+        public void Bucket8a_Ctr_NoVatGlassesCoverage_VatSpySatisfied_HighlightedAndNext()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.5, "TEST"), VatSpyDatWithFir("TEST", "Test Center", "TEST"));
+            AddController("TEST_CTR", 13350, 0, 0);
+            // Airborne, inside the boundary -- vatspy has no altitude band at all, so this is
+            // "satisfied" regardless of altitude/vertical trend.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 38000);
+            var model = CreateModel(vatSpyData: vatSpy);
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsHighlighted);
+            Assert.True(ranked.IsNext);
+        }
+
+        [Fact]
+        public void Bucket8a_Ctr_VatGlassesKnowsController_VatSpyFallbackSkipped_EvenIfVatSpyWouldContain()
+        {
+            // VATGlasses has a sector for TEST_CTR (via matching prefix+tier), but it's centered
+            // far from ownship -- not currently containing it. Vatspy's boundary, meanwhile, DOES
+            // contain ownship. Precedence rule: VATGlasses stays preferred wherever it has *any*
+            // sector data for a controller, so the vatspy fallback must not kick in here even
+            // though it would (on its own) say "contained."
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(50, 50, 0.2, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.5, "TEST"), VatSpyDatWithFir("TEST", "Test Center", "TEST"));
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses, vatSpyData: vatSpy);
+
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
+        public void Bucket6d_Ctr_VatSpyAmbiguousMultipleOnlineControllers_BothLikelyNext()
+        {
+            // Two simultaneously-online CTR positions sharing one FIR's callsign prefix -- same
+            // ambiguity VatGlassesOwnershipResolver.ResolveOnlineControllers already handles for
+            // VATGlasses (issue #17); VatSpyOwnershipResolver must return both, not guess.
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "ESMM"), VatSpyDatWithFir("ESMM", "Sweden Control", "ESMM"));
+            AddController("ESMM_5_CTR", 13350, 0, 0);
+            AddController("ESMM_7_CTR", 13360, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(vatSpyData: vatSpy);
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "ESMM_5_CTR").IsLikelyNext);
+            Assert.True(ranked.Single(c => c.Callsign == "ESMM_7_CTR").IsLikelyNext);
+            Assert.DoesNotContain(ranked, c => c.IsNext);
+        }
+
+        [Fact]
+        public void Bucket9_Ctr_HorizontalContainmentDespiteAltitudeMismatch_OrdersAheadOfCloserUncontainedPeer()
+        {
+            // VATGlasses band is FL0-FL50 (0-5000ft), horizontally centered on and containing
+            // ownship -- but ownship is level at 20000ft, well outside the band and not
+            // converging (no vertical trend), so bucket 8a's altitude-gated "satisfied"/
+            // "converging" checks both miss it entirely; it falls to bucket 9. A second CTR
+            // controller with no polygon coverage at all sits much closer by raw distance. Bucket
+            // 9's horizontal-only containment preference (issue #11) should still sort the
+            // contained-but-out-of-band controller first, ahead of the closer uncontained one.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 50));
+            AddController("TEST_CTR", 13350, 0.2, 0); // inside the box laterally
+            AddController("OTHER_CTR", 13360, 0, 0.01); // ~0.6nm from ownship -- much closer, no polygon coverage
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current.ToList();
+            Assert.False(ranked.Single(c => c.Callsign == "TEST_CTR").IsHighlighted);
+            Assert.False(ranked.Single(c => c.Callsign == "OTHER_CTR").IsHighlighted);
+            var testIndex = ranked.FindIndex(c => c.Callsign == "TEST_CTR");
+            var otherIndex = ranked.FindIndex(c => c.Callsign == "OTHER_CTR");
+            Assert.True(testIndex < otherIndex);
+        }
+
+        [Fact]
+        public void StationName_AtisText_PreferredOverVatSpyComposedName()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Place", "TEST"));
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", new[] { "Custom Radar", "Some boilerplate" });
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, vatSpy);
+
+            Assert.Equal("Custom Radar", model.Current.Single().StationName);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void TextAtis_FlowsThroughToRankedController_Unprocessed()
+        {
+            var lines = new[] { "Custom Radar", "Some boilerplate", "vats.im/feedback" };
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", lines);
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+
+            Assert.Equal(lines, model.Current.Single().TextAtis);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void TextAtis_NoAtisSet_IsNull()
+        {
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.Null(model.Current.Single().TextAtis);
+        }
+
+        [Fact]
+        public void StationName_AtisTextDoesNotParseCleanly_FallsBackToVatSpyComposedName()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Place", "TEST"));
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", new[] { "Welcome to our airspace, enjoy the flight today!" });
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, vatSpy);
+
+            Assert.Equal("Test Place Center", model.Current.Single().StationName);
+            vatsimFeed.Stop();
+        }
+
+        // ---- VatSpy fixture helpers -----------------------------------------------------------
+
+        /// <summary>A square FIR boundary feature (GeoJSON MultiPolygon, plain decimal [lon, lat] pairs) of the given half-width (degrees) centered on (centerLat, centerLon).</summary>
+        private static string VatSpyBoundaryGeoJson(double centerLat, double centerLon, double halfWidthDeg, string boundaryId) => $@"{{
+            ""features"": [
+                {{ ""properties"": {{ ""id"": ""{boundaryId}"" }}, ""geometry"": {{ ""type"": ""MultiPolygon"", ""coordinates"": [[[
+                    [{(centerLon - halfWidthDeg).ToString(CultureInfo.InvariantCulture)}, {(centerLat - halfWidthDeg).ToString(CultureInfo.InvariantCulture)}],
+                    [{(centerLon + halfWidthDeg).ToString(CultureInfo.InvariantCulture)}, {(centerLat - halfWidthDeg).ToString(CultureInfo.InvariantCulture)}],
+                    [{(centerLon + halfWidthDeg).ToString(CultureInfo.InvariantCulture)}, {(centerLat + halfWidthDeg).ToString(CultureInfo.InvariantCulture)}],
+                    [{(centerLon - halfWidthDeg).ToString(CultureInfo.InvariantCulture)}, {(centerLat + halfWidthDeg).ToString(CultureInfo.InvariantCulture)}]
+                ]]] }} }}
+            ]
+        }}";
+
+        /// <summary>A minimal VATSpy.dat with a single `[FIRs]` row -- no `[Countries]`/`[Airports]` needed for the ranking-fallback tests above (only the naming tests care about those).</summary>
+        private static string VatSpyDatWithFir(string boundaryId, string name, string callsignPrefix) =>
+            $"[FIRs]\n{boundaryId}|{name}|{callsignPrefix}|{boundaryId}\n";
+
         // ---- VATGlasses fixture helpers ------------------------------------------------------
 
         /// <summary>Converts a decimal-degree coordinate to VATGlasses' fixed-width DMS string format (see DmsCoordinate) -- avoids hand-computing DMS strings for every fixture point.</summary>
@@ -992,6 +1166,21 @@ namespace Handoff.Plugin.Tests
                 fetchLatestSha: () => Task.FromResult("sha1"),
                 listFiles: () => Task.FromResult<IReadOnlyList<VatGlassesDataFile>>(new List<VatGlassesDataFile> { new VatGlassesDataFile("test.json", "http://test/test.json") }),
                 fetchFile: url => Task.FromResult(regionJson));
+            await model.SyncAsync();
+            return model;
+        }
+
+        private static VatSpyDataModel CreateVatSpyDataModel(string boundariesJson, string vatSpyDat) =>
+            CreateVatSpyDataModelAsync(boundariesJson, vatSpyDat).GetAwaiter().GetResult();
+
+        private static async Task<VatSpyDataModel> CreateVatSpyDataModelAsync(string boundariesJson, string vatSpyDat)
+        {
+            var model = new VatSpyDataModel(
+                new OperationProgressModel(),
+                cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
+                fetchLatestSha: () => Task.FromResult("sha1"),
+                fetchBoundariesJson: () => Task.FromResult(boundariesJson),
+                fetchVatSpyDat: () => Task.FromResult(vatSpyDat));
             await model.SyncAsync();
             return model;
         }

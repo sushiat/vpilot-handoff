@@ -3,8 +3,9 @@
 `ControllerRankingModel` (see its own class doc-comment for the full tiebreak stack) exposes six
 booleans on each `RankedController`. This doc is the detailed reference for what sets each one --
 kept out of the class doc-comment itself since the full table is long. See issue #8 for the
-original tier-chain/route-match/distance design and issue #9 for the VATGlasses sector/boundary
-geometry that upgrades several of these rows.
+original tier-chain/route-match/distance design, issue #9 for the VATGlasses sector/boundary
+geometry that upgrades several of these rows, and issue #11 for the vatspy-data-project station
+names and coarser CTR-only FIR-polygon fallback layered on top of VATGlasses.
 
 ## Design principle: `IsHighlighted` vs `IsNext` vs `IsLikelyNext`
 
@@ -55,16 +56,16 @@ order" below, still stale/pending for buckets 6-8.
 | 6a | `IsHighlighted` | any (incl. ATIS/`Other`) | Callsign ICAO-prefix-matches the flight plan's origin, destination, or alternate | Checked first, before any range/polygon rule below -- unconditional the moment the station is online (visible in `IBroker`), regardless of distance or geometry. Subsumes the old ATIS-only highlight rule entirely -- ATIS gets highlighted through this same row now, no dedicated rule needed. ATIS has no equivalent to 6b-6d (no radius/polygon fallback -- an unrelated nearby airport's ATIS isn't worth highlighting) and never participates in 6e (`Other` tier is always skipped by the chain-walk, same as today). |
 | 6b | `IsHighlighted` | DEL/GND/TWR | Not on flight plan: VATGlasses polygon containment where available, else within 5nm | 5nm comfortably covers even the world's largest airport by land area (King Fahd International, ~780km<sup>2</sup>) -- its actual runway/taxiway complex is only a few km across, the rest is empty buffer land. |
 | 6c | `IsHighlighted` | APP | Not on flight plan: VATGlasses polygon containment where available, else within 20nm flat (vertical ignored entirely) | |
-| 6d | `IsHighlighted` | CTR | Not on flight plan: horizontal-only polygon containment, no radius fallback at all -- vertical band ignored entirely | Real-world VATSIM top-down coverage means an online enroute Center covers straight to the ground for anything inside its lateral boundary, regardless of the nominal FL its data lists as a floor (that FL shows up in the controller's own info string, not as a hard boundary on responsibility). No polygon data for a given CTR -- neither `IsHighlighted` nor `IsNext`/`IsLikelyNext`, full stop; a distance guess for CTR is exactly the kind of unreliable heuristic already rejected pre-issue-#9, worse still without any polygon at all. |
+| 6d | `IsHighlighted` | CTR | Not on flight plan: horizontal-only polygon containment -- VATGlasses sector where available, else a vatspy FIR polygon (issue #11), no radius fallback at all -- vertical band ignored entirely either way | Real-world VATSIM top-down coverage means an online enroute Center covers straight to the ground for anything inside its lateral boundary, regardless of the nominal FL its data lists as a floor (that FL shows up in the controller's own info string, not as a hard boundary on responsibility). VATGlasses stays strictly preferred wherever it has coverage (finer-grained, sub-sector-aware); vatspy is only consulted for a controller VATGlasses has no sector data for at all. No polygon data from *either* source for a given CTR -- neither `IsHighlighted` nor `IsNext`/`IsLikelyNext`, full stop; a distance guess for CTR is exactly the kind of unreliable heuristic already rejected pre-issue-#9, worse still without any polygon at all. See "vatspy station names and FIR-polygon fallback" below. |
 | 6e | `IsNext` / `IsLikelyNext` | DEL/GND/TWR/APP/CTR | Chain-walk from whatever's tuned on COM1, over only the set of stations that qualified for `IsHighlighted` above (6a-6d) -- first qualifying tier above current tier wins | A tier already passed (e.g. DEL once tuned to GND) drops out of `IsNext`/`IsLikelyNext` but stays `IsHighlighted` (still useful for e.g. a re-clearance). Within the winning tier: exactly one qualifying candidate online -- confident `IsNext`. More than one genuinely tied candidate simultaneously online (e.g. identical control-zone polygon shared by per-runway TWR pairs; or differently-owned overlapping CTR sectors) -- all of them get `IsLikelyNext` instead of a single arbitrary pick. Resolves to one via elimination (only one of the tied set is actually online) -- confident `IsNext`, no longer ambiguous. Among multiple simultaneously-online `IsLikelyNext` CTR candidates, lowest `max` altitude is the tentative display-order preference (unverified against a real differently-owned-overlap example yet -- see project memory). |
 | 7a | `IsHighlighted` | TWR | Airborne (mutually exclusive with bucket 6 -- 6 applies on the ground, AGL<50ft; 7 applies once airborne) AND AGL<10000ft: within 20nm if on flight plan (origin/destination/alternate), else within 10nm | |
 | 7b | `IsHighlighted` | APP/DEP | Airborne AND below the ceiling (the sector's own published upper FL + 5000ft where VATGlasses defines one, else a flat FL290 fallback -- no lower bound at all): distance to the sector polygon (where VATGlasses coverage exists) or straight-line distance to the station otherwise, <=30nm -- same radius regardless of flight-plan status | Unlike 6c, no polygon-vs-radius branching by coverage changes the threshold -- 30nm applies either way, polygon distance is just a more precise measurement of it where available. The ceiling is deliberately not a single flat FL: a real gap hit on departure (Tower handed off to APP early, clear of conflict, before being within APP's nominal lower band) is what ruled out a lower bound entirely, and per-sector data is preferred over the flat fallback where VATGlasses actually publishes an upper FL for that controller's own sector. |
 | 7c | `IsNext` / `IsLikelyNext` | TWR | Confident `IsNext` within the inner radius (10nm if on flight plan, 5nm if not) | Same tie rule as 6e: more than one TWR simultaneously within its inner radius -- all get `IsLikelyNext` instead of an arbitrary pick. |
 | 7c | `IsNext` / `IsLikelyNext` | APP/DEP | Only when actually converging/"entering" the sector (route/heading-projected prediction, not merely within the 7b highlight radius) | Confident `IsNext` only if on the flight plan AND exactly one entering candidate. `IsLikelyNext` otherwise -- either because not on the flight plan at all (route-relevance is uncertain even if geometrically unambiguous, e.g. an unplanned diversion into LOWW's airspace with LOWW not an actual alternate -- capped at `IsLikelyNext` even with only one entering candidate), or because multiple simultaneously-entering candidates exist regardless of flight-plan status (e.g. LOWW_APP and LZIB_APP both plausible depending on approach direction). |
-| 8a | `IsHighlighted` | CTR | Airborne: route/heading-projected lateral convergence (150nm route-projected preferred, 100nm heading-ray-cast fallback when no route loaded, same as before) AND vertical -- either *satisfied* (ownship's altitude is already within the sector's band, regardless of level/climbing/descending -- no margin, no trend needed) or *converging* (sustained climb/descent trend, vertical speed >=500fpm for >=5s, same `VerticalTrendThresholdFpm`/`VerticalTrendSustainWindow` as before, bringing ownship within 5000ft of the band edge it's headed toward -- widened from the old 2000ft, since a fast-climbing/descending bizjet can close that gap quickly) | No VATGlasses (or VatSpy) geometry for a given CTR -- stays unmarked entirely, same principle as 6d (known gap, accepted for now). CTR is a more relaxed phase of flight than TWR/APP -- a real handoff is normally either an explicit pass from the previous controller or a contact-me, so this prediction is a nice-to-know, not the critical signal the tighter TWR/APP buckets are. The margin only matters for the converging case -- level flight already inside the band needs no margin at all, it's just already there. |
+| 8a | `IsHighlighted` | CTR | Airborne: route/heading-projected lateral convergence (150nm route-projected preferred, 100nm heading-ray-cast fallback when no route loaded, same as before) AND vertical -- either *satisfied* (ownship's altitude is already within the sector's band, regardless of level/climbing/descending -- no margin, no trend needed) or *converging* (sustained climb/descent trend, vertical speed >=500fpm for >=5s, same `VerticalTrendThresholdFpm`/`VerticalTrendSustainWindow` as before, bringing ownship within 5000ft of the band edge it's headed toward -- widened from the old 2000ft, since a fast-climbing/descending bizjet can close that gap quickly) | Same VATGlasses-preferred, vatspy-fallback chain as 6d (issue #11) -- a controller VATGlasses has no sector for at all can still qualify via a vatspy FIR polygon, "satisfied" (already inside) or "converging" (route/heading entering it). Vertical is trivially satisfied for a vatspy match -- there's no band to check against at all, same top-down-coverage reasoning as 6d. Only when *neither* source has geometry for a given CTR does it stay unmarked entirely. CTR is a more relaxed phase of flight than TWR/APP -- a real handoff is normally either an explicit pass from the previous controller or a contact-me, so this prediction is a nice-to-know, not the critical signal the tighter TWR/APP buckets are. The margin only matters for the converging case -- level flight already inside the band needs no margin at all, it's just already there. |
 | 8b | `IsNext` / `IsLikelyNext` | CTR | Among the 8a-qualifying (converging-into) set, take the single closest by lateral distance as the band anchor -- every candidate within `anchor x 1.10` of it (not pairwise-chained, always relative to that one anchor) ties with it | Exactly one candidate within the band (nothing else that close) -- confident `IsNext`. More than one within the band -- all of them get `IsLikelyNext` instead. At the 150nm range ceiling this is roughly a 15nm-wide band, which is still a reasonable "basically tied" margin at that distance. |
 | 8c | ETA readout (ownship-level, not per-controller) | -- | Level flight, any altitude -- OR climbing/descending above FL150 | Independent of 8a/8b -- not a gate on `IsHighlighted`/`IsNext`/`IsLikelyNext`, just whether an ETA number gets shown alongside whatever those already resolved. Level flight has no altitude floor at all (even a prop plane cruising at 5000ft gets one, since level flight implies stable speed regardless of altitude); climbing/descending needs FL150 specifically because speed/profile changes too much below it to trust an estimate. FL150 is a single flat threshold, not aircraft-type-aware -- deliberately not worth the SimConnect engine/category-detection work this would need to do properly for a soft UX nicety, not a correctness-critical flag. An unpressurized prop plane may never even reach FL150, but its climb is short regardless (even at a modest 1000fpm, well under 10 minutes to a typical prop cruise altitude), so the "no ETA yet" gap in practice is brief. Long-haul descents from high cruise altitudes are the main beneficiary -- a 30+ minute descent from FL410 stays well above FL150 for most of its length. |
-| 9 | (no flags) | any | Everything that didn't qualify for any bucket above | The original issue #8 base case, untouched by the #18 redesign. Ordered by chain tier (DEL->GND->TWR->APP->CTR relative to current tier), then by distance within tier. |
+| 9 | (no flags) | any | Everything that didn't qualify for any bucket above | The original issue #8 base case, untouched by the #18 redesign. Ordered by chain tier (DEL->GND->TWR->APP->CTR relative to current tier), then by distance within tier -- except the CTR tier group, which since issue #11 sorts candidates currently contained by a VATGlasses-or-vatspy FIR polygon (horizontal-only, both sources) ahead of the rest of the tier first (ordering only, no new flag), before the usual route-match/distance ordering applies within each half. In practice this only ever changes anything airborne: 8a's "satisfied" containment is altitude-gated for VATGlasses, so a CTR controller whose sector horizontally contains ownship but whose *altitude* falls outside that specific sector's band (a vertically-stacked sub-sector, say) can miss bucket 8 entirely and land here -- bucket 9's horizontal-only check still catches it. On the ground, 6d already uses the same horizontal-only check, so nothing reaches bucket 9 that 6d didn't already claim. |
 
 ## Sort order
 
@@ -200,6 +201,68 @@ proximity, not boundary-edge dead-banding).
 
 8a's sustained-vertical-trend requirement (5s) already serves the same debouncing purpose for the
 converging/entering prediction independent of the above -- no separate dead-band needed there.
+
+## vatspy station names and FIR-polygon fallback (issue #11)
+
+vatspy-data-project (github.com/vatsimnetwork/vatspy-data-project) feeds two independent things:
+`RankedController.StationName` display-name composition (any tier), and a second, coarser
+polygon-containment tier for CTR specifically (`VatSpyDataModel`/`VatSpyDataClient`/
+`VatSpyBoundaryLookup`/`VatSpyOwnershipResolver`, mirroring the VATGlasses classes' shapes).
+vatspy's `Boundaries.geojson` is FIR/UIR-level only -- no altitude bands (unlike VATGlasses'
+per-level polygons) and no airport-level DEL/GND/TWR/APP shapes at all, so the polygon-fallback
+half of this only ever applies to CTR (buckets 6d, 8a, 9); DEL/GND/TWR/APP's existing
+VATGlasses-or-radius shape (6b/6c) and APP/DEP's VATGlasses-or-distance shape (7b/7c) are
+untouched.
+
+**Precedence**: VATGlasses stays strictly preferred wherever it has any sector data for a given
+controller (finer-grained, sub-sector- and altitude-aware) -- vatspy is only ever consulted for a
+CTR controller VATGlasses has *no* sector data for at all (`FindAnySectorLevelForController`
+returning null). Chain, in order: VATGlasses polygon -> vatspy FIR polygon -> nothing (6d, 8a) or
+plain distance (9).
+
+**Containment is horizontal-only, same as 6d's VATGlasses containment** -- there's no altitude
+band to check against at all (not "ignored," genuinely absent from the dataset), so a vatspy match
+is always vertically satisfied, same top-down-coverage reasoning as 6d's own VATGlasses exception.
+8a's "converging" prediction (route/heading-projected entry) works the same way against vatspy
+boundaries as it does against VATGlasses sectors (`VatSpyBoundaryLookup.
+DistanceToPolygonAlongRouteNm`/`AlongHeadingNm`, mirroring `VatGlassesSectorLookup`'s own
+methods), just without a vertical gate.
+
+**Ambiguity**: `VatSpyOwnershipResolver.ResolveOnlineControllers` returns *every* online CTR
+controller whose callsign prefix-matches a boundary's callsign prefixes, not just the first --
+identical rule and identical reason to `VatGlassesOwnershipResolver.ResolveOnlineControllers`
+(see "Heading/track" above): several simultaneously-online CTR positions can share one FIR's
+prefix (a busy FIR split into sub-sectors), and guessing which one is "right" is exactly the
+issue #17 bug already fixed once for VATGlasses. Every returned candidate feeds the same existing
+`IsNext`/`IsLikelyNext` tie-detection, unchanged.
+
+**Station names**: `StationName` has two sources, ATIS-text first:
+
+1. **`VatAtisStationNameExtractor.Extract`** -- reads the controller's own live ATIS/info text
+   (the VATSIM data feed's `text_atis`, stored on `VatsimControllerInfo.TextAtis`) and, when its
+   first line parses cleanly into a name, uses that -- the controller's own live self-description
+   beats a generic composition when it's actually present. Patterns are drawn from a live scan of
+   the feed, not a schema (`text_atis` has none): `" - "`/`" | "` (space-padded) are real
+   separators before boilerplate, a bare `-` with no surrounding spaces is part of the name itself
+   (e.g. "Krasnoyarsk-Control"), a quoted first line unwraps to its quoted content, and a stray
+   `"Callsign "` label some controllers prefix is stripped. A result only survives if it's short
+   (<=40 chars) *and* ends in a recognized ATC role word (Tower/Ground/Delivery/Approach/
+   Departure/Control/Centre/Center/Radar/Radio/Apron/Clearance) -- that single check is what
+   actually separates a real station name from stray chat/joke text in `text_atis` (e.g. "its
+   \"Lindbergh Tower\" NOT \"san diego tower\""), which is common enough not to trust blindly.
+   ALL-CAPS results are title-cased for display consistency with vatspy's own composed names.
+2. **`VatSpyStationNaming.ComposeDisplayName`** -- the issue #11 fallback, used whenever (1) finds
+   nothing or nothing confident: composes a name (e.g. "Bremen Radar" for `EDWW_N_CTR`, "Heathrow
+   Tower" for `EGLL_TWR`) from a vatspy place name (a FIR's or airport's name) plus a tier suffix.
+   DEL/GND/TWR/APP/DEP suffixes are fixed words (Approach vs. Departure read off the callsign's
+   own last token, not the collapsed `AppDep` tier); CTR's suffix varies by region (Center/Centre/
+   Control/Radar/...) and is read directly from VATSpy.dat's `[Countries]` section (keyed by the
+   callsign's 2-letter ICAO prefix) rather than a hand-maintained table -- vatspy already publishes
+   that mapping.
+
+`null` whenever *neither* source yields anything confident (e.g. ATIS/`Other` tier, or a
+genuinely unlisted airport/FIR with no usable ATIS text either), matching the field's existing
+wire contract (docs/protocol.md).
 
 ## Explicitly out of scope (issue #9)
 
