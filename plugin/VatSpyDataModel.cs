@@ -88,6 +88,7 @@ namespace Handoff.Plugin
 
             if (latestSha == null)
             {
+                Log("Update check failed -- using cached data.");
                 _operationProgress.Finish(operationId, "VatSpy update check failed -- using cached data.", success: false);
                 return;
             }
@@ -95,6 +96,7 @@ namespace Handoff.Plugin
             var cachedSha = ReadCachedSha();
             if (cachedSha != null && string.Equals(cachedSha, latestSha, StringComparison.Ordinal))
             {
+                Log("Data up to date (commit " + latestSha + ").");
                 _operationProgress.Finish(operationId, "VatSpy data up to date");
                 return;
             }
@@ -111,6 +113,7 @@ namespace Handoff.Plugin
 
             if (boundariesJson == null || vatSpyDat == null)
             {
+                Log("Sync incomplete -- will retry next startup.");
                 _operationProgress.Finish(operationId, "VatSpy sync incomplete -- will retry next startup.", success: false);
                 return;
             }
@@ -126,6 +129,7 @@ namespace Handoff.Plugin
             WriteCacheFile(VatSpyDatCacheFileName, vatSpyDat);
             WriteShaMarker(latestSha);
             Changed?.Invoke(this, EventArgs.Empty);
+            Log("Data updated (commit " + latestSha + ").");
             _operationProgress.Finish(operationId, "VatSpy data updated");
         }
 
