@@ -236,14 +236,32 @@ prefix (a busy FIR split into sub-sectors), and guessing which one is "right" is
 issue #17 bug already fixed once for VATGlasses. Every returned candidate feeds the same existing
 `IsNext`/`IsLikelyNext` tie-detection, unchanged.
 
-**Station names**: `VatSpyStationNaming.ComposeDisplayName` builds `StationName` (e.g. "Bremen
-Radar" for `EDWW_N_CTR`, "Heathrow Tower" for `EGLL_TWR`) from a vatspy place name (a FIR's or
-airport's name) plus a tier suffix. DEL/GND/TWR/APP/DEP suffixes are fixed words (Approach vs.
-Departure read off the callsign's own last token, not the collapsed `AppDep` tier); CTR's suffix
-varies by region (Center/Centre/Control/Radar/...) and is read directly from VATSpy.dat's
-`[Countries]` section (keyed by the callsign's 2-letter ICAO prefix) rather than a hand-maintained
-table -- vatspy already publishes that mapping. `null` whenever the callsign's ICAO prefix isn't
-in vatspy's data or the tier has no defined suffix (ATIS/`Other`), matching the field's existing
+**Station names**: `StationName` has two sources, ATIS-text first:
+
+1. **`VatAtisStationNameExtractor.Extract`** -- reads the controller's own live ATIS/info text
+   (the VATSIM data feed's `text_atis`, stored on `VatsimControllerInfo.TextAtis`) and, when its
+   first line parses cleanly into a name, uses that -- the controller's own live self-description
+   beats a generic composition when it's actually present. Patterns are drawn from a live scan of
+   the feed, not a schema (`text_atis` has none): `" - "`/`" | "` (space-padded) are real
+   separators before boilerplate, a bare `-` with no surrounding spaces is part of the name itself
+   (e.g. "Krasnoyarsk-Control"), a quoted first line unwraps to its quoted content, and a stray
+   `"Callsign "` label some controllers prefix is stripped. A result only survives if it's short
+   (<=40 chars) *and* ends in a recognized ATC role word (Tower/Ground/Delivery/Approach/
+   Departure/Control/Centre/Center/Radar/Radio/Apron/Clearance) -- that single check is what
+   actually separates a real station name from stray chat/joke text in `text_atis` (e.g. "its
+   \"Lindbergh Tower\" NOT \"san diego tower\""), which is common enough not to trust blindly.
+   ALL-CAPS results are title-cased for display consistency with vatspy's own composed names.
+2. **`VatSpyStationNaming.ComposeDisplayName`** -- the issue #11 fallback, used whenever (1) finds
+   nothing or nothing confident: composes a name (e.g. "Bremen Radar" for `EDWW_N_CTR`, "Heathrow
+   Tower" for `EGLL_TWR`) from a vatspy place name (a FIR's or airport's name) plus a tier suffix.
+   DEL/GND/TWR/APP/DEP suffixes are fixed words (Approach vs. Departure read off the callsign's
+   own last token, not the collapsed `AppDep` tier); CTR's suffix varies by region (Center/Centre/
+   Control/Radar/...) and is read directly from VATSpy.dat's `[Countries]` section (keyed by the
+   callsign's 2-letter ICAO prefix) rather than a hand-maintained table -- vatspy already publishes
+   that mapping.
+
+`null` whenever *neither* source yields anything confident (e.g. ATIS/`Other` tier, or a
+genuinely unlisted airport/FIR with no usable ATIS text either), matching the field's existing
 wire contract (docs/protocol.md).
 
 ## Explicitly out of scope (issue #9)

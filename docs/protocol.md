@@ -85,12 +85,14 @@ doesn't expose them) and are `null` until that feed's ~15s-lagged enrichment sol
 given callsign. `facility` is VATSIM's own enum (`2=DEL, 3=GND, 4=TWR, 5=APP/DEP, 6=CTR`);
 `rating` is display-only, never used in ranking.
 
-`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`),
-composed from vatspy-data-project's FIR/airport names plus a small suffix-by-tier-and-region
-table (issue #11) -- see `VatSpyStationNaming.ComposeDisplayName` and
+`stationName` is a facility/airport display name (e.g. "Heathrow Tower" for `EGLL_TWR`). Two
+sources, in preference order (issue #11): the controller's own live ATIS/info text (the public
+VATSIM data feed's `text_atis`) when it parses cleanly into a name (`VatAtisStationNameExtractor`
+-- the controller's own live self-description, preferred when present and confidently parsed),
+else a name composed from vatspy-data-project's FIR/airport names plus a small
+suffix-by-tier-and-region table (`VatSpyStationNaming.ComposeDisplayName`) -- see
 docs/controller-ranking.md's "vatspy station names and FIR-polygon fallback" section. `null`
-whenever the callsign's ICAO prefix isn't in vatspy's data or the tier has no defined suffix
-(ATIS/`Other`, or a genuinely unlisted airport/FIR) -- clients should keep the callsign-suffix
+whenever neither source yields anything confident -- clients should keep the callsign-suffix
 parsing fallback (Tower/Ground/Delivery/etc.) for those cases rather than assuming this field is
 always populated.
 

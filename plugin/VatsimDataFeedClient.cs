@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -73,11 +74,16 @@ namespace Handoff.Plugin
                     cid: (int?)entry["cid"] ?? 0,
                     name: (string)entry["name"],
                     facility: facility,
-                    rating: (int?)entry["rating"] ?? 0));
+                    rating: (int?)entry["rating"] ?? 0,
+                    textAtis: ParseTextAtis(entry["text_atis"])));
             }
 
             return result;
         }
+
+        /// <summary>"text_atis" is an array of strings (multi-line) when present, but frequently absent entirely -- never a parse failure either way, just an empty list.</summary>
+        private static List<string> ParseTextAtis(JToken token) =>
+            (token as JArray)?.Where(t => t.Type == JTokenType.String).Select(t => (string)t).ToList() ?? new List<string>();
 
         /// <summary>
         /// Parses the pilots[] array, keeping only entries with a filed flight plan -- a pilot

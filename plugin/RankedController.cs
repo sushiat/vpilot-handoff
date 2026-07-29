@@ -28,10 +28,12 @@ namespace Handoff.Plugin
         public int? Facility { get; }
         public int? Rating { get; }
 
-        // Facility/airport display name (e.g. "Heathrow Tower" for EGLL_TWR), expected to be
-        // VatSpy-sourced -- see docs/protocol.md "Not yet in this protocol". Always null until
-        // that enrichment source exists; the Android client falls back to parsing just the
-        // facility-suffix word from the callsign in the meantime.
+        // Facility/airport display name (e.g. "Heathrow Tower" for EGLL_TWR). Two sources, in
+        // preference order (issue #11): the controller's own live ATIS/info text when it parses
+        // cleanly into a name (VatAtisStationNameExtractor -- the controller's own live self-
+        // description beats a generic composition), else a vatspy-composed place+suffix name
+        // (VatSpyStationNaming). Null when neither source yields anything confident -- the
+        // Android client falls back to parsing just the facility-suffix word from the callsign.
         public string StationName { get; }
 
         public bool RequestsContactMe { get; }

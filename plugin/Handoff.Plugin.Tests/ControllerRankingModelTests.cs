@@ -371,6 +371,19 @@ namespace Handoff.Plugin.Tests
             return feed;
         }
 
+        private VatsimDataFeedModel CreateVatsimFeedWithController(string callsign, IReadOnlyList<string> textAtis)
+        {
+            var snapshot = new VatsimDataFeedSnapshot(
+                new List<VatsimControllerInfo> { new VatsimControllerInfo(callsign, 1, "Test Controller", 4, 3, textAtis) },
+                new List<VatsimPilotInfo>());
+            var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
+            var raised = new ManualResetEventSlim();
+            feed.Changed += (s, e) => raised.Set();
+            feed.Start();
+            raised.Wait(TimeSpan.FromSeconds(5));
+            return feed;
+        }
+
         // ---- Bucket 6 -- on-ground relevance -------------------------------------------------
 
         [Fact]
@@ -995,6 +1008,32 @@ namespace Handoff.Plugin.Tests
             var testIndex = ranked.FindIndex(c => c.Callsign == "TEST_CTR");
             var otherIndex = ranked.FindIndex(c => c.Callsign == "OTHER_CTR");
             Assert.True(testIndex < otherIndex);
+        }
+
+        [Fact]
+        public void StationName_AtisText_PreferredOverVatSpyComposedName()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Place", "TEST"));
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", new[] { "Custom Radar", "Some boilerplate" });
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, vatSpy);
+
+            Assert.Equal("Custom Radar", model.Current.Single().StationName);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void StationName_AtisTextDoesNotParseCleanly_FallsBackToVatSpyComposedName()
+        {
+            var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Place", "TEST"));
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", new[] { "Welcome to our airspace, enjoy the flight today!" });
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, vatSpy);
+
+            Assert.Equal("Test Place Center", model.Current.Single().StationName);
+            vatsimFeed.Stop();
         }
 
         // ---- VatSpy fixture helpers -----------------------------------------------------------
