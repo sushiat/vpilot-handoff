@@ -362,7 +362,8 @@ namespace Handoff.Plugin
                     isPinned: c.IsPinned,
                     isStandbyTuned: !isCurrent && standbyFrequencies.Contains(c.Frequency),
                     isSelcalActive: c.SelcalExpiresAtUtc.HasValue,
-                    stationName: VatAtisStationNameExtractor.Extract(info?.TextAtis) ?? VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData));
+                    stationName: VatAtisStationNameExtractor.Extract(info?.TextAtis) ?? VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData),
+                    textAtis: info?.TextAtis);
             }).ToList();
 
             lock (_gate) { _current = ranked; }

@@ -1024,6 +1024,29 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void TextAtis_FlowsThroughToRankedController_Unprocessed()
+        {
+            var lines = new[] { "Custom Radar", "Some boilerplate", "vats.im/feedback" };
+            var vatsimFeed = CreateVatsimFeedWithController("TEST_CTR", lines);
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+
+            Assert.Equal(lines, model.Current.Single().TextAtis);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void TextAtis_NoAtisSet_IsNull()
+        {
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            Assert.Null(model.Current.Single().TextAtis);
+        }
+
+        [Fact]
         public void StationName_AtisTextDoesNotParseCleanly_FallsBackToVatSpyComposedName()
         {
             var vatSpy = CreateVatSpyDataModel(VatSpyBoundaryGeoJson(0, 0, 0.2, "TEST"), VatSpyDatWithFir("TEST", "Test Place", "TEST"));

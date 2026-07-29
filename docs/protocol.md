@@ -66,6 +66,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "facility": 4,
       "rating": 5,
       "stationName": "Heathrow Tower",
+      "textAtis": ["Heathrow Tower", "INITIAL CLIMB AS CHARTED chartfox.org/EGKK", "Submit feedback at vats.im/atcfb"],
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
@@ -95,6 +96,12 @@ docs/controller-ranking.md's "vatspy station names and FIR-polygon fallback" sec
 whenever neither source yields anything confident -- clients should keep the callsign-suffix
 parsing fallback (Tower/Ground/Delivery/etc.) for those cases rather than assuming this field is
 always populated.
+
+`textAtis` is the controller's raw ATIS/info lines, unprocessed (the VATSIM data feed's own
+`text_atis` array, multi-line) -- `stationName` above is a derived summary of just its first
+line; this is the full text for richer client UI to show later (e.g. a COM-tune-menu detail
+panel -- not yet built on the Android side as of this field's addition). `null` whenever the
+controller hasn't set one or the feed omits the field for that callsign.
 
 Ranking order is entirely a plugin-side decision -- clients must render the list in exactly the
 order received and never re-sort or re-tag client-side. Every flag below is computed and sent

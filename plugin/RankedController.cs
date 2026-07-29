@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Handoff.Plugin
 {
     /// <summary>
@@ -36,6 +38,13 @@ namespace Handoff.Plugin
         // Android client falls back to parsing just the facility-suffix word from the callsign.
         public string StationName { get; }
 
+        // The controller's raw ATIS/info lines (VATSIM data feed's "text_atis"), unprocessed --
+        // StationName above is a derived summary of just the first line; this is the full text
+        // for whatever richer client UI eventually wants it (issue #11 part (a), not yet built on
+        // the Android side). Null when the controller hasn't set one/the feed omits it, same
+        // "null means nothing here yet" convention as the other enrichment fields.
+        public IReadOnlyList<string> TextAtis { get; }
+
         public bool RequestsContactMe { get; }
         public bool IsCurrent { get; }
         public bool IsContactMe { get; }
@@ -72,7 +81,7 @@ namespace Handoff.Plugin
             bool requestsContactMe, bool isCurrent, bool isContactMe,
             bool isHighlighted, bool isNext, bool isLikelyNext,
             bool isPinned, bool isStandbyTuned, bool isSelcalActive,
-            string stationName = null)
+            string stationName = null, IReadOnlyList<string> textAtis = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -92,6 +101,7 @@ namespace Handoff.Plugin
             IsStandbyTuned = isStandbyTuned;
             IsSelcalActive = isSelcalActive;
             StationName = stationName;
+            TextAtis = textAtis != null && textAtis.Count > 0 ? textAtis : null;
         }
     }
 }
