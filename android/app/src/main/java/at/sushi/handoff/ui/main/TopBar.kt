@@ -261,6 +261,15 @@ private fun RowScope.FrequencyButton(
  *  size within [availableWidth]. Shared between [FrequencyValueText]'s own line-splitting decision
  *  and TopBar's Mode C badge visibility -- the badge needs to disappear at exactly the same point
  *  the COM values actually go two-line, not at the earlier/coarser isNarrow threshold. */
+// The single-line render otherwise has zero margin at the exact width this flips at --
+// naturalWidth <= availableWidthPx let it stay on one line flush against the button's content
+// edge, close enough that the last digit visually touches/overlaps the button's rounded corner
+// even though it's technically still inside the rectangular content bounds (confirmed on-device:
+// COM1/COM2 at "122.800"/"124.850" read as clipped at exactly this boundary). A few dp of margin
+// on the comparison flips to two-line slightly before that point instead, trading a little extra
+// two-line frequency for guaranteed breathing room on the one-line case.
+private val FrequencySplitSafetyMargin = 4.dp
+
 @Composable
 private fun rememberFrequencyNeedsSplit(
     value: String,
@@ -275,7 +284,9 @@ private fun rememberFrequencyNeedsSplit(
     val naturalWidth = remember(value, fontSize, fontWeight) {
         textMeasurer.measure(value, textStyle).size.width
     }
-    val availableWidthPx = remember(availableWidth, density) { with(density) { availableWidth.roundToPx() } }
+    val availableWidthPx = remember(availableWidth, density) {
+        with(density) { (availableWidth - FrequencySplitSafetyMargin).coerceAtLeast(0.dp).roundToPx() }
+    }
     return dotIndex >= 0 && naturalWidth > availableWidthPx
 }
 
