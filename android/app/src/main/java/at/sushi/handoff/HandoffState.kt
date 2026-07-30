@@ -2,6 +2,7 @@ package at.sushi.handoff
 
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
 import at.sushi.handoff.protocol.OperationProgressMessage
@@ -101,6 +102,9 @@ object HandoffState {
     private val _flightPlan = MutableStateFlow(FlightPlanMessage())
     val flightPlan: StateFlow<FlightPlanMessage> = _flightPlan.asStateFlow()
 
+    private val _diversionPending = MutableStateFlow(DiversionPendingMessage())
+    val diversionPending: StateFlow<DiversionPendingMessage> = _diversionPending.asStateFlow()
+
     private val _nearbyAircraft = MutableStateFlow(NearbyAircraftMessage(aircraft = emptyList()))
     val nearbyAircraft: StateFlow<NearbyAircraftMessage> = _nearbyAircraft.asStateFlow()
 
@@ -190,6 +194,7 @@ object HandoffState {
         _controllers.value = ControllersMessage(controllers = emptyList())
         _radioState.value = RadioStateMessage(modeCEnabled = false)
         _flightPlan.value = FlightPlanMessage()
+        _diversionPending.value = DiversionPendingMessage()
         _nearbyAircraft.value = NearbyAircraftMessage(aircraft = emptyList())
         _subsystemStatus.value = SubsystemStatusMessage()
         _operationProgress.value = emptyMap()
@@ -215,6 +220,10 @@ object HandoffState {
 
     fun update(message: FlightPlanMessage) {
         _flightPlan.value = message
+    }
+
+    fun update(message: DiversionPendingMessage) {
+        _diversionPending.value = message
     }
 
     fun update(message: NearbyAircraftMessage) {

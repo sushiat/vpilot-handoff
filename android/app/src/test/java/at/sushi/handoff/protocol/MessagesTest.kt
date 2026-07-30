@@ -168,6 +168,22 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesDiversionPendingMessage_WithDestination() {
+        val json = """{"type":"diversionPending","destination":"EDDF"}"""
+
+        val message = decodeServerMessage(json) as DiversionPendingMessage
+        assertEquals("EDDF", message.destination)
+    }
+
+    @Test
+    fun decodesDiversionPendingMessage_NothingPending() {
+        val json = """{"type":"diversionPending","destination":null}"""
+
+        val message = decodeServerMessage(json) as DiversionPendingMessage
+        assertNull(message.destination)
+    }
+
+    @Test
     fun decodesOperationProgressMessage_InProgress() {
         val json = """{"type":"operationProgress","operationId":"vatGlassesSync","status":"Updating VatGlasses file 12/24","finished":false}"""
 
@@ -293,6 +309,18 @@ class MessagesTest {
     fun encodesDismissSelcalCommand() {
         val json = DismissSelcalCommand(callsign = "EGLL_CTR").encode()
         assertEquals("""{"type":"dismissSelcal","callsign":"EGLL_CTR"}""", json)
+    }
+
+    @Test
+    fun encodesConfirmDiversionCommand() {
+        val json = ConfirmDiversionCommand().encode()
+        assertEquals("""{"type":"confirmDiversion"}""", json)
+    }
+
+    @Test
+    fun encodesDismissDiversionCommand() {
+        val json = DismissDiversionCommand().encode()
+        assertEquals("""{"type":"dismissDiversion"}""", json)
     }
 
     @Test

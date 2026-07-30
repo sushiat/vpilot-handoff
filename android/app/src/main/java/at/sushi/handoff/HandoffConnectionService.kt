@@ -30,6 +30,7 @@ import at.sushi.handoff.protocol.AuthenticateCommand
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
 import at.sushi.handoff.protocol.OperationProgressMessage
@@ -464,6 +465,7 @@ class HandoffConnectionService : Service() {
             is ChatMessage -> { HandoffState.update(message); notifier.onChatUpdate(message) }
             is RadioStateMessage -> HandoffState.update(message)
             is FlightPlanMessage -> HandoffState.update(message)
+            is DiversionPendingMessage -> HandoffState.update(message)
             is NearbyAircraftMessage -> HandoffState.update(message)
             is SubsystemStatusMessage -> HandoffState.update(message)
             is OperationProgressMessage -> HandoffState.update(message)
