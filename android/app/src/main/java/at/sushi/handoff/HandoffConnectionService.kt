@@ -525,11 +525,10 @@ class HandoffConnectionService : Service() {
             // Not flying for a while and don't want this quietly retrying in the background --
             // right here is the one moment this notification is actually visible at all (see
             // appVisibilityObserver), so it's the most discoverable place to offer a way out.
-            // The quit action used to only live behind the expand arrow, easy to never notice was
-            // there at all -- setContentIntent makes tapping the notification body itself (the
-            // primary, always-visible tap target) do the same thing, not just the extra action.
+            // Tapping the notification body itself (the primary, always-visible tap target) is
+            // the quit action -- used to live behind the expand arrow as a separate action
+            // button, easy to never notice was there at all.
             .setContentIntent(quitPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Quit", quitPendingIntent)
             .build()
     }
 }
