@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -8,9 +9,15 @@ namespace Handoff.Plugin.Tests
     public class FakePairingDisplay : IHandoffPairingDisplay
     {
         public List<string> ShownCodes { get; } = new List<string>();
+        public List<DateTime> ShownExpiries { get; } = new List<DateTime>();
         public int CloseCount { get; private set; }
 
-        public void ShowCode(string code) => ShownCodes.Add(code);
+        public void ShowCode(string code, DateTime expiresAtUtc)
+        {
+            ShownCodes.Add(code);
+            ShownExpiries.Add(expiresAtUtc);
+        }
+
         public void CloseWindow() => CloseCount++;
     }
 

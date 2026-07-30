@@ -42,4 +42,12 @@
     <Reference Include="System.Drawing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- HandoffPairingWindow's logo: embedded (not deployed as a loose file) so it survives
+         the deploy task, which only copies *.dll from bin\Debug\net48. -->
+    <EmbeddedResource Include="Assets\logo.png">
+      <LogicalName>Handoff.Plugin.Assets.logo.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
 </Project>

@@ -50,7 +50,7 @@ namespace Handoff.Plugin
                     _failedAttempts = 0;
                     Log("Displaying new pairing code, valid for " + CodeValidity.TotalMinutes + " minutes");
                 }
-                _window.ShowCode(_code);
+                _window.ShowCode(_code, _expiresAtUtc);
                 return _code;
             }
         }

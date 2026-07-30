@@ -515,7 +515,11 @@ class HandoffConnectionService : Service() {
         return NotificationCompat.Builder(this, ChannelId)
             .setContentTitle("Handoff")
             .setContentText("Running in the background, tap here to quit")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            // The app's own mark, not a generic system placeholder (was stat_sys_download_done --
+            // a download icon, with no relation to what this notification actually is) -- already
+            // built tintable/single-color for exactly this kind of monochrome-silhouette use (see
+            // ic_handoff_mark.xml's own doc comment), which is all the status bar renders anyway.
+            .setSmallIcon(R.drawable.ic_handoff_mark)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             // Not flying for a while and don't want this quietly retrying in the background --
