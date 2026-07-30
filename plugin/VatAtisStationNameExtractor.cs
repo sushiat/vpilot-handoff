@@ -16,8 +16,13 @@ namespace Handoff.Plugin
     /// 56 with text_atis set) -- not a formal spec, since text_atis is free-form pilot/controller-
     /// authored text with no schema at all. Confirmed patterns:
     ///   - Most commonly just the clean name on its own ("Praha Radar", "Vancouver Centre").
-    ///   - " - " and " | " (space-padded) are real separators before boilerplate ("Langen Radar -
-    ///     CPDLC [EDGS]", "Ruzyne Ground | PDC available [LKPR]").
+    ///   - " - ", " | ", and " / " (space-padded) are real separators before boilerplate
+    ///     ("Langen Radar - CPDLC [EDGS]", "Ruzyne Ground | PDC available [LKPR]", "Zagreb Radar
+    ///     / CDDLC - LDZO").
+    ///   - Some vACCs (e.g. Austria) run the logon-code boilerplate straight into the name with no
+    ///     separator at all -- "Wien Radar CPDLC/DCL LOWA", "Wien Tower DCL LOWW". These are cut at
+    ///     the first word that IS (or "/"-combines) one of the known logon-code keywords (CPDLC,
+    ///     DCL, PDC), not a separator character.
     ///   - A bare "-" with NO surrounding spaces is part of the name itself, not a separator
     ///     ("Krasnoyarsk-Control", "Surgyt-Approach") -- splitting on any "-" would wrongly
     ///     truncate these.
@@ -41,6 +46,11 @@ namespace Handoff.Plugin
         private const int MaxNameWords = 3;
         private const string CallsignPrefixLabel = "Callsign ";
 
+        // Logon-code boilerplate keywords that some vACCs run straight into the name with no
+        // separator character at all ("Wien Radar CPDLC/DCL LOWA"). Checked as a whole word (or
+        // "/"-joined combo of these) rather than substring, so airport codes/names never collide.
+        private static readonly string[] BoilerplateKeywords = { "CPDLC", "DCL", "PDC" };
+
         // A real station name -- controller-authored or vatspy-composed -- always ends with one
         // of these role words (confirmed against every clean example in the live scan above).
         // This single check is what actually separates "Ruzyne Ground" from stray chat text: it's
@@ -59,6 +69,7 @@ namespace Handoff.Plugin
 
             var quoted = ExtractQuoted(line);
             var candidate = quoted ?? SplitAtSeparator(StripCallsignLabel(line));
+            candidate = TruncateAtBoilerplateKeyword(candidate);
             candidate = candidate?.Trim().TrimEnd('.', ' ');
 
             if (string.IsNullOrEmpty(candidate)) return null;
@@ -92,16 +103,34 @@ namespace Handoff.Plugin
             return end > 1 ? line.Substring(1, end - 1) : null;
         }
 
-        /// <summary>Cuts at the earliest of " - ", " | ", or "." -- whichever comes first -- else returns the line unchanged.</summary>
+        /// <summary>Cuts at the earliest of " - ", " | ", " / ", or "." -- whichever comes first -- else returns the line unchanged.</summary>
         private static string SplitAtSeparator(string line)
         {
             var cut = -1;
-            foreach (var separator in new[] { " - ", " | ", "." })
+            foreach (var separator in new[] { " - ", " | ", " / ", "." })
             {
                 var index = line.IndexOf(separator, StringComparison.Ordinal);
                 if (index >= 0 && (cut < 0 || index < cut)) cut = index;
             }
             return cut >= 0 ? line.Substring(0, cut) : line;
+        }
+
+        /// <summary>Cuts before the first word that is (or "/"-combines) a logon-code boilerplate keyword; else returns the line unchanged.</summary>
+        private static string TruncateAtBoilerplateKeyword(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return line;
+            var words = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < words.Length; i++)
+            {
+                foreach (var part in words[i].Split('/'))
+                {
+                    if (Array.Exists(BoilerplateKeywords, k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return string.Join(" ", words, 0, i);
+                    }
+                }
+            }
+            return line;
         }
 
         // Checks every word, not just the last -- a role word doesn't always land at the very end

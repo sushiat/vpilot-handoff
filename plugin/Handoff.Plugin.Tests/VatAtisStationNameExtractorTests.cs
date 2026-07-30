@@ -80,6 +80,24 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void SpacePaddedSlash_SplitsBeforeBoilerplate()
+        {
+            Assert.Equal("Zagreb Radar", Extract("Zagreb Radar / CDDLC - LDZO"));
+        }
+
+        [Fact]
+        public void LogonCodeRunIntoNameWithNoSeparator_CutsAtCombinedKeyword()
+        {
+            Assert.Equal("Wien Radar", Extract("Wien Radar CPDLC/DCL LOWA"));
+        }
+
+        [Fact]
+        public void LogonCodeRunIntoNameWithNoSeparator_CutsAtSingleKeyword()
+        {
+            Assert.Equal("Wien Tower", Extract("Wien Tower DCL LOWW"));
+        }
+
+        [Fact]
         public void JokeLine_TooManyWords_ReturnsNull()
         {
             Assert.Null(Extract("its \"Lindbergh Tower\" NOT \"san diego tower\""));
