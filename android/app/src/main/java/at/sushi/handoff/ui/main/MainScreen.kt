@@ -37,6 +37,8 @@ import at.sushi.handoff.HandoffState
 import at.sushi.handoff.LayoutMode
 import at.sushi.handoff.network.IgnoredDeviceStore
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
+import at.sushi.handoff.protocol.ConfirmDiversionCommand
+import at.sushi.handoff.protocol.DismissDiversionCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.SelectCom1TransmitterCommand
@@ -57,6 +59,7 @@ import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
+import at.sushi.handoff.ui.dialogs.DiversionConfirmDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
 import at.sushi.handoff.ui.dialogs.SettingsDialog
@@ -210,6 +213,7 @@ private fun MainScreenContent() {
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
     val pendingPairing by HandoffState.pendingPairing.collectAsState()
+    val diversionPending by HandoffState.diversionPending.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
     val operationIndicator = combineOperationIndicator(visibleOperations)
 
@@ -542,6 +546,17 @@ private fun MainScreenContent() {
             pending = pending,
             onSubmitCode = { code -> HandoffConnectionService.instance?.submitPairingCode(code) },
             onCancel = { permanent -> HandoffConnectionService.instance?.cancelPairing(permanent) }
+        )
+    }
+
+    // Driven by HandoffState.diversionPending rather than a locally-owned open/closed flag, same
+    // reasoning as pendingPairing above -- the plugin decides when this needs asking, not a
+    // user-initiated button.
+    diversionPending.destination?.let { destination ->
+        DiversionConfirmDialog(
+            destination = destination,
+            onConfirm = { send(ConfirmDiversionCommand()) },
+            onDismiss = { send(DismissDiversionCommand()) }
         )
     }
 

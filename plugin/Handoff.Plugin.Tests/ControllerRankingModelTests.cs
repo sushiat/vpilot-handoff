@@ -909,7 +909,7 @@ namespace Handoff.Plugin.Tests
         // ---- Diversion invalidates the filed route -----------------------------------------
 
         [Fact]
-        public async Task Diversion_DestinationChange_DropsStaleRouteForApproachPrediction()
+        public async Task Diversion_DestinationChange_ArmsPendingConfirmation_WithoutDroppingRouteYet()
         {
             // Heading deliberately null throughout -- isolates the route-projected check
             // entirely (FindEnteringOwnerMatches only falls back to heading when there ARE no
@@ -929,15 +929,118 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+            Assert.Null(model.PendingDiversionDestination);
 
             // Same waypoints (the stale route toward the original destination), only the
             // destination itself changes -- exactly the scenario the doc describes: a
             // controller-issued diversion updates the effective destination immediately, but
-            // flightPlan.Waypoints on its own has no way to know it's now stale.
+            // flightPlan.Waypoints on its own has no way to know it's now stale. The route keeps
+            // being used until the pilot actually confirms the diversion, not the instant the
+            // feed shows a changed destination.
             currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "ZZZZ", null, waypoints);
             await flightPlan.RefreshAsync();
 
+            Assert.Equal("ZZZZ", model.PendingDiversionDestination);
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            model.ConfirmDiversion();
+
+            Assert.Null(model.PendingDiversionDestination);
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task Diversion_Dismissed_KeepsUsingFiledRoute()
+        {
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("WPT1", 4, 0) };
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "YYYY", null, waypoints);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
+
+            currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "ZZZZ", null, waypoints);
+            await flightPlan.RefreshAsync();
+            Assert.Equal("ZZZZ", model.PendingDiversionDestination);
+
+            model.DismissDiversion();
+
+            Assert.Null(model.PendingDiversionDestination);
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+        }
+
+        // ---- Issue #22: abeam-point waypoint sequencing --------------------------------------
+
+        [Fact]
+        public async Task AbeamSequencing_DirectToPastAWaypoint_ExcludesItOnlyAfterSustainedCrossing()
+        {
+            // B sits just off the direct A->C line (a shallow dogleg -- a normal route shape, not
+            // a huge detour), so plain nearest-by-distance would keep reading it as "nearest" for
+            // a long stretch after a direct-to-C clearance has flown straight past it.
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("B", 2, 0.3), new FlightPlanWaypoint("C", 4, 0) };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "CCCC", waypoints);
+
+            // Box centered exactly on B -- only reachable via a leg that actually heads to B.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0.3, 0.05, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 2, 0.3);
+
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            // Heading deliberately null -- isolates the route-projected check (see the diversion
+            // test above for why), and ownship starts at A itself so SequenceRemainingWaypoints'
+            // anchor initializes there.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            // Direct-to C, cutting the corner: ownship is now well past B's abeam point on the
+            // A->B leg, despite B (35nm away) still being nearer than C (90nm away).
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 2.5, 0, now);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // not yet -- sustained-disagreement hysteresis hasn't elapsed
+
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // committed: B sequenced past, remaining route no longer detours through it
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_NewFlightPlanFetch_ResetsCommittedIndex()
+        {
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("B", 2, 0.3), new FlightPlanWaypoint("C", 4, 0) };
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "CCCC", null, waypoints);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0.3, 0.05, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 2, 0.3);
+
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+
+            // Sequence past B and let the commit land, same as above.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 2.5, 0, now);
+            _radio.RaiseChanged();
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            // A fresh SimBrief fetch (a new FlightPlan instance with its own new Waypoints list,
+            // same route by value) is a genuinely new plan as far as this model is concerned --
+            // sequencing starts over rather than staying stuck at the previously committed index.
+            var refetchedWaypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("B", 2, 0.3), new FlightPlanWaypoint("C", 4, 0) };
+            currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "CCCC", null, refetchedWaypoints);
+            await flightPlan.RefreshAsync();
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
         }
 
         // ---- Issue #11: vatspy station names and FIR-polygon fallback -----------------------

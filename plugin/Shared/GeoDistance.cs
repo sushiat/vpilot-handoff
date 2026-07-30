@@ -41,6 +41,26 @@ namespace Handoff.Plugin
             return diff > 180.0 ? 360.0 - diff : diff;
         }
 
+        /// <summary>
+        /// Signed along-track distance (nm) of `point`'s projection onto the great-circle course
+        /// from `from` toward `courseTo` -- negative if the projection falls behind `from`.
+        /// Standard spherical-trig cross-track/along-track formulas (Aviation Formulary). Used by
+        /// ControllerRankingModel's abeam-point waypoint sequencing (issue #22) to test whether
+        /// ownship is abeam-or-past a waypoint along a given leg course, independent of heading.
+        /// </summary>
+        public static double AlongTrackDistanceNm(double fromLat, double fromLon, double courseToLat, double courseToLon, double pointLat, double pointLon)
+        {
+            var angularDistanceToPoint = NauticalMiles(fromLat, fromLon, pointLat, pointLon) / EarthRadiusNauticalMiles;
+            var bearingToPoint = ToRadians(InitialBearingDegrees(fromLat, fromLon, pointLat, pointLon));
+            var bearingToCourse = ToRadians(InitialBearingDegrees(fromLat, fromLon, courseToLat, courseToLon));
+
+            var crossTrack = Math.Asin(Math.Sin(angularDistanceToPoint) * Math.Sin(bearingToPoint - bearingToCourse));
+            var alongTrack = Math.Acos(Math.Cos(angularDistanceToPoint) / Math.Cos(crossTrack));
+            var sign = Math.Cos(bearingToPoint - bearingToCourse) >= 0 ? 1.0 : -1.0;
+
+            return alongTrack * EarthRadiusNauticalMiles * sign;
+        }
+
         private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
     }
 }

@@ -110,6 +110,18 @@ data class FlightPlanMessage(
     val vatsimDestination: String? = null
 ) : ServerMessage
 
+/** A destination change the plugin just noticed on the VATSIM data feed (see [FlightPlanMessage]'s
+ *  [FlightPlanMessage.vatsimDestination]), awaiting pilot confirmation before it's treated as a
+ *  real diversion (docs/protocol.md). [destination] is null whenever nothing is pending -- a
+ *  client should show a confirm/dismiss prompt whenever this transitions from null to non-null,
+ *  and dismiss it whenever this transitions back to null (whether from this device's own
+ *  [ConfirmDiversionCommand]/[DismissDiversionCommand] or another connected client's). */
+@Serializable
+data class DiversionPendingMessage(
+    val type: String = "diversionPending",
+    val destination: String? = null
+) : ServerMessage
+
 @Serializable
 data class RadioStateMessage(
     val type: String = "radioState",
@@ -206,6 +218,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "chat" -> json.decodeFromJsonElement<ChatMessage>(element)
         "radioState" -> json.decodeFromJsonElement<RadioStateMessage>(element)
         "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
+        "diversionPending" -> json.decodeFromJsonElement<DiversionPendingMessage>(element)
         "nearbyAircraft" -> json.decodeFromJsonElement<NearbyAircraftMessage>(element)
         "subsystemStatus" -> json.decodeFromJsonElement<SubsystemStatusMessage>(element)
         "operationProgress" -> json.decodeFromJsonElement<OperationProgressMessage>(element)
@@ -385,6 +398,26 @@ data class DismissSelcalCommand(
     val callsign: String
 ) : ClientCommand {
     override fun encode() = json.encodeToString(DismissSelcalCommand.serializer(), this)
+}
+
+/** Responds to a [DiversionPendingMessage] prompt -- no payload, since only one destination can
+ *  be pending at a time. Treats it as a real diversion; the plugin drops the filed route from
+ *  its own approach/convergence prediction. No-op if nothing is currently pending. */
+@Serializable
+data class ConfirmDiversionCommand(
+    val type: String = "confirmDiversion"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(ConfirmDiversionCommand.serializer(), this)
+}
+
+/** Responds to a [DiversionPendingMessage] prompt as a false alarm -- the plugin keeps using the
+ *  filed route as before, and won't re-prompt for that same destination again. No-op if nothing
+ *  is currently pending. */
+@Serializable
+data class DismissDiversionCommand(
+    val type: String = "dismissDiversion"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(DismissDiversionCommand.serializer(), this)
 }
 
 /** Latency probe for the footer's detail line -- the plugin echoes clientTimestamp back in a

@@ -10,6 +10,28 @@ once it has its first release.
 
 ### Added
 
+- Plugin: `ControllerRankingModel.RemainingWaypoints` (feeding the route-
+  projected approach/convergence checks in buckets 7c/8) replaced with
+  abeam-point geometric waypoint sequencing (issue #22), the same technique
+  real FMS use for direct-to legs — a persisted, only-ever-advancing
+  waypoint index tested against the great-circle course from a fixed
+  anchor, instead of picking the nearest waypoint by raw distance every
+  tick. Fixes a direct-to clearance that cuts a corner close to a bypassed
+  waypoint still reading as "nearest" and projecting the remaining route
+  through a stale leg. Reuses the existing commit/pending/hysteresis
+  pattern to absorb momentary abeam-plane crossings mid-turn (e.g. holding
+  patterns) without committing to them — the previously-tried heading-vs-
+  bearing check broke exactly that case and was reverted.
+- Plugin/Android: destination changes seen on the VATSIM feed no longer
+  silently drop the filed route from approach prediction the instant
+  they're noticed — they now arm a pending-confirmation state
+  (`ControllerRankingModel.PendingDiversionDestination`, new
+  `diversionPending` WebSocket message) and the route keeps being used
+  until the pilot actually confirms via new `confirmDiversion`/
+  `dismissDiversion` commands. Android shows a "Confirm diversion?" dialog
+  (`DiversionConfirmDialog`, mirroring the existing pairing-code prompt's
+  state-driven pattern) whenever one comes in; dismissing keeps the filed
+  route and won't re-prompt for that same destination again.
 - Plugin: reads COM1/COM2 transmit/receive-select state from SimConnect
   (`COM TRANSMIT:1/2`, `COM RECEIVE:1/2`) and broadcasts it in the `radioState`
   WebSocket message as `com1/2TransmitEnabled`/`com1/2ReceiveEnabled` (issue
