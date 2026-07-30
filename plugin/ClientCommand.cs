@@ -73,11 +73,12 @@ namespace Handoff.Plugin
         // interpret this value.
         public long? ClientTimestamp { get; set; }
 
-        // authenticate -- exactly one of these two is normally set (Token for a returning,
-        // already-paired client; PairingCode for a client that just read a code off
+        // authenticate -- exactly one of Token/PairingCode is normally set (Token for a
+        // returning, already-paired client; PairingCode for a client that just read a code off
         // HandoffPairingWindow), or neither ("I have nothing yet, tell me what you need").
-        // See docs/protocol.md.
+        // DeviceId is optional, sent alongside either -- see docs/protocol.md.
         public string Token { get; set; }
         public string PairingCode { get; set; }
+        public string DeviceId { get; set; }
     }
 }

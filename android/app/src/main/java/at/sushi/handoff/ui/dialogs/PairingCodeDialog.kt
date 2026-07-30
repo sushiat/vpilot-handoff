@@ -1,10 +1,12 @@
 package at.sushi.handoff.ui.dialogs
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -43,7 +45,11 @@ fun PairingCodeDialog(
     var confirmingCancel by remember { mutableStateOf(false) }
 
     SimpleDialogPanel(
-        title = if (confirmingCancel) "Stop pairing?" else "Pair with this PC",
+        title = when {
+            confirmingCancel -> "Stop pairing?"
+            pending.certificateChanged -> "PC identity changed"
+            else -> "Pair with this PC"
+        },
         width = 340.dp,
         // First dismiss (back press / tap outside / the "x") asks for confirmation rather than
         // silently going away; a second one while already confirming just takes the safe
@@ -66,6 +72,23 @@ fun PairingCodeDialog(
                 }
             }
         } else {
+            if (pending.certificateChanged) {
+                Text(
+                    "This PC's identity changed since it was last paired. This can happen after " +
+                        "reinstalling or resetting the plugin -- but it can also mean something " +
+                        "is impersonating it. Only continue if you just reinstalled or reset the " +
+                        "plugin yourself.",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.attention,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(colors.attentionBg, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                )
+            }
+
             Text(
                 "Enter the code shown on the PC" +
                     (pending.commonName?.let { " ($it)" } ?: "") +
@@ -83,9 +106,6 @@ fun PairingCodeDialog(
                 // this needs to be readable and easy to double-check digit-by-digit.
                 textStyle = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                placeholder = {
-                    Text("000000", fontSize = 34.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                },
                 singleLine = true
             )
 

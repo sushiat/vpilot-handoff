@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.IBinder
 import android.os.Process
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -83,6 +84,16 @@ class HandoffConnectionService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var notifier: HandoffNotifier
 
+    // Stable per-install identifier sent as authenticate's deviceId (issue #15) -- lets the
+    // plugin recognize a re-pair from the same physical device and drop its old paired-client
+    // entry instead of accumulating one every time (e.g. every forced re-pair after the
+    // plugin's certificate changes). ANDROID_ID, not a hardware id like IMEI: no permission
+    // needed, and it resets on uninstall right alongside this app's own token/pin storage, so
+    // its lifetime already matches what it's meant to travel with.
+    private val deviceId: String? by lazy {
+        Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+    }
+
     // Set immediately before each connect() call so onCertificateSeen (fired from inside the
     // WebSocket's onOpen) knows which host/port the just-verified certificate belongs to, for
     // display in the pairing dialog (issue #15) -- HandoffWebSocketClient itself doesn't
@@ -96,6 +107,11 @@ class HandoffConnectionService : Service() {
     // otherwise threaded through the authenticate/authResult round trip.
     private var pendingAuthFingerprint: String? = null
     private var pendingAuthCommonName: String? = null
+    // True when this connection's certificate didn't match whatever was previously pinned --
+    // read into PendingPairing.certificateChanged if a pairing prompt ends up needed, purely so
+    // PairingCodeDialog can flag "this wasn't expected" rather than looking like an ordinary
+    // first-time pairing (see PendingPairing's doc comment).
+    private var pendingAuthCertChanged = false
 
     // Fingerprints the pilot has chosen "just this once" for (see cancelPairing) -- forgotten on
     // service restart, unlike IgnoredDeviceStore's persisted list. Checked in onCertificateSeen
@@ -336,12 +352,14 @@ class HandoffConnectionService : Service() {
         pendingAuthFingerprint = fingerprint
         pendingAuthCommonName = commonName
 
-        val pinMatches = CertTrustStore.loadPinnedFingerprint(prefs) == fingerprint
+        val previouslyPinned = CertTrustStore.loadPinnedFingerprint(prefs)
+        val pinMatches = previouslyPinned == fingerprint
+        pendingAuthCertChanged = previouslyPinned != null && !pinMatches
         val storedToken = PairingTokenStore.loadToken(prefs)
         if (pinMatches && storedToken != null) {
-            client.send(AuthenticateCommand(token = storedToken))
+            client.send(AuthenticateCommand(token = storedToken, deviceId = deviceId))
         } else {
-            client.send(AuthenticateCommand())
+            client.send(AuthenticateCommand(deviceId = deviceId))
         }
     }
 
@@ -368,11 +386,13 @@ class HandoffConnectionService : Service() {
             "invalidCode" -> {
                 val current = HandoffState.pendingPairing.value
                 HandoffState.setPendingPairing(
-                    (current ?: PendingPairing(host, port, pendingAuthCommonName))
+                    (current ?: PendingPairing(host, port, pendingAuthCommonName, certificateChanged = pendingAuthCertChanged))
                         .copy(errorMessage = "Incorrect code -- try again.")
                 )
             }
-            else -> HandoffState.setPendingPairing(PendingPairing(host, port, pendingAuthCommonName))
+            else -> HandoffState.setPendingPairing(
+                PendingPairing(host, port, pendingAuthCommonName, certificateChanged = pendingAuthCertChanged)
+            )
         }
     }
 
@@ -380,7 +400,7 @@ class HandoffConnectionService : Service() {
      *  window. The result comes back as another authResult, handled the same way as the initial
      *  attempt by [handleAuthResult]. */
     fun submitPairingCode(code: String) {
-        client.send(AuthenticateCommand(pairingCode = code))
+        client.send(AuthenticateCommand(pairingCode = code, deviceId = deviceId))
     }
 
     /** Called by PairingCodeDialog when the pilot cancels instead of pairing. Always tears down
@@ -494,13 +514,17 @@ class HandoffConnectionService : Service() {
 
         return NotificationCompat.Builder(this, ChannelId)
             .setContentTitle("Handoff")
-            .setContentText("Running in the background")
+            .setContentText("Running in the background, tap here to quit")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             // Not flying for a while and don't want this quietly retrying in the background --
             // right here is the one moment this notification is actually visible at all (see
             // appVisibilityObserver), so it's the most discoverable place to offer a way out.
+            // The quit action used to only live behind the expand arrow, easy to never notice was
+            // there at all -- setContentIntent makes tapping the notification body itself (the
+            // primary, always-visible tap target) do the same thing, not just the extra action.
+            .setContentIntent(quitPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Quit", quitPendingIntent)
             .build()
     }

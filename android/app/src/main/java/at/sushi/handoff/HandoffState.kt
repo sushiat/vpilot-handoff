@@ -56,12 +56,20 @@ enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCC
  *  after a submitted code comes back "invalidCode", so the dialog can show it without losing the
  *  host/port/hostname context underneath. The certificate's fingerprint is deliberately NOT part
  *  of this -- see CertTrustStore's doc comment for why it's pinned silently instead of shown
- *  here. */
+ *  here.
+ *
+ *  [certificateChanged] is true when this connection's certificate doesn't match whatever was
+ *  previously pinned for this host -- a legitimate cert rotation (reinstalled/reset plugin) looks
+ *  identical to a genuine MITM/spoof from here, so PairingCodeDialog surfaces this distinctly
+ *  rather than looking like an ordinary first-time pairing. This is purely informational, not a
+ *  different security gate -- re-pairing (reading a fresh code off the correct PC) is the actual
+ *  proof either way; a pilot just deserves to know "this wasn't expected" before doing it. */
 data class PendingPairing(
     val host: String,
     val port: Int,
     val commonName: String?,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val certificateChanged: Boolean = false
 )
 
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI

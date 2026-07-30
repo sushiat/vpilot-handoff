@@ -47,8 +47,16 @@ namespace Handoff.Plugin
 
         /// <summary>Generates and persists a new paired-client entry, returning the plaintext
         /// token to send to the client -- this is the only time the plaintext exists anywhere
-        /// but the client itself.</summary>
-        public string IssueToken()
+        /// but the client itself.
+        ///
+        /// <paramref name="deviceId"/> is the client's own stable per-install identifier (see
+        /// docs/protocol.md -- Android sends Settings.Secure.ANDROID_ID), optional. When
+        /// provided, any existing entries sharing the same deviceId are dropped before adding
+        /// the new one -- otherwise every re-pair from the same physical device (a forced
+        /// re-pair after the plugin's certificate changed, say) leaves a stale, never-cleaned-up
+        /// hash behind forever. A null/blank deviceId (an older or non-Android client) just
+        /// always adds a new entry, same as before this existed.</summary>
+        public string IssueToken(string deviceId = null)
         {
             var tokenBytes = new byte[32];
             using (var rng = new RNGCryptoServiceProvider()) rng.GetBytes(tokenBytes);
@@ -56,7 +64,12 @@ namespace Handoff.Plugin
 
             lock (_gate)
             {
-                _clients.Add(new PairedClient { TokenHash = HashToken(token), PairedAtUtc = DateTime.UtcNow });
+                if (!string.IsNullOrEmpty(deviceId))
+                {
+                    var removed = _clients.RemoveAll(c => c.DeviceId == deviceId);
+                    if (removed > 0) Log("Replacing " + removed + " existing paired-client entr(y/ies) for the same device");
+                }
+                _clients.Add(new PairedClient { TokenHash = HashToken(token), DeviceId = deviceId, PairedAtUtc = DateTime.UtcNow });
                 Save(_clients);
             }
             return token;
@@ -110,6 +123,7 @@ namespace Handoff.Plugin
         private sealed class PairedClient
         {
             public string TokenHash { get; set; }
+            public string DeviceId { get; set; }
             public DateTime PairedAtUtc { get; set; }
         }
     }

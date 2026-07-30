@@ -63,5 +63,43 @@ namespace Handoff.Plugin.Tests
 
             Assert.True(second.IsTokenValid(token));
         }
+
+        [Fact]
+        public void IssueToken_SameDeviceIdAsExisting_InvalidatesThePreviousToken()
+        {
+            var store = new HandoffPairedClientStore(configPath: _configPath);
+
+            var first = store.IssueToken(deviceId: "same-tablet");
+            var second = store.IssueToken(deviceId: "same-tablet");
+
+            // The re-pair from the same physical device replaces its old entry outright --
+            // doesn't just add alongside it.
+            Assert.False(store.IsTokenValid(first));
+            Assert.True(store.IsTokenValid(second));
+        }
+
+        [Fact]
+        public void IssueToken_DifferentDeviceIds_BothRemainValid()
+        {
+            var store = new HandoffPairedClientStore(configPath: _configPath);
+
+            var tablet = store.IssueToken(deviceId: "tablet");
+            var phone = store.IssueToken(deviceId: "phone");
+
+            Assert.True(store.IsTokenValid(tablet));
+            Assert.True(store.IsTokenValid(phone));
+        }
+
+        [Fact]
+        public void IssueToken_NullDeviceId_NeverReplacesAnything()
+        {
+            var store = new HandoffPairedClientStore(configPath: _configPath);
+
+            var first = store.IssueToken();
+            var second = store.IssueToken();
+
+            Assert.True(store.IsTokenValid(first));
+            Assert.True(store.IsTokenValid(second));
+        }
     }
 }

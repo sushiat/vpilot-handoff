@@ -358,12 +358,19 @@ data class PingCommand(
  *  if one is already stored for this exact pinned certificate fingerprint; send [pairingCode]
  *  once the pilot has read one off the plugin's on-screen pairing window and typed it in; send
  *  neither ("I have nothing yet") on a first-ever connection to a given plugin, which just
- *  triggers the plugin to show its pairing window without needing a code guess. */
+ *  triggers the plugin to show its pairing window without needing a code guess.
+ *
+ *  [deviceId] is this install's stable identifier (Settings.Secure.ANDROID_ID -- no permission
+ *  needed, resets on uninstall along with this app's own token/pin storage) so a successful
+ *  pairing lets the plugin recognize "this is the same physical device re-pairing" and drop its
+ *  old paired-client entry instead of accumulating a new one every time (e.g. every forced
+ *  re-pair after the plugin's certificate changes). */
 @Serializable
 data class AuthenticateCommand(
     val type: String = "authenticate",
     val token: String? = null,
-    val pairingCode: String? = null
+    val pairingCode: String? = null,
+    val deviceId: String? = null
 ) : ClientCommand {
     override fun encode() = json.encodeToString(AuthenticateCommand.serializer(), this)
 }

@@ -289,7 +289,7 @@ namespace Handoff.Plugin
             {
                 if (_pairingSession.TryConsumeCode(command.PairingCode))
                 {
-                    var token = _pairedClients.IssueToken();
+                    var token = _pairedClients.IssueToken(command.DeviceId);
                     lock (_gate) { _authenticatedSockets.Add(socket); }
                     Log("Client paired via code: " + socket.ConnectionInfo.ClientIpAddress);
                     socket.Send(ProtocolMessages.BuildAuthResultMessage(success: true, token: token));

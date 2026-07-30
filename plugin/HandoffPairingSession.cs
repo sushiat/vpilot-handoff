@@ -31,8 +31,14 @@ namespace Handoff.Plugin
             _logDebug = logDebug;
         }
 
-        /// <summary>Returns the currently displayed code, generating (and showing) a fresh one
-        /// first if none is active or the previous one expired/was exhausted.</summary>
+        /// <summary>Returns the currently active code, generating a fresh one first if none is
+        /// active or the previous one expired/was exhausted. Always (re-)shows the window, even
+        /// when reusing an already-active code -- otherwise a pilot manually closing the window
+        /// (its own "X", Alt+F4, whatever) desyncs the display from this session's internal
+        /// state: the code would stay valid for matching purposes but become invisible, since
+        /// nothing would ever re-trigger HandoffPairingWindow.ShowCode for it again. Fixed after
+        /// exactly that happening during testing -- ShowCode itself is idempotent (recreates the
+        /// form only if it's actually gone), so this is cheap to call unconditionally.</summary>
         public string EnsureActiveCode()
         {
             lock (_gate)
@@ -42,9 +48,9 @@ namespace Handoff.Plugin
                     _code = GenerateCode();
                     _expiresAtUtc = DateTime.UtcNow.Add(CodeValidity);
                     _failedAttempts = 0;
-                    _window.ShowCode(_code);
                     Log("Displaying new pairing code, valid for " + CodeValidity.TotalMinutes + " minutes");
                 }
+                _window.ShowCode(_code);
                 return _code;
             }
         }

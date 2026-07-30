@@ -64,9 +64,9 @@ reason to prepare or send anything to a client the plugin doesn't yet recognize.
 The client's first message on every connection MUST be `authenticate`:
 
 ```json
-{"type": "authenticate", "token": "<previously-issued bearer token>"}
-{"type": "authenticate", "pairingCode": "123456"}
-{"type": "authenticate"}
+{"type": "authenticate", "token": "<previously-issued bearer token>", "deviceId": "<stable per-install id>"}
+{"type": "authenticate", "pairingCode": "123456", "deviceId": "<stable per-install id>"}
+{"type": "authenticate", "deviceId": "<stable per-install id>"}
 ```
 
 Send `token` if the client already holds one for this exact pinned certificate fingerprint.
@@ -74,6 +74,16 @@ Send `pairingCode` once the pilot has read one off the plugin's on-screen pairin
 typed it into the client. Send neither (bare `authenticate`) to mean "I have nothing yet, tell
 me what you need" — this is also what a client should send on its very first-ever connection to
 a given plugin, before any pairing code has been entered.
+
+`deviceId` is optional but recommended: a stable identifier for this specific app install (the
+Android client uses `Settings.Secure.ANDROID_ID` — no special permission needed, and it resets
+along with the client's own local storage on uninstall, which is exactly when its old token
+stops being relevant anyway). When a `pairingCode` pairing succeeds and `deviceId` was sent, the
+plugin drops any of its previously paired-client entries that share the same `deviceId` before
+adding the new one — otherwise every re-pair from the same physical device (e.g. after the
+plugin's certificate changed and forced a re-pair) leaves a stale, never-cleaned-up entry behind
+forever. Not a real IMEI or any hardware identifier — those need permissions this app has no
+business asking for, and aren't actually more correct here than an app-generated install id.
 
 The plugin replies with `authResult`:
 

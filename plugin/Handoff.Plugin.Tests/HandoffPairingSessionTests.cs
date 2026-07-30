@@ -31,7 +31,7 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public void EnsureActiveCode_CalledAgainBeforeExpiry_ReturnsSameCodeWithoutReshowing()
+        public void EnsureActiveCode_CalledAgainBeforeExpiry_ReturnsSameCodeButReshowsWindow()
         {
             var display = new FakePairingDisplay();
             var session = new HandoffPairingSession(display);
@@ -40,7 +40,13 @@ namespace Handoff.Plugin.Tests
             var second = session.EnsureActiveCode();
 
             Assert.Equal(first, second);
-            Assert.Single(display.ShownCodes);
+            // Re-shown every call, not just generated once -- otherwise a pilot manually closing
+            // HandoffPairingWindow (its own "X") would desync the display from a code that's
+            // still active for matching purposes, leaving it invisible until it happened to
+            // expire. ShowCode itself is idempotent/cheap (HandoffPairingWindow only rebuilds the
+            // form if it's actually gone), so reshowing on every call is the safe default.
+            Assert.Equal(2, display.ShownCodes.Count);
+            Assert.Equal(first, display.ShownCodes[1]);
         }
 
         [Fact]
