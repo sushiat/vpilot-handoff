@@ -1,0 +1,84 @@
+name: Bug report
+description: Something isn't working right
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to VATSIM at ...
+        2. Tune ...
+        3. ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual behavior
+    validations:
+      required: false
+
+  - type: dropdown
+    id: simulator
+    attributes:
+      label: Simulator
+      options:
+        - MSFS 2020
+        - MSFS 2024
+        - X-Plane
+        - Prepar3D
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: vpilot-version
+    attributes:
+      label: vPilot version
+      placeholder: e.g. 3.0.5
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Handoff plugin version
+      description: Shown in the plugin's release zip filename, or check plugin/Handoff.Plugin.csproj if built from source.
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: android-app-version
+    attributes:
+      label: Handoff Android app version
+      description: Settings > About in the app, or the APK filename.
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: android-device
+    attributes:
+      label: Android device + OS version
+      placeholder: e.g. Samsung Galaxy Tab S10, Android 15
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, `PostDebugMessage` output (vPilot launched with `/dbgwin`), anything else useful.
+    validations:
+      required: false

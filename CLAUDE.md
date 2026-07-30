@@ -27,4 +27,16 @@ vPilot companion app: live VATSIM controller list + two-way chat on an Android E
 ## Open items to verify empirically once the plugin skeleton exists
 
 - Does `FlightPlanReceived`/`RequestFlightPlan()` still function post-removal of vPilot's in-client filing UI?
-- Confirm plugin folder is `%LOCALAPPDATA%\vPilot\Plugins` for the dev's vPilot install, and that no stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml` copies exist there (known FSLabs-installer bug that breaks plugin loading).
+- Confirm no stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml` copies exist in the plugin folder (known FSLabs-installer bug that breaks plugin loading).
+
+## Resolved
+
+- **vPilot install location is user-configurable, not fixed.** `%LOCALAPPDATA%\vPilot` is
+  only the installer's *default* — the user can pick a different folder at install time.
+  The authoritative source is the registry: `HKCU\Software\vPilot`, value `Install_Dir`
+  (string, absolute path), verified directly against a real install. Nothing in this
+  codebase should hardcode the default as if it were fixed — the plugin's own
+  `Plugins` subfolder always lives under whatever that key points to. `plugin/README.md`'s
+  `VPILOT_PLUGINS_DIR` env var already handles this correctly for the dev-deploy flow; the
+  planned auto-updater (see its own issue) reads the registry key directly instead of
+  assuming the default.

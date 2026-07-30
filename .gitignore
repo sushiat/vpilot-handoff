@@ -19,6 +19,8 @@ build/
 .cxx/
 *.apk
 *.aab
+*.jks
+*.keystore
 
 # --- OS ---
 .DS_Store

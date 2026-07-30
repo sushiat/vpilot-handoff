@@ -1,0 +1,256 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate version + changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve tag version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Tag $tag -> version $version"
+
+      - name: Validate plugin csproj <Version> matches tag
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $csVer = (Select-Xml -Path plugin/Handoff.Plugin.csproj -XPath '//Version').Node.InnerText
+          if ($csVer -ne $version) {
+            Write-Error "Tag v$version does not match plugin/Handoff.Plugin.csproj <Version> $csVer -- bump <Version> before tagging."
+            exit 1
+          }
+          Write-Host "plugin/Handoff.Plugin.csproj <Version> matches tag ($csVer)."
+
+      - name: Validate Android versionName matches tag
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $content = Get-Content android/app/build.gradle.kts -Raw
+          $match = [regex]::Match($content, 'appVersionName\s*=\s*"([^"]+)"')
+          if (-not $match.Success) {
+            Write-Error "Could not find appVersionName in android/app/build.gradle.kts"
+            exit 1
+          }
+          $gradleVer = $match.Groups[1].Value
+          if ($gradleVer -ne $version) {
+            Write-Error "Tag v$version does not match android/app/build.gradle.kts appVersionName $gradleVer -- bump it before tagging."
+            exit 1
+          }
+          Write-Host "android/app/build.gradle.kts appVersionName matches tag ($gradleVer)."
+
+      - name: Ensure derived versionCode increases over the latest release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # versionCode is derived from versionName (see build.gradle.kts) rather than tracked
+          # separately, so this can't drift from it -- but a version number typo/downgrade could
+          # still produce a versionCode Android would refuse to install as an update. Catch that
+          # here instead of finding out after tagging.
+          function Get-VersionCode($v) {
+            $parts = $v.Split('.') | ForEach-Object { [int]$_ }
+            return $parts[0] * 1000000 + $parts[1] * 1000 + $parts[2]
+          }
+          $version = "${{ steps.version.outputs.version }}"
+          $newCode = Get-VersionCode $version
+
+          $latestTag = gh api "repos/${{ github.repository }}/releases" --jq '[.[] | select(.draft == false)] | sort_by(.created_at) | last | .tag_name'
+          if ([string]::IsNullOrEmpty($latestTag)) {
+            Write-Host "No prior release found -- v$version (versionCode $newCode) is the first."
+          } else {
+            $oldVersion = $latestTag.TrimStart('v')
+            $oldCode = Get-VersionCode $oldVersion
+            Write-Host "Latest release: $latestTag (versionCode $oldCode); this release: v$version (versionCode $newCode)"
+            if ($newCode -le $oldCode) {
+              Write-Error "versionCode $newCode (from v$version) is not greater than the latest release's $oldCode (from $latestTag) -- Android will refuse to install this as an update."
+              exit 1
+            }
+          }
+
+      - name: Extract changelog entry
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $content = Get-Content CHANGELOG.md -Raw
+          $escaped = [regex]::Escape($version)
+          $pattern = "(?ms)^##\s*\[$escaped\][^\r\n]*\r?\n(.*?)(?=^##\s|\z)"
+          $match = [regex]::Match($content, $pattern)
+          if (-not $match.Success) {
+            Write-Error "No changelog entry for $version in CHANGELOG.md -- add a '## [$version] - YYYY-MM-DD' section before tagging."
+            exit 1
+          }
+          $body = $match.Groups[1].Value.Trim()
+          Write-Host "--- release body ---"
+          Write-Host $body
+          Write-Host "--- end ---"
+          Set-Content -Path release-notes.md -Value $body -NoNewline
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  plugin:
+    name: Build plugin release package
+    runs-on: windows-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build vPilot plugin API stub
+        # Same stub-DLL approach as build.yml -- the real SDK DLL isn't redistributed (see
+        # plugin/README.md), so CI builds against a hand-reconstructed public-API-only stub.
+        run: |
+          dotnet build ci/plugin-stub-ref/StubRef.csproj -o ci/plugin-stub-ref/out
+          New-Item -ItemType Directory -Force -Path plugin/lib | Out-Null
+          Copy-Item ci/plugin-stub-ref/out/RossCarlson.Vatsim.Vpilot.Plugins.dll plugin/lib/
+        shell: pwsh
+
+      - name: Build plugin (Release)
+        run: dotnet build plugin/Handoff.Plugin.csproj -c Release -o plugin/publish/plugin
+        shell: pwsh
+
+      - name: Build RadioHost (Release)
+        run: dotnet build plugin/Handoff.RadioHost/Handoff.RadioHost.csproj -c Release -o plugin/publish/plugin/RadioHost
+        shell: pwsh
+
+      - name: Assemble release package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = "plugin-package"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # Plugin DLL + its runtime deps at the package root (vPilot's plugin-folder scan
+          # skips DLLs with no IPlugin type, same as it does for its own dependencies) -- see
+          # plugin/README.md's Deploy section for why this layout, and why RadioHost needs its
+          # own subfolder instead.
+          Copy-Item plugin/publish/plugin/Handoff.Plugin.dll $stage/
+          Copy-Item plugin/publish/plugin/Newtonsoft.Json.dll $stage/
+          Copy-Item plugin/publish/plugin/Fleck.dll $stage/
+
+          # RadioHost's full build output, in its own subfolder so its dependency DLLs
+          # (CTrue.FsConnect.dll, its own Newtonsoft.Json.dll, etc.) don't get scanned as
+          # stray non-plugin DLLs by vPilot.
+          Copy-Item plugin/publish/plugin/RadioHost "$stage/RadioHost" -Recurse
+
+          $zipName = "Handoff-Plugin-$tag.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zipName
+          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zipName" | Out-File -Encoding ascii -NoNewline "$zipName.sha256"
+          Add-Content -Encoding ascii -Value "" "$zipName.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: |
+            Handoff-Plugin-*.zip
+            Handoff-Plugin-*.zip.sha256
+
+  android:
+    name: Build Android release APK
+    runs-on: ubuntu-latest
+    needs: validate
+    # Signing secrets live on this environment, not as repo-level secrets -- gated on a
+    # v* tag (matches the workflow trigger, belt-and-suspenders) and, once the repo is
+    # public (required reviewers on environments needs a paid plan for private repos),
+    # a manual approval before this job is allowed to run.
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "RELEASE_KEYSTORE_BASE64 secret not set -- building an unsigned release APK."
+            exit 0
+          fi
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Rename and hash
+        run: |
+          tag="${{ github.ref_name }}"
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          renamed="Handoff-$tag.apk"
+          mv "$apk" "$renamed"
+          sha256sum "$renamed" > "$renamed.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-package
+          path: |
+            Handoff-*.apk
+            Handoff-*.apk.sha256
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: [validate, plugin, android]
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-notes
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: plugin-package
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: android-package
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            Handoff-Plugin-*.zip
+            Handoff-Plugin-*.zip.sha256
+            Handoff-*.apk
+            Handoff-*.apk.sha256
+          body_path: release-notes.md
+          prerelease: false
+          fail_on_unmatched_files: true
