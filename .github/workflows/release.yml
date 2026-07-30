@@ -100,7 +100,7 @@ jobs:
           Write-Host "--- end ---"
           Set-Content -Path release-notes.md -Value $body -NoNewline
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: release-notes.md
@@ -160,7 +160,7 @@ jobs:
           "$hash  $zipName" | Out-File -Encoding ascii -NoNewline "$zipName.sha256"
           Add-Content -Encoding ascii -Value "" "$zipName.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plugin-package
           path: |
@@ -218,7 +218,7 @@ jobs:
           mv "$apk" "$renamed"
           sha256sum "$renamed" > "$renamed.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-package
           path: |
@@ -230,15 +230,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate, plugin, android]
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: plugin-package
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: android-package
 
