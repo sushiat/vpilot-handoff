@@ -77,7 +77,11 @@ namespace Handoff.RadioHost
             SetCom2FrequencyHz,
             SetCom1StandbyFrequencyHz,
             SetCom2StandbyFrequencyHz,
-            SetTransponderCode
+            SetTransponderCode,
+            SelectCom1Transmitter,
+            SelectCom2Transmitter,
+            SetCom1ReceiveSelect,
+            SetCom2ReceiveSelect
         }
 
         // SIMCONNECT_GROUP_PRIORITY_HIGHEST. Used with SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY
@@ -98,6 +102,10 @@ namespace Handoff.RadioHost
             public double Com2StandbyFrequencyMhz;
             public int TransponderState;
             public int TransponderCodeBcd;
+            public int Com1Transmit;
+            public int Com2Transmit;
+            public int Com1Receive;
+            public int Com2Receive;
         }
 
         // Raw ownship telemetry -- own data definition/request (see Requests.OwnshipTelemetrySimVars)
@@ -142,6 +150,8 @@ namespace Handoff.RadioHost
         private double _lastCom1StandbyFrequencyMhz;
         private double _lastCom2StandbyFrequencyMhz;
         private int _lastTransponderCodeBcd;
+        private bool _lastCom1ReceiveEnabled;
+        private bool _lastCom2ReceiveEnabled;
 
         public RadioSimConnectClient(Action<RadioState> onStateChanged, Action<OwnshipTelemetry> onTelemetryChanged)
         {
@@ -225,6 +235,60 @@ namespace Handoff.RadioHost
                 "), standby now reads " + readStandby() + " MHz (target " + standbyMegahertz + ").");
         }
 
+        /// <summary>
+        /// Selects COM1 as the transmitter via COM1_TRANSMIT_SELECT. No payload -- the sim itself
+        /// enforces the mutual exclusivity with COM2 (unlike the read side, which just forwards
+        /// whatever COM TRANSMIT:1/2 report without assuming anything). Plugin-internal only for
+        /// now -- see RadioStateModel's corresponding method for why this isn't wired to a
+        /// client-facing command yet.
+        /// </summary>
+        public void SelectCom1Transmitter()
+        {
+            Logger.Log("Selecting COM1 as transmitter via SimConnect event.");
+            TransmitPriorityEvent(Events.SelectCom1Transmitter, 0);
+            Thread.Sleep(SettleWaitMs);
+        }
+
+        public void SelectCom2Transmitter()
+        {
+            Logger.Log("Selecting COM2 as transmitter via SimConnect event.");
+            TransmitPriorityEvent(Events.SelectCom2Transmitter, 0);
+            Thread.Sleep(SettleWaitMs);
+        }
+
+        /// <summary>
+        /// Sets COM1's receive-select state via COM1_RECEIVE_SELECT. That event's exact
+        /// toggle-vs-explicit-set behavior isn't documented, so this only fires it when the last
+        /// known state actually differs from the target -- safe under either interpretation (a
+        /// true "set" call is idempotent regardless; a toggle only fires when a flip is actually
+        /// needed). Plugin-internal only for now, see RadioStateModel.
+        /// </summary>
+        public void SetCom1ReceiveEnabled(bool enabled)
+        {
+            if (_lastCom1ReceiveEnabled == enabled)
+            {
+                Logger.Log("COM1 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
+                return;
+            }
+
+            Logger.Log("Setting COM1 receive to " + enabled + " via SimConnect event.");
+            TransmitPriorityEvent(Events.SetCom1ReceiveSelect, 0);
+            Thread.Sleep(SettleWaitMs);
+        }
+
+        public void SetCom2ReceiveEnabled(bool enabled)
+        {
+            if (_lastCom2ReceiveEnabled == enabled)
+            {
+                Logger.Log("COM2 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
+                return;
+            }
+
+            Logger.Log("Setting COM2 receive to " + enabled + " via SimConnect event.");
+            TransmitPriorityEvent(Events.SetCom2ReceiveSelect, 0);
+            Thread.Sleep(SettleWaitMs);
+        }
+
         public void SetTransponderCode(int squawk)
         {
             Handoff.Plugin.TransponderCode.ValidateSquawkRange(squawk);
@@ -281,6 +345,8 @@ namespace Handoff.RadioHost
                     _lastCom1StandbyFrequencyMhz = radioSimVars.Com1StandbyFrequencyMhz;
                     _lastCom2StandbyFrequencyMhz = radioSimVars.Com2StandbyFrequencyMhz;
                     _lastTransponderCodeBcd = radioSimVars.TransponderCodeBcd;
+                    _lastCom1ReceiveEnabled = radioSimVars.Com1Receive != 0;
+                    _lastCom2ReceiveEnabled = radioSimVars.Com2Receive != 0;
 
                     var next = new RadioState(
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com1FrequencyMhz),
@@ -289,12 +355,16 @@ namespace Handoff.RadioHost
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com2StandbyFrequencyMhz),
                         radioSimVars.TransponderState == TransponderStateAlt,
                         Handoff.Plugin.TransponderCode.FromBcd(radioSimVars.TransponderCodeBcd),
+                        radioSimVars.Com1Transmit != 0,
+                        radioSimVars.Com2Transmit != 0,
+                        _lastCom1ReceiveEnabled,
+                        _lastCom2ReceiveEnabled,
                         DateTimeOffset.Now);
 
                     if (!_loggedFirstState)
                     {
                         _loggedFirstState = true;
-                        Logger.Log($"First SimConnect radio data received: Com1={radioSimVars.Com1FrequencyMhz}, Com2={radioSimVars.Com2FrequencyMhz}, Com1Stby={radioSimVars.Com1StandbyFrequencyMhz}, Com2Stby={radioSimVars.Com2StandbyFrequencyMhz}, TransponderState={radioSimVars.TransponderState}, TransponderCodeBcd=0x{radioSimVars.TransponderCodeBcd:X4} -> Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Stby={next.Com1StandbyFrequency}, Com2Stby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}");
+                        Logger.Log($"First SimConnect radio data received: Com1={radioSimVars.Com1FrequencyMhz}, Com2={radioSimVars.Com2FrequencyMhz}, Com1Stby={radioSimVars.Com1StandbyFrequencyMhz}, Com2Stby={radioSimVars.Com2StandbyFrequencyMhz}, TransponderState={radioSimVars.TransponderState}, TransponderCodeBcd=0x{radioSimVars.TransponderCodeBcd:X4}, Com1Tx={radioSimVars.Com1Transmit}, Com2Tx={radioSimVars.Com2Transmit}, Com1Rx={radioSimVars.Com1Receive}, Com2Rx={radioSimVars.Com2Receive} -> Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Stby={next.Com1StandbyFrequency}, Com2Stby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}, Com1Tx={next.Com1TransmitEnabled}, Com2Tx={next.Com2TransmitEnabled}, Com1Rx={next.Com1ReceiveEnabled}, Com2Rx={next.Com2ReceiveEnabled}");
                     }
 
                     _onStateChanged(next);
@@ -346,7 +416,11 @@ namespace Handoff.RadioHost
                                 new SimVar("COM STANDBY FREQUENCY:1", "MHz", SIMCONNECT_DATATYPE.FLOAT64),
                                 new SimVar("COM STANDBY FREQUENCY:2", "MHz", SIMCONNECT_DATATYPE.FLOAT64),
                                 new SimVar("TRANSPONDER STATE:1", "Enum", SIMCONNECT_DATATYPE.INT32),
-                                new SimVar("TRANSPONDER CODE:1", "BCO16", SIMCONNECT_DATATYPE.INT32)
+                                new SimVar("TRANSPONDER CODE:1", "BCO16", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("COM TRANSMIT:1", "Bool", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("COM TRANSMIT:2", "Bool", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("COM RECEIVE:1", "Bool", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("COM RECEIVE:2", "Bool", SIMCONNECT_DATATYPE.INT32)
                             });
 
                             _fsConnect.RegisterDataDefinition<OwnshipTelemetrySimVars>(Requests.OwnshipTelemetrySimVars, new List<SimVar>
@@ -367,6 +441,10 @@ namespace Handoff.RadioHost
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1StandbyFrequencyHz, "COM_STBY_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom2StandbyFrequencyHz, "COM2_STBY_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetTransponderCode, "XPNDR_SET");
+                            _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SelectCom1Transmitter, "COM1_TRANSMIT_SELECT");
+                            _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SelectCom2Transmitter, "COM2_TRANSMIT_SELECT");
+                            _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1ReceiveSelect, "COM1_RECEIVE_SELECT");
+                            _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom2ReceiveSelect, "COM2_RECEIVE_SELECT");
                             _fsConnect.SetNotificationGroupPriority(Groups.Radio);
 
                             _dataDefinitionsRegistered = true;

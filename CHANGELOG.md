@@ -10,6 +10,14 @@ once it has its first release.
 
 ### Added
 
+- Plugin: reads COM1/COM2 transmit/receive-select state from SimConnect
+  (`COM TRANSMIT:1/2`, `COM RECEIVE:1/2`) and broadcasts it in the `radioState`
+  WebSocket message as `com1/2TransmitEnabled`/`com1/2ReceiveEnabled` (issue
+  #20). Also adds plugin-internal write capability (SimConnect events +
+  RadioHost IPC + `RadioStateModel` methods) for selecting the active
+  transmitter and toggling per-COM receive, ready for a future client command
+  once the app-side control UI is designed — not yet exposed over the
+  WebSocket protocol or in the Android app.
 - Android: controller row-color theme editor (issue #21) — a "🎨" entry point
   in Settings' Appearance section opens a dialog to customize the 6 facility
   hues (DEL/GND/TWR/APP-DEP/CTR/ATIS), the text-contrast threshold, where

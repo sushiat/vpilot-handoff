@@ -269,8 +269,8 @@ messages and SELCAL alerts, `null` otherwise.
 
 ### `radioState`
 
-Ownship COM1/COM2 active + standby tuned frequency, transponder code, and Mode C state, resent
-whenever any of them change.
+Ownship COM1/COM2 active + standby tuned frequency, transponder code, Mode C state, and
+COM1/COM2 transmit/receive-select state, resent whenever any of them change.
 
 ```json
 {
@@ -280,7 +280,11 @@ whenever any of them change.
   "com1StandbyFrequency": 21000,
   "com2StandbyFrequency": null,
   "modeCEnabled": false,
-  "transponderCode": 1200
+  "transponderCode": 1200,
+  "com1TransmitEnabled": true,
+  "com2TransmitEnabled": false,
+  "com1ReceiveEnabled": true,
+  "com2ReceiveEnabled": false
 }
 ```
 
@@ -288,6 +292,18 @@ All frequency fields are `null` until the first SimConnect read completes (or if
 SimConnect helper process isn't running/connected). `transponderCode` is a plain decimal
 squawk (e.g. `1200`), not BCD -- that encoding is purely a SimConnect-boundary detail on the
 plugin side.
+
+`com1TransmitEnabled`/`com2TransmitEnabled` and `com1ReceiveEnabled`/`com2ReceiveEnabled` are the
+audio panel's transmit/receive *selection* state (SimConnect's `COM TRANSMIT:n`/`COM RECEIVE:n`),
+not a live "audio currently playing" indicator -- no such live signal is exposed anywhere (not by
+IBroker, not by SimConnect; VATSIM voice runs entirely inside vPilot's own internal audio engine,
+which has no exposed hooks at all). Transmit is normally mutually exclusive between COM1/COM2
+(real avionics only let one COM be the transmitter at a time), but the plugin doesn't validate or
+enforce that -- it just forwards whatever the sim reports. Receive is genuinely independent per
+COM: both `true` at once is a normal "listening on both" state. Both transmit and both receive
+fields can be `false` at once too (radio/avionics powered off, or before the first SimConnect
+read completes). These fields are currently read-only/display-only from the client's perspective
+-- there is no client command yet to change which COM transmits or toggle receive from the app.
 
 ### `flightPlan`
 

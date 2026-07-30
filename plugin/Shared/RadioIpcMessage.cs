@@ -23,6 +23,14 @@ namespace Handoff.Plugin
         public const string TypeSetCom2ActiveAndStandbyFrequency = "setCom2ActiveAndStandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
 
+        // Plugin-internal write capability for COM transmitter-select/receive-select (issue #20)
+        // -- not yet exposed as a client-facing WebSocket command, see RadioStateModel's doc
+        // comment on the corresponding methods for why.
+        public const string TypeSelectCom1Transmitter = "selectCom1Transmitter";
+        public const string TypeSelectCom2Transmitter = "selectCom2Transmitter";
+        public const string TypeSetCom1ReceiveEnabled = "setCom1ReceiveEnabled";
+        public const string TypeSetCom2ReceiveEnabled = "setCom2ReceiveEnabled";
+
         public string Type { get; set; }
 
         // TypeRadioState (host -> plugin)
@@ -32,6 +40,10 @@ namespace Handoff.Plugin
         public int? Com2StandbyFrequency { get; set; }
         public bool? ModeCEnabled { get; set; }
         public int? TransponderCode { get; set; }
+        public bool? Com1TransmitEnabled { get; set; }
+        public bool? Com2TransmitEnabled { get; set; }
+        public bool? Com1ReceiveEnabled { get; set; }
+        public bool? Com2ReceiveEnabled { get; set; }
 
         // TypeOwnshipTelemetry (host -> plugin)
         public bool? OnGround { get; set; }
@@ -51,5 +63,11 @@ namespace Handoff.Plugin
         // standby frequency, applied together.
         public double? Megahertz { get; set; }
         public double? StandbyMegahertz { get; set; }
+
+        // TypeSelectCom1Transmitter / TypeSelectCom2Transmitter (plugin -> host): no payload
+        // beyond Type -- selecting one COM as transmitter is what makes the sim treat it as
+        // mutually exclusive with the other, nothing else to carry.
+        // TypeSetCom1ReceiveEnabled / TypeSetCom2ReceiveEnabled (plugin -> host): reuses
+        // Com1ReceiveEnabled/Com2ReceiveEnabled above for the desired new state.
     }
 }
