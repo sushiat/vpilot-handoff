@@ -50,6 +50,19 @@ data class OperationProgressState(val message: OperationProgressMessage, val rec
  *  in-flight alongside it; SUCCESS/FAILURE only apply once nothing's running anymore. */
 enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCCESS, FAILURE }
 
+/** A TLS trust decision (issue #15) awaiting the pilot's Trust/Cancel response --
+ *  HandoffConnectionService.onCertificateSeen sets this after a handshake whose certificate isn't
+ *  already pinned; CertificateTrustDialog observes it and calls back into
+ *  HandoffConnectionService.respondToCertTrust. All 4 fields are shown together so the pilot has
+ *  enough to make an informed trust decision, not just the fingerprint. */
+data class PendingCertTrust(
+    val host: String,
+    val port: Int,
+    val commonName: String?,
+    val fingerprint: String,
+    val isChanged: Boolean
+)
+
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
  *  (reader) -- no bindService/Messenger IPC needed since both run in the same process. */
 object HandoffState {
@@ -144,6 +157,9 @@ object HandoffState {
     private val _splitSide = MutableStateFlow(SplitSide.LEFT)
     val splitSide: StateFlow<SplitSide> = _splitSide.asStateFlow()
 
+    private val _pendingCertTrust = MutableStateFlow<PendingCertTrust?>(null)
+    val pendingCertTrust: StateFlow<PendingCertTrust?> = _pendingCertTrust.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -169,6 +185,10 @@ object HandoffState {
         _subsystemStatus.value = SubsystemStatusMessage()
         _operationProgress.value = emptyMap()
         _latencyMs.value = null
+        // A dropped connection (as opposed to the pilot explicitly answering the prompt via
+        // respondToCertTrust, which already clears this) makes any pending trust prompt stale --
+        // the next connection attempt will re-present it fresh if still relevant.
+        _pendingCertTrust.value = null
     }
 
     fun update(message: ControllersMessage) {
@@ -247,5 +267,9 @@ object HandoffState {
 
     fun setSplitSide(side: SplitSide) {
         _splitSide.value = side
+    }
+
+    fun setPendingCertTrust(pending: PendingCertTrust?) {
+        _pendingCertTrust.value = pending
     }
 }

@@ -22,6 +22,7 @@ namespace Handoff.Plugin
         private VatSpyDataModel _vatSpyData;
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
+        private HandoffCertificateStore _certificateStore;
 
         public void Initialize(IBroker broker)
         {
@@ -104,10 +105,14 @@ namespace Handoff.Plugin
             // Unlike RadioStateModel, not tied to the VATSIM connection -- just an in-process
             // listener, and the Android app should be able to connect and see plugin status
             // even before the pilot connects.
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _broker.PostDebugMessage);
+            // Loaded/generated once up front -- both the wss:// listener and the discovery
+            // reply's fingerprint field need the same certificate identity (see issue #15).
+            _certificateStore = new HandoffCertificateStore(_broker.PostDebugMessage);
+
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
-            _discoveryListener = new HandoffDiscoveryListener(_broker.PostDebugMessage);
+            _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);
             _discoveryListener.Start();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");

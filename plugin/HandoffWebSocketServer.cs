@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Fleck;
 
@@ -20,7 +22,7 @@ namespace Handoff.Plugin
     public sealed class HandoffWebSocketServer
     {
         public const int Port = 48765;
-        private const string Address = "ws://0.0.0.0:48765";
+        private const string Address = "wss://0.0.0.0:48765";
 
         // Static until the plugin has a real versioning scheme -- see docs/protocol.md.
         private const string PluginVersion = "0.1.0";
@@ -37,6 +39,7 @@ namespace Handoff.Plugin
         private readonly PilotSessionModel _pilotSession;
         private readonly OperationProgressModel _operationProgress;
         private readonly Action<string> _logDebug;
+        private readonly X509Certificate2 _certificate;
         private WebSocketServer _server;
         private Timer _broadcastTimer;
 
@@ -46,7 +49,7 @@ namespace Handoff.Plugin
         // the wire broadcast just goes out on a fixed cadence instead.
         private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(1);
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -57,6 +60,7 @@ namespace Handoff.Plugin
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
+            _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
             _logDebug = logDebug;
         }
 
@@ -64,7 +68,11 @@ namespace Handoff.Plugin
         {
             try
             {
-                _server = new WebSocketServer(Address);
+                _server = new WebSocketServer(Address)
+                {
+                    Certificate = _certificate,
+                    EnabledSslProtocols = SslProtocols.Tls12
+                };
                 _server.Start(socket =>
                 {
                     socket.OnOpen = () => OnOpen(socket);

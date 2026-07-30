@@ -9,18 +9,50 @@ conform to this, not to whichever client's source happens to exist first.
 The plugin's LAN IP isn't known in advance, so it also listens for a UDP broadcast discovery
 request on port `48766` — plain UDP, not mDNS/Bonjour, so no extra dependency is needed on
 either side. A client broadcasts the ASCII text `HANDOFF_DISCOVER` to `255.255.255.255:48766`;
-the plugin unicasts back `{"port":48765}` to the sender. This listener runs for the plugin's
-whole lifetime (not tied to the VATSIM connection), same as the WebSocket server below, so a
-client can discover it even before the pilot connects.
+the plugin unicasts back `{"port":48765,"fingerprint":"AB:12:CD:34:..."}` to the sender. This
+listener runs for the plugin's whole lifetime (not tied to the VATSIM connection), same as the
+WebSocket server below, so a client can discover it even before the pilot connects.
+
+`fingerprint` is the SHA-256 hash of the plugin's TLS certificate's public key, formatted as
+uppercase colon-separated hex — see Connection below. It's included here purely as a
+same-round-trip convenience; the actual trust-on-first-use decision is made against whatever
+certificate is presented during the TLS handshake itself, not against this discovery hint.
 
 Discovery isn't guaranteed to work on every network (some routers apply AP client isolation or
 block broadcast traffic), so clients should keep a manually-entered IP as a fallback.
 
 ## Connection
 
-The plugin listens on `ws://<pc-lan-ip>:48765/` (Fleck-based, plain TCP — no HTTP handshake
-beyond the WebSocket upgrade, and no admin/URL-ACL setup needed on the Windows side). Not yet
-configurable; a fixed port for v1.
+The plugin listens on `wss://<pc-lan-ip>:48765/` (Fleck-based, TLS 1.2, plain TCP otherwise —
+no HTTP handshake beyond the WebSocket upgrade, and no admin/URL-ACL setup needed on the
+Windows side). Not yet configurable; a fixed port for v1.
+
+The certificate is self-signed, generated (and cached across restarts) by the plugin on first
+run — there's no CA involved, since this is a local, self-discovered pairing between one plugin
+instance and one client instance, not a public-facing service. Its Subject CN is the Windows
+machine name, so a client can show a recognizable hostname alongside the fingerprint without
+needing a separate protocol field for it.
+
+Because there's no CA to validate against, any client implementing this protocol MUST do
+trust-on-first-use (TOFU) certificate pinning — the same model SSH uses for unknown hosts, not
+blind encrypt-and-trust:
+
+- **First connection to a given plugin**: after the TLS handshake succeeds, present the pilot
+  with the certificate's fingerprint (and ideally the host/port and Subject CN too, for a fully
+  informed decision) and ask for explicit confirmation before treating the connection as
+  legitimate. Persist the accepted fingerprint locally.
+- **Subsequent connections**: compare the presented certificate's fingerprint against the
+  persisted one. A match proceeds silently; there is exactly one plugin instance a given client
+  is ever paired with at a time, so no per-host bookkeeping is needed.
+- **Changed fingerprint**: do NOT silently re-prompt as if this were a first-time connection —
+  a changed fingerprint could be a legitimate cert rotation (reinstalled/reset plugin) or a
+  genuine MITM/spoof, and treating it identically to first-trust would let a real spoof get
+  quietly re-approved the same way initial trust would. Show a distinct, more alarming warning
+  instead; a legitimate rotation still requires an explicit re-trust tap, just through a
+  scarier dialog than first-trust.
+
+The fingerprint format is SHA-256 of the certificate's public key, uppercase colon-separated
+hex (e.g. `AB:12:CD:34:...`) — matches HandoffDiscoveryListener's discovery-reply field above.
 
 On connect, the server immediately sends a `controllers`, a `chat`, and a `radioState`
 message — the client's full current state, with no need to wait for the next change. After

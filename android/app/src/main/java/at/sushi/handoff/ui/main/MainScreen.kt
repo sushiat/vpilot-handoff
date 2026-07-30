@@ -50,6 +50,7 @@ import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
+import at.sushi.handoff.ui.dialogs.CertificateTrustDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
@@ -203,6 +204,7 @@ private fun MainScreenContent() {
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
+    val pendingCertTrust by HandoffState.pendingCertTrust.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
     val operationIndicator = combineOperationIndicator(visibleOperations)
 
@@ -507,6 +509,17 @@ private fun MainScreenContent() {
         XpdrDialog(
             onDismiss = { xpdrDialogOpen = false },
             onSetCode = { code -> send(SetTransponderCodeCommand(transponderCode = code)) }
+        )
+    }
+
+    // Driven by HandoffState.pendingCertTrust rather than a locally-owned open/closed flag, since
+    // this dialog is triggered by HandoffConnectionService reacting to a TLS handshake (issue
+    // #15), not by a user-initiated button like the other dialogs here.
+    pendingCertTrust?.let { pending ->
+        CertificateTrustDialog(
+            pending = pending,
+            onTrust = { HandoffConnectionService.instance?.respondToCertTrust(trust = true) },
+            onCancel = { HandoffConnectionService.instance?.respondToCertTrust(trust = false) }
         )
     }
 

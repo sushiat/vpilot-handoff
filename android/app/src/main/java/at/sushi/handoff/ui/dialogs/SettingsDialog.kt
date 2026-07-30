@@ -238,7 +238,7 @@ fun SettingsDialog(
                                     modifier = Modifier.clickable {
                                         discoveryStatus = "Searching…"
                                         scope.launch {
-                                            val found = HandoffDiscoveryClient().discoverHost()
+                                            val found = HandoffDiscoveryClient().discover()?.host
                                             if (found != null) {
                                                 host = found
                                                 discoveryStatus = "Found $found"
