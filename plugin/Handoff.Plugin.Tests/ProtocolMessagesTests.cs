@@ -173,7 +173,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildRadioStateMessage_BeforeFirstRead_FrequenciesAreNull()
         {
-            var state = new RadioState(null, null, null, null, false, null, DateTimeOffset.UtcNow);
+            var state = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.UtcNow);
 
             var json = JObject.Parse(ProtocolMessages.BuildRadioStateMessage(state));
 
@@ -184,12 +184,16 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(JTokenType.Null, json["com2StandbyFrequency"].Type);
             Assert.False((bool)json["modeCEnabled"]);
             Assert.Equal(JTokenType.Null, json["transponderCode"].Type);
+            Assert.False((bool)json["com1TransmitEnabled"]);
+            Assert.False((bool)json["com2TransmitEnabled"]);
+            Assert.False((bool)json["com1ReceiveEnabled"]);
+            Assert.False((bool)json["com2ReceiveEnabled"]);
         }
 
         [Fact]
         public void BuildRadioStateMessage_WithValues()
         {
-            var state = new RadioState(23725, 18000, 21000, 19000, true, 1200, DateTimeOffset.UtcNow);
+            var state = new RadioState(23725, 18000, 21000, 19000, true, 1200, true, false, true, true, DateTimeOffset.UtcNow);
 
             var json = JObject.Parse(ProtocolMessages.BuildRadioStateMessage(state));
 
@@ -199,6 +203,10 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(19000, (int)json["com2StandbyFrequency"]);
             Assert.True((bool)json["modeCEnabled"]);
             Assert.Equal(1200, (int)json["transponderCode"]);
+            Assert.True((bool)json["com1TransmitEnabled"]);
+            Assert.False((bool)json["com2TransmitEnabled"]);
+            Assert.True((bool)json["com1ReceiveEnabled"]);
+            Assert.True((bool)json["com2ReceiveEnabled"]);
         }
 
         [Fact]

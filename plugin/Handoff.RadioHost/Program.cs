@@ -151,6 +151,18 @@ namespace Handoff.RadioHost
                         case RadioIpcMessage.TypeSetTransponderCode:
                             if (message.TransponderCode.HasValue) radio.SetTransponderCode(message.TransponderCode.Value);
                             break;
+                        case RadioIpcMessage.TypeSelectCom1Transmitter:
+                            radio.SelectCom1Transmitter();
+                            break;
+                        case RadioIpcMessage.TypeSelectCom2Transmitter:
+                            radio.SelectCom2Transmitter();
+                            break;
+                        case RadioIpcMessage.TypeSetCom1ReceiveEnabled:
+                            if (message.Com1ReceiveEnabled.HasValue) radio.SetCom1ReceiveEnabled(message.Com1ReceiveEnabled.Value);
+                            break;
+                        case RadioIpcMessage.TypeSetCom2ReceiveEnabled:
+                            if (message.Com2ReceiveEnabled.HasValue) radio.SetCom2ReceiveEnabled(message.Com2ReceiveEnabled.Value);
+                            break;
                     }
                 }
                 catch (Exception ex)
@@ -176,7 +188,11 @@ namespace Handoff.RadioHost
                         Com1StandbyFrequency = state.Com1StandbyFrequency,
                         Com2StandbyFrequency = state.Com2StandbyFrequency,
                         ModeCEnabled = state.ModeCEnabled,
-                        TransponderCode = state.TransponderCode
+                        TransponderCode = state.TransponderCode,
+                        Com1TransmitEnabled = state.Com1TransmitEnabled,
+                        Com2TransmitEnabled = state.Com2TransmitEnabled,
+                        Com1ReceiveEnabled = state.Com1ReceiveEnabled,
+                        Com2ReceiveEnabled = state.Com2ReceiveEnabled
                     };
                     RadioIpcProtocol.WriteMessage(_currentWriter, message);
                     if (!_loggedFirstWrite)

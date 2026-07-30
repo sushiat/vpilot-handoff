@@ -67,7 +67,7 @@ namespace Handoff.Plugin.Tests
         {
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _radio.RaiseChanged();
@@ -84,7 +84,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_APP", 12345);
             AddController("EGLL_GND", 21800);
-            _radio.Current = new RadioState(23725, 12345, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, 12345, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _radio.RaiseChanged();
@@ -112,7 +112,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_APP", 12345); // prepared in standby
             AddController("EGLL_GND", 21800); // unrelated, no signal
-            _radio.Current = new RadioState(23725, null, 12345, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, 12345, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             var ranked = model.Current.ToList();
@@ -130,7 +130,7 @@ namespace Handoff.Plugin.Tests
             // bucket 1 already had.
             AddController("AAAA_APP", 12345); // COM2 standby match
             AddController("ZZZZ_GND", 23725); // COM1 standby match
-            _radio.Current = new RadioState(null, null, 23725, 12345, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(null, null, 23725, 12345, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             var ranked = model.Current.ToList();
@@ -146,7 +146,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_CTR", 12345); // far tier, would otherwise sort last
             AddController("EGLL_GND", 21800);
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_CTR", "contact me"));
@@ -165,7 +165,7 @@ namespace Handoff.Plugin.Tests
             _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me"));
             Assert.True(model.Current.Single().IsContactMe);
 
-            _radio.Current = new RadioState(21800, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(21800, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             _radio.RaiseChanged();
 
             Assert.False(model.Current.Single().IsContactMe);
@@ -178,7 +178,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800); // contact-me, must still outrank SELCAL
             AddController("EGLL_CTR", 12345); // SELCAL, far tier, would otherwise sort last
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me"));
@@ -198,7 +198,7 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel();
             _broker.RaiseSelcalAlertReceived(new SelcalAlertReceivedEventArgs(new[] { 12345 }, "EGLL_CTR"));
 
-            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(12345, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             _radio.RaiseChanged();
 
             Assert.True(model.Current.Single(c => c.Callsign == "EGLL_CTR").IsCurrent);
@@ -223,7 +223,7 @@ namespace Handoff.Plugin.Tests
         {
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _controllerState.SetPinnedController("EGLL_GND");
@@ -240,7 +240,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
             AddController("EGLC_TWR", 20100); // unrelated, tier-closer to current (Tower)
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _controllerState.SetPinnedController("EGLL_GND");
@@ -256,7 +256,7 @@ namespace Handoff.Plugin.Tests
         {
             AddController("EGLL_TWR", 23725);
             AddController("EGLL_GND", 21800);
-            _radio.Current = new RadioState(23725, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
             _controllerState.SetPinnedController("EGLL_GND");
 
@@ -314,7 +314,7 @@ namespace Handoff.Plugin.Tests
             AddController("EGLL_ATIS", 12800);
             AddController("EGLL_DEL", 12100);
             AddController("EGLL_CTR", 12345);
-            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(12345, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             var model = CreateModel();
 
             _radio.RaiseChanged();
@@ -501,7 +501,7 @@ namespace Handoff.Plugin.Tests
             AddController("ZZZZ_APP", 12345, 0, 0);
             AddController("LFPG_TWR", 23730, 0, 3 / 60.0); // ~3nm
             AddController("EGLL_TWR", 23725, 0, 1 / 60.0); // ~1nm -- closer, added second
-            _radio.Current = new RadioState(12345, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(12345, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
             var model = CreateModel();
 
@@ -542,7 +542,7 @@ namespace Handoff.Plugin.Tests
         {
             AddController("EGLL_DEL", 12100, 0, 0);
             AddController("EGLL_GND", 21800, 0, 2 / 60.0);
-            _radio.Current = new RadioState(12100, null, null, null, false, null, DateTimeOffset.Now);
+            _radio.Current = new RadioState(12100, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
             _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
             var model = CreateModel();
 

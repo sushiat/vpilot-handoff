@@ -109,7 +109,11 @@ namespace Handoff.Plugin
                 com1StandbyFrequency = state.Com1StandbyFrequency,
                 com2StandbyFrequency = state.Com2StandbyFrequency,
                 modeCEnabled = state.ModeCEnabled,
-                transponderCode = state.TransponderCode
+                transponderCode = state.TransponderCode,
+                com1TransmitEnabled = state.Com1TransmitEnabled,
+                com2TransmitEnabled = state.Com2TransmitEnabled,
+                com1ReceiveEnabled = state.Com1ReceiveEnabled,
+                com2ReceiveEnabled = state.Com2ReceiveEnabled
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

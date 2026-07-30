@@ -9,7 +9,7 @@ namespace Handoff.Plugin.Tests
     /// </summary>
     internal sealed class FakeRadioStateModel : IRadioStateModel
     {
-        public RadioState Current { get; set; } = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
+        public RadioState Current { get; set; } = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
         public OwnshipTelemetry Telemetry { get; set; } = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
         public bool IsRadioHostConnected { get; set; }
         public bool IsSimulatorConnected { get; set; }

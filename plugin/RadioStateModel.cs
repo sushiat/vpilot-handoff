@@ -34,7 +34,7 @@ namespace Handoff.Plugin
         private readonly object _gate = new object();
         private readonly object _lifecycleGate = new object();
         private readonly Action<string> _logDebug;
-        private RadioState _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
+        private RadioState _current = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
         private OwnshipTelemetry _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
         private StreamWriter _writer;
         private volatile bool _running;
@@ -131,7 +131,7 @@ namespace Handoff.Plugin
             lock (_gate)
             {
                 _writer = null;
-                _current = new RadioState(null, null, null, null, false, null, DateTimeOffset.Now);
+                _current = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
                 _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
             }
             Changed?.Invoke(this, EventArgs.Empty);
@@ -197,6 +197,34 @@ namespace Handoff.Plugin
         {
             TransponderCode.ValidateSquawkRange(squawk);
             SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetTransponderCode, TransponderCode = squawk });
+        }
+
+        /// <summary>
+        /// Plugin-internal write capability for COM transmitter-select/receive-select (issue #20)
+        /// -- these 4 methods exist so the SimConnect/IPC plumbing is ready, but nothing calls
+        /// them yet. Deliberately not wired to a client-facing WebSocket command
+        /// (ClientCommand/ProtocolMessages.ParseClientCommand/HandoffWebSocketServer) or any
+        /// Android UI in this pass -- how "swap active transmitter" and "toggle receive" should
+        /// fit into the existing COM1/COM2 tune UI needs its own design pass first.
+        /// </summary>
+        public void SelectCom1Transmitter()
+        {
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSelectCom1Transmitter });
+        }
+
+        public void SelectCom2Transmitter()
+        {
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSelectCom2Transmitter });
+        }
+
+        public void SetCom1ReceiveEnabled(bool enabled)
+        {
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom1ReceiveEnabled, Com1ReceiveEnabled = enabled });
+        }
+
+        public void SetCom2ReceiveEnabled(bool enabled)
+        {
+            SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2ReceiveEnabled, Com2ReceiveEnabled = enabled });
         }
 
         private void SendCommand(RadioIpcMessage message)
@@ -294,7 +322,12 @@ namespace Handoff.Plugin
 
                             if (message.Type == RadioIpcMessage.TypeRadioState)
                             {
-                                var next = new RadioState(message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency, message.ModeCEnabled ?? false, message.TransponderCode, DateTimeOffset.Now);
+                                var next = new RadioState(
+                                    message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency,
+                                    message.ModeCEnabled ?? false, message.TransponderCode,
+                                    message.Com1TransmitEnabled ?? false, message.Com2TransmitEnabled ?? false,
+                                    message.Com1ReceiveEnabled ?? false, message.Com2ReceiveEnabled ?? false,
+                                    DateTimeOffset.Now);
                                 lock (_gate) { _current = next; }
                                 _simulatorConnected = true;
 
