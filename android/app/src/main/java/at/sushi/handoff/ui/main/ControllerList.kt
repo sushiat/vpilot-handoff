@@ -196,24 +196,43 @@ fun ControllerList(
             ).size.width
             with(density) { widthPx.toDp() }
         }
-        // A newly badged row (TUNED/STBY/CONTACT_ME/NEXT/NEXT_LIKELY/PINNED/SELCAL) can land above
-        // whatever's currently in the viewport if the pilot has scrolled down -- easy to miss
-        // entirely, worst of all for CONTACT_ME. Auto-scroll to the top whenever the *set* of
-        // badged callsigns gains a new member, not on every recompute (badges flipping off, or a
-        // row merely changing position among already-badged ones, shouldn't yank the scroll
-        // position around).
+        // Snap back to the top whenever a row's badge set changes (TUNED/STBY/CONTACT_ME/NEXT/
+        // NEXT_LIKELY/PINNED/SELCAL) -- gain *or* loss, not just gain. Whatever's relevant can
+        // otherwise land above the viewport (or, on loss, drop below it while the list reorders
+        // underneath) if the pilot has scrolled down, and go unnoticed.
+        //
+        // This intentionally does NOT key off com1Standby/com2Standby (the local radioState
+        // values, which update the instant a tuning command round-trips) or a separately-tracked
+        // pinned-callsign set, as an earlier version of this fix did. Every badge here (PINNED
+        // included) is server-authoritative on [Controller] itself (issue #18), broadcast on the
+        // plugin's own ~1/sec cadence -- decoupled from, and slower than, local radioState
+        // updates. Scrolling to the top on the early local signal effectively locked LazyColumn's
+        // key-based scroll anchor onto whatever row was at index 0 *at that moment* (unchanged,
+        // since the real reorder hadn't landed yet) -- then when the plugin's actual reorder
+        // arrived a beat later, Compose faithfully kept that same row in view as it dropped down
+        // the ranking, hiding everything above it (confirmed on-device: adding a delay() before
+        // the scroll call made this race land the same way *every* time instead of
+        // intermittently, rather than fixing it -- the real problem was firing on the wrong
+        // signal, not bad timing on the right one). Badges are exactly as stale as the visible
+        // ordering, since both come from the same broadcast -- keying on them fires this in step
+        // with the real reorder instead of ahead of it.
         val listState = rememberLazyListState()
         var previousBadgedCallsigns by remember { mutableStateOf<Set<String>?>(null) }
-        LaunchedEffect(visibleControllers, com1Active, com2Active) {
+        var previousHideTuned by remember { mutableStateOf(hideTuned) }
+        LaunchedEffect(visibleControllers, com1Active, com2Active, hideTuned) {
             val currentBadged = visibleControllers.filter { controller ->
                 controllerBadges(controller, com1Active, com2Active).isNotEmpty()
             }.mapTo(mutableSetOf()) { it.callsign }
 
             val previous = previousBadgedCallsigns
-            if (previous != null && (currentBadged - previous).isNotEmpty()) {
-                listState.animateScrollToItem(0)
+            // Toggling "hide tuned" is its own explicit trigger -- a direct, immediate pilot
+            // action that can leave the badge set completely unchanged (e.g. no tuned rows exist
+            // yet), so it wouldn't otherwise be caught by the check above.
+            if (previous != null && (currentBadged != previous || hideTuned != previousHideTuned)) {
+                listState.scrollToItem(0)
             }
             previousBadgedCallsigns = currentBadged
+            previousHideTuned = hideTuned
         }
 
         // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;

@@ -118,7 +118,17 @@ data class RadioStateMessage(
     val com1StandbyFrequency: Int? = null,
     val com2StandbyFrequency: Int? = null,
     val modeCEnabled: Boolean,
-    val transponderCode: Int? = null
+    val transponderCode: Int? = null,
+    // Audio panel's transmit/receive-select state (SimConnect's COM TRANSMIT:n/COM RECEIVE:n),
+    // not a live "audio currently playing" indicator -- see docs/protocol.md. Transmit is
+    // normally mutually exclusive between COM1/COM2 but the plugin doesn't enforce that; receive
+    // is genuinely independent per COM (both true at once is a normal "listening on both" state).
+    // Changed via SelectCom1TransmitterCommand/SelectCom2TransmitterCommand/
+    // SetCom1ReceiveEnabledCommand/SetCom2ReceiveEnabledCommand (issue #29's MIC/MON buttons).
+    val com1TransmitEnabled: Boolean = false,
+    val com2TransmitEnabled: Boolean = false,
+    val com1ReceiveEnabled: Boolean = false,
+    val com2ReceiveEnabled: Boolean = false
 ) : ServerMessage
 
 @Serializable
@@ -289,6 +299,40 @@ data class SetTransponderCodeCommand(
     val transponderCode: Int
 ) : ClientCommand {
     override fun encode() = json.encodeToString(SetTransponderCodeCommand.serializer(), this)
+}
+
+/** Selects COM1 as the transmitter (real avionics only let one COM transmit at a time, but the
+ *  plugin doesn't enforce that -- see docs/protocol.md). Carries no fields of its own. */
+@Serializable
+data class SelectCom1TransmitterCommand(
+    val type: String = "selectCom1Transmitter"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SelectCom1TransmitterCommand.serializer(), this)
+}
+
+@Serializable
+data class SelectCom2TransmitterCommand(
+    val type: String = "selectCom2Transmitter"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SelectCom2TransmitterCommand.serializer(), this)
+}
+
+/** Sets COM1's receive-select state -- independent of COM2's, both true at once is a normal
+ *  "listening on both" state (docs/protocol.md). */
+@Serializable
+data class SetCom1ReceiveEnabledCommand(
+    val type: String = "setCom1ReceiveEnabled",
+    val enabled: Boolean
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom1ReceiveEnabledCommand.serializer(), this)
+}
+
+@Serializable
+data class SetCom2ReceiveEnabledCommand(
+    val type: String = "setCom2ReceiveEnabled",
+    val enabled: Boolean
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetCom2ReceiveEnabledCommand.serializer(), this)
 }
 
 @Serializable

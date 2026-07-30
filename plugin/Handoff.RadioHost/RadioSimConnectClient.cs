@@ -257,11 +257,13 @@ namespace Handoff.RadioHost
         }
 
         /// <summary>
-        /// Sets COM1's receive-select state via COM1_RECEIVE_SELECT. That event's exact
-        /// toggle-vs-explicit-set behavior isn't documented, so this only fires it when the last
-        /// known state actually differs from the target -- safe under either interpretation (a
-        /// true "set" call is idempotent regardless; a toggle only fires when a flip is actually
-        /// needed). Plugin-internal only for now, see RadioStateModel.
+        /// Sets COM1's receive-select state via COM1_RECEIVE_SELECT, passing the target state
+        /// explicitly as the event's dwData (1/0) -- not always 0 (that was the actual bug: every
+        /// call was telling the sim "set to false" regardless of [enabled], which reads
+        /// identically to "the aircraft just doesn't implement this event" until you check the
+        /// dwData value actually being sent). Still guarded by the last-known-state check since,
+        /// if this event turns out to be a pure toggle on some aircraft (ignoring dwData
+        /// entirely), that guard is what keeps a redundant call from flipping it back.
         /// </summary>
         public void SetCom1ReceiveEnabled(bool enabled)
         {
@@ -272,8 +274,14 @@ namespace Handoff.RadioHost
             }
 
             Logger.Log("Setting COM1 receive to " + enabled + " via SimConnect event.");
-            TransmitPriorityEvent(Events.SetCom1ReceiveSelect, 0);
+            TransmitPriorityEvent(Events.SetCom1ReceiveSelect, enabled ? 1u : 0u);
             Thread.Sleep(SettleWaitMs);
+            // Unlike SetFrequencyViaEvent/SetTransponderCode, this event's own effect was never
+            // verified end to end before this was actually wired to a client-facing command --
+            // log whether it actually took, since COM1_RECEIVE_SELECT not being implemented by a
+            // given aircraft's custom avionics (same category of issue as any other legacy K-event
+            // a complex addon doesn't wire up) would otherwise look identical to a plugin bug.
+            Logger.Log("COM1 receive now reads " + _lastCom1ReceiveEnabled + " (target " + enabled + ").");
         }
 
         public void SetCom2ReceiveEnabled(bool enabled)
@@ -285,8 +293,9 @@ namespace Handoff.RadioHost
             }
 
             Logger.Log("Setting COM2 receive to " + enabled + " via SimConnect event.");
-            TransmitPriorityEvent(Events.SetCom2ReceiveSelect, 0);
+            TransmitPriorityEvent(Events.SetCom2ReceiveSelect, enabled ? 1u : 0u);
             Thread.Sleep(SettleWaitMs);
+            Logger.Log("COM2 receive now reads " + _lastCom2ReceiveEnabled + " (target " + enabled + ").");
         }
 
         public void SetTransponderCode(int squawk)

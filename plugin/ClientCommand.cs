@@ -23,6 +23,10 @@ namespace Handoff.Plugin
         public const string TypeSetCom1ActiveAndStandbyFrequency = "setCom1ActiveAndStandbyFrequency";
         public const string TypeSetCom2ActiveAndStandbyFrequency = "setCom2ActiveAndStandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
+        public const string TypeSelectCom1Transmitter = "selectCom1Transmitter";
+        public const string TypeSelectCom2Transmitter = "selectCom2Transmitter";
+        public const string TypeSetCom1ReceiveEnabled = "setCom1ReceiveEnabled";
+        public const string TypeSetCom2ReceiveEnabled = "setCom2ReceiveEnabled";
         public const string TypeSetSimbriefCredentials = "setSimbriefCredentials";
         public const string TypeRefreshFlightPlan = "refreshFlightPlan";
         public const string TypePinController = "pinController";
@@ -58,6 +62,10 @@ namespace Handoff.Plugin
 
         // setTransponderCode -- plain decimal squawk (e.g. 1200), not BCD.
         public int? TransponderCode { get; set; }
+
+        // setCom1ReceiveEnabled / setCom2ReceiveEnabled -- selectCom1Transmitter /
+        // selectCom2Transmitter carry no payload of their own.
+        public bool? Enabled { get; set; }
 
         // setSimbriefCredentials -- SimBrief user ID and/or username, persisted by the plugin
         // (overwriting whatever was persisted before) so future startups, and bare

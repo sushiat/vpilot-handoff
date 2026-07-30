@@ -446,6 +446,40 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_SelectCom1Transmitter()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"selectCom1Transmitter\"}");
+
+            Assert.Equal(ClientCommand.TypeSelectCom1Transmitter, command.Type);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SelectCom2Transmitter()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"selectCom2Transmitter\"}");
+
+            Assert.Equal(ClientCommand.TypeSelectCom2Transmitter, command.Type);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom1ReceiveEnabled()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom1ReceiveEnabled\",\"enabled\":true}");
+
+            Assert.Equal(ClientCommand.TypeSetCom1ReceiveEnabled, command.Type);
+            Assert.True(command.Enabled);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetCom2ReceiveEnabled()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setCom2ReceiveEnabled\",\"enabled\":false}");
+
+            Assert.Equal(ClientCommand.TypeSetCom2ReceiveEnabled, command.Type);
+            Assert.False(command.Enabled);
+        }
+
+        [Fact]
         public void ParseClientCommand_PinController()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"pinController\",\"callsign\":\"EGLL_TWR\"}");
