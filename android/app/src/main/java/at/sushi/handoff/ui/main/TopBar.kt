@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -88,9 +87,10 @@ fun TopBar(
             // (MIC/XPDR or MON/MSG), 3 gaps of 8dp between them.
             val flexWidth = ((rowContentWidth - 8.dp * 3 - FixedColumnWidth * 2) / 2).coerceAtLeast(0.dp)
             val flexContentWidth = (flexWidth - 20.dp).coerceAtLeast(0.dp) // 10dp padding each side
-            // XPDR's text shares its fixed column with the always-visible Mode C badge -- its
-            // available text width is narrower than MIC/MON's own by that badge's width.
-            val xpdrContentWidth = (FixedColumnWidth - 20.dp - ModeCBadgeSize.width).coerceAtLeast(0.dp)
+            // The Mode C badge sits on its own title row above the value (see XpdrButton), not
+            // beside it, so the value gets the whole fixed column's content width -- same
+            // deduction as the flex columns, just minus this column's own padding.
+            val xpdrContentWidth = (FixedColumnWidth - 20.dp).coerceAtLeast(0.dp)
 
             val com1Value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---"
             val com2Value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---"
@@ -128,17 +128,22 @@ fun TopBar(
             val micValue = txCom?.toString() ?: "-"
             val monValue = if (monListeningBoth) "1+2" else micValue
 
-            Column(
+            Box(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                // height(IntrinsicSize.Min) on the Row + fillMaxHeight() on each child is the
-                // standard Compose idiom for "stretch every child to the tallest one's height" --
-                // a Row doesn't do this by default (unlike CSS flexbox's align-items:stretch), so
-                // without it, whichever button wraps its value onto a second line ends up visibly
-                // taller than its neighbors instead of the whole row growing together.
+                // Now that buttons are allowed to differ in *width* (issue #29), row1 and row2
+                // must still always match in *height* -- whichever row is naturally taller (e.g.
+                // XPDR/COM wrapping to 2 lines) has to drag the shorter row up to match, not leave
+                // the two rows visibly uneven. Two independent Row()s (each already internally
+                // using the height(IntrinsicSize.Min) + fillMaxHeight idiom to match *within* its
+                // own row) don't automatically match *each other* -- EqualHeightRows measures both
+                // just once, at the taller one's natural height.
+                EqualHeightRows(
+                    modifier = Modifier.fillMaxWidth(),
+                    spacing = 8.dp,
+                    row1 = {
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -176,6 +181,8 @@ fun TopBar(
                         onClick = onOpenXpdrDialog
                     )
                 }
+                    },
+                    row2 = {
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -214,6 +221,8 @@ fun TopBar(
                         onClick = onToggleChat
                     )
                 }
+                    }
+                )
             }
         }
         androidx.compose.material3.HorizontalDivider(color = colors.border)
@@ -228,6 +237,51 @@ internal val NarrowTopBarThreshold = 375.dp
 // Shared fixed width for MIC/XPDR (top row) and MON/MSG (bottom row) -- their content is short
 // and roughly constant, unlike COM1/COM2/STBY1/STBY2 which flex to fill the rest of the row.
 private val FixedColumnWidth = 84.dp
+
+/** Stacks [row1] above [row2], forcing both to the SAME height -- whichever is naturally taller
+ *  "drags" the shorter one up to match, rather than the two rows of the top bar's grid ending up
+ *  visibly uneven (issue #29 feedback -- this held before buttons were allowed to differ in
+ *  *width*, and must keep holding now). [row1]/[row2] are each expected to be a single Row of
+ *  their own that already uses the height(IntrinsicSize.Min) + fillMaxHeight idiom to equalize
+ *  height *within* themselves; this only equalizes *between* the two.
+ *
+ *  Uses [minIntrinsicHeight] rather than actually measuring each row twice -- a child can only be
+ *  measured once per measure pass in Compose, so the natural (unconstrained) height has to come
+ *  from an intrinsics query, with the one real [Measurable.measure] call happening only after the
+ *  shared height is known. */
+@Composable
+private fun EqualHeightRows(
+    modifier: Modifier = Modifier,
+    spacing: androidx.compose.ui.unit.Dp,
+    row1: @Composable () -> Unit,
+    row2: @Composable () -> Unit
+) {
+    androidx.compose.ui.layout.Layout(
+        contents = listOf(row1, row2),
+        modifier = modifier
+    ) { (row1Measurables, row2Measurables), constraints ->
+        val row1Measurable = row1Measurables.single()
+        val row2Measurable = row2Measurables.single()
+        val width = constraints.maxWidth
+        val sharedHeight = maxOf(
+            row1Measurable.minIntrinsicHeight(width),
+            row2Measurable.minIntrinsicHeight(width)
+        )
+        val fixedConstraints = androidx.compose.ui.unit.Constraints(
+            minWidth = width,
+            maxWidth = width,
+            minHeight = sharedHeight,
+            maxHeight = sharedHeight
+        )
+        val row1Placeable = row1Measurable.measure(fixedConstraints)
+        val row2Placeable = row2Measurable.measure(fixedConstraints)
+        val spacingPx = spacing.roundToPx()
+        layout(width, sharedHeight * 2 + spacingPx) {
+            row1Placeable.placeRelative(0, 0)
+            row2Placeable.placeRelative(0, sharedHeight + spacingPx)
+        }
+    }
+}
 
 @Composable
 private fun AppHeaderRow() {
@@ -345,11 +399,13 @@ private fun CallsignLine(text: String, color: androidx.compose.ui.graphics.Color
 // ever this one break point to choose.
 private const val Zwsp = "​"
 
-/** Renders a "DDD.DDD"-shaped frequency value (or a plain code like an XPDR squawk, which has no
- *  decimal point and therefore no split point at all) at [fontSize], wrapping naturally at the
- *  hidden zero-width space after the decimal point if it doesn't fit on one line -- never more
- *  than 2 lines. [fontSize] itself is chosen by the caller (see [rememberSharedFontSize]); this
- *  composable only lays out, it doesn't measure. */
+/** Renders a "DDD.DDD"-shaped frequency value at [fontSize], wrapping naturally at the hidden
+ *  zero-width space after the decimal point if it doesn't fit on one line -- never more than 2
+ *  lines. A plain code with no decimal point (the XPDR squawk) has no split point at all and
+ *  must never be split -- rendered single-line/no-wrap instead, full stop, even if it doesn't
+ *  fit ([rememberSharedFontSize] is what's actually responsible for keeping that from happening
+ *  in practice). [fontSize] itself is chosen by the caller; this composable only lays out, it
+ *  doesn't measure. */
 @Composable
 private fun FrequencyValueText(
     value: String,
@@ -358,7 +414,21 @@ private fun FrequencyValueText(
     color: androidx.compose.ui.graphics.Color
 ) {
     val dotIndex = value.indexOf('.')
-    val display = if (dotIndex >= 0) value.substring(0, dotIndex + 1) + Zwsp + value.substring(dotIndex + 1) else value
+    if (dotIndex < 0) {
+        Text(
+            value,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            fontFamily = RobotoMono,
+            color = color,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            textAlign = TextAlign.Center
+        )
+        return
+    }
+    val display = value.substring(0, dotIndex + 1) + Zwsp + value.substring(dotIndex + 1)
     Text(
         display,
         fontSize = fontSize,
@@ -403,10 +473,13 @@ private fun rememberSharedFontSize(
     }
 }
 
-// Matches ModeCBadge's own fixed size (26dp x 24dp) -- used to work out XPDR's remaining text
-// width alongside the badge in its fixed-width column.
+// Small badge shared by ModeCBadge and MsgButton's unread count -- sized to share the title
+// line with the "XPDR"/"MSG" label (issue #29 feedback: the badge was forcing the value below it
+// into a narrower column than the fixed width actually had room for; putting it on the title row
+// instead, rather than beside the value, means the value gets the button's *entire* width and
+// never needs to compete with the badge for space).
 private data class BadgeSize(val width: androidx.compose.ui.unit.Dp, val height: androidx.compose.ui.unit.Dp)
-private val ModeCBadgeSize = BadgeSize(26.dp, 24.dp)
+private val TitleBadgeSize = BadgeSize(22.dp, 20.dp)
 
 @Composable
 private fun RowScope.XpdrButton(
@@ -418,19 +491,18 @@ private fun RowScope.XpdrButton(
 ) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(10.dp)
-    // Top-aligned throughout, same as MsgButton's unread badge -- both badges stay top-right
-    // rather than centered, since centering against a height that varies for reasons unrelated to
-    // the badge (a wrapped two-line value) would make the two badges disagree with each other.
-    Row(
+    Column(
         modifier
             .background(colors.panelAlt, shape)
             .border(1.dp, colors.border, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
-        Column(Modifier.weight(1f)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(
                 "XPDR",
                 fontSize = 9.sp,
@@ -440,44 +512,51 @@ private fun RowScope.XpdrButton(
                 maxLines = 1,
                 softWrap = false
             )
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                FrequencyValueText(
-                    value = xpdrValue,
-                    fontSize = valueFontSize,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.text
-                )
-                // Blank line matching FrequencyButton's callsign line exactly -- XPDR has no
-                // equivalent content, but needs the same reserved height so the row's "main line"
-                // frequency values stay aligned across all three flex/fixed-width buttons.
-                CallsignLine("", colors.text)
-            }
+            // Always shown -- XPDR is its own fixed-width column (issue #29) that no longer
+            // competes with COM1/COM2 for space, so the badge no longer needs to react to their
+            // wrap state the way it used to.
+            ModeCBadge(modeCEnabled)
         }
-        // Now always shown -- XPDR is its own fixed-width column (issue #29) that no longer
-        // competes with COM1/COM2 for space, so the badge no longer needs to react to their wrap
-        // state the way it used to.
-        ModeCBadge(modeCEnabled)
+        // The value gets the button's full content width now (the badge above is on its own
+        // title row) -- centered horizontally, same as FrequencyButton.
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            FrequencyValueText(
+                value = xpdrValue,
+                fontSize = valueFontSize,
+                fontWeight = FontWeight.Bold,
+                color = colors.text
+            )
+            // Blank line matching FrequencyButton's callsign line exactly -- XPDR has no
+            // equivalent content, but needs the same reserved height so the row's "main line"
+            // frequency values stay aligned across all three flex/fixed-width buttons.
+            CallsignLine("", colors.text)
+        }
     }
 }
 
-/** Matches the reference's `modeCBadgeStyle` exactly: min-width 26dp, height 24dp, radius 6dp,
- *  solid fill (accent when on, otherwise a solid `t.border` fill -- not an outline), white text
- *  always, 14sp/700. */
+/** Matches the reference's `modeCBadgeStyle` in spirit (solid fill -- accent when on, otherwise a
+ *  solid `t.border` fill, not an outline -- white text always) but shrunk to [TitleBadgeSize] so
+ *  it fits on the title row alongside the "XPDR" label instead of stealing width from the value
+ *  below it. */
 @Composable
 private fun ModeCBadge(modeCEnabled: Boolean, modifier: Modifier = Modifier) {
     val colors = LocalHandoffColors.current
     Box(
         modifier
-            .widthIn(min = ModeCBadgeSize.width)
-            .size(width = ModeCBadgeSize.width, height = ModeCBadgeSize.height)
-            .background(if (modeCEnabled) colors.accent else colors.border, RoundedCornerShape(6.dp)),
+            .size(width = TitleBadgeSize.width, height = TitleBadgeSize.height)
+            .background(if (modeCEnabled) colors.accent else colors.border, RoundedCornerShape(4.dp)),
         contentAlignment = Alignment.Center
     ) {
         Text(
             "C",
-            fontSize = 14.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            color = androidx.compose.ui.graphics.Color.White
+            color = androidx.compose.ui.graphics.Color.White,
+            // Disables legacy Android font-padding, same fix as CallsignLine -- without it the
+            // default per-line leading was taller than TitleBadgeSize's box, clipping the glyph.
+            style = androidx.compose.ui.text.TextStyle(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+            )
         )
     }
 }
@@ -504,14 +583,18 @@ private fun RowScope.MicMonButton(
             .border(1.dp, colors.border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally
+        // Top-aligned (the Column's default), matching COM1/COM2/XPDR/STBY's own labels, which
+        // all sit flush against the button's top padding -- centering this whole block
+        // vertically (as before) put MIC/MON's label visibly lower than its neighbors' labels.
     ) {
         Text(
             label,
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.04f.em,
+            // Matches the other buttons' label style exactly (9sp/SemiBold/0.06em) so the whole
+            // row of labels lines up, not just their vertical position.
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.06f.em,
             color = colors.textMuted.copy(alpha = 0.7f),
             maxLines = 1,
             softWrap = false
@@ -548,19 +631,18 @@ private fun RowScope.MsgButton(
     } else {
         lastMessageLabel ?: ""
     }
-    // Top-aligned for the same reason as XpdrButton -- matches FrequencyButton's neighbors
-    // instead of drifting to the row's vertical center once this button stretches taller than
-    // its own content.
-    Row(
+    Column(
         modifier
             .background(colors.panelAlt, shape)
             .border(1.dp, colors.border, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        Column(Modifier.weight(1f)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(
                 "MSG",
                 fontSize = 9.sp,
@@ -570,48 +652,52 @@ private fun RowScope.MsgButton(
                 maxLines = 1,
                 softWrap = false
             )
-            if (isRadioTab) {
-                // Same hidden-zero-width-space wrap as the COM/STBY buttons -- this fixed, narrow
-                // column can't grow to fit a frequency on one line the way the old equal-width
-                // layout could.
-                FrequencyValueText(
-                    value = displayValue,
-                    fontSize = if (isNarrow) 13.sp else 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.text.copy(alpha = 0.75f)
-                )
-            } else {
-                // An arbitrary callsign doesn't have a natural break point like a frequency's
-                // decimal point, so it keeps a single-line ellipsis instead of wrapping mid-word.
+            // Always visible (not just when unread > 0) -- greyed out and showing "0" when
+            // there's nothing new, same always-there treatment as the Mode C badge, rather than
+            // the button looking sparse/asymmetric next to its neighbors when empty.
+            Box(
+                Modifier
+                    .size(width = TitleBadgeSize.width, height = TitleBadgeSize.height)
+                    .background(if (unreadCount > 0) colors.attention else colors.border, RoundedCornerShape(4.dp)),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
-                    displayValue,
-                    fontSize = if (isNarrow) 13.sp else 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.text.copy(alpha = 0.75f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    unreadCount.toString(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (unreadCount > 0) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f),
+                    style = androidx.compose.ui.text.TextStyle(
+                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                    )
                 )
             }
-            // Blank line matching the COM STBY buttons' callsign line -- keeps this row's
-            // buttons the same height regardless of whether either STBY has a station tuned.
-            CallsignLine("", colors.textMuted)
         }
-        // Always visible (not just when unread > 0) -- greyed out and showing "0" when there's
-        // nothing new, same always-there treatment as the Mode C badge, rather than the button
-        // looking sparse/asymmetric next to its neighbors when empty.
-        Box(
-            Modifier
-                .widthIn(min = ModeCBadgeSize.width)
-                .size(width = ModeCBadgeSize.width, height = ModeCBadgeSize.height)
-                .background(if (unreadCount > 0) colors.attention else colors.border, RoundedCornerShape(6.dp)),
-            contentAlignment = Alignment.Center
-        ) {
+        // The value gets the button's full content width now (the badge above is on its own
+        // title row), same as XpdrButton.
+        if (isRadioTab) {
+            // Same hidden-zero-width-space wrap as the COM/STBY buttons -- this fixed, narrow
+            // column can't grow to fit a frequency on one line the way the old equal-width
+            // layout could.
+            FrequencyValueText(
+                value = displayValue,
+                fontSize = if (isNarrow) 13.sp else 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.text.copy(alpha = 0.75f)
+            )
+        } else {
+            // An arbitrary callsign doesn't have a natural break point like a frequency's
+            // decimal point, so it keeps a single-line ellipsis instead of wrapping mid-word.
             Text(
-                unreadCount.toString(),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (unreadCount > 0) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+                displayValue,
+                fontSize = if (isNarrow) 13.sp else 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.text.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+        // Blank line matching the COM STBY buttons' callsign line -- keeps this row's buttons the
+        // same height regardless of whether either STBY has a station tuned.
+        CallsignLine("", colors.textMuted)
     }
 }

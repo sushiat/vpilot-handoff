@@ -274,6 +274,12 @@ namespace Handoff.RadioHost
             Logger.Log("Setting COM1 receive to " + enabled + " via SimConnect event.");
             TransmitPriorityEvent(Events.SetCom1ReceiveSelect, 0);
             Thread.Sleep(SettleWaitMs);
+            // Unlike SetFrequencyViaEvent/SetTransponderCode, this event's own effect was never
+            // verified end to end before this was actually wired to a client-facing command --
+            // log whether it actually took, since COM1_RECEIVE_SELECT not being implemented by a
+            // given aircraft's custom avionics (same category of issue as any other legacy K-event
+            // a complex addon doesn't wire up) would otherwise look identical to a plugin bug.
+            Logger.Log("COM1 receive now reads " + _lastCom1ReceiveEnabled + " (target " + enabled + ").");
         }
 
         public void SetCom2ReceiveEnabled(bool enabled)
@@ -287,6 +293,7 @@ namespace Handoff.RadioHost
             Logger.Log("Setting COM2 receive to " + enabled + " via SimConnect event.");
             TransmitPriorityEvent(Events.SetCom2ReceiveSelect, 0);
             Thread.Sleep(SettleWaitMs);
+            Logger.Log("COM2 receive now reads " + _lastCom2ReceiveEnabled + " (target " + enabled + ").");
         }
 
         public void SetTransponderCode(int squawk)
