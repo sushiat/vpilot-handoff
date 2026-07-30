@@ -196,56 +196,43 @@ fun ControllerList(
             ).size.width
             with(density) { widthPx.toDp() }
         }
-        // Two independent reasons to snap back to the top, both because whatever's relevant can
-        // otherwise land above the viewport if the pilot has scrolled down and go unnoticed:
-        // 1) A newly badged row (TUNED/STBY/CONTACT_ME/NEXT/NEXT_LIKELY/PINNED/SELCAL) -- but only
-        //    when the *set* of badged callsigns gains a member, not on every recompute (badges
-        //    flipping off, or a row merely changing position among already-badged ones, is a
-        //    passive server-driven update that shouldn't yank the scroll position around).
-        // 2) Any action the pilot took *themselves* through another dialog -- tuning either COM
-        //    active/standby, pinning/unpinning a row, or toggling "hide tuned". Unlike (1) this
-        //    fires unconditionally on any such change, not just when it happens to add a badge:
-        //    tuning 122.800 (nothing) into standby, for instance, only *removes* a badge from
-        //    whichever station used to be there, so (1) alone wouldn't catch it -- but the pilot
-        //    still just drove a change from another screen, so keeping their old scroll position
-        //    is no longer worth more than showing them where that change landed (found on-device:
-        //    re-tuning standby away from a station let the list's key-based scroll anchoring
-        //    silently follow that station as it dropped down the ranking, hiding everything above
-        //    it -- confusing since nothing asked the list to scroll at all).
+        // Snap back to the top whenever a row's badge set changes (TUNED/STBY/CONTACT_ME/NEXT/
+        // NEXT_LIKELY/PINNED/SELCAL) -- gain *or* loss, not just gain. Whatever's relevant can
+        // otherwise land above the viewport (or, on loss, drop below it while the list reorders
+        // underneath) if the pilot has scrolled down, and go unnoticed.
+        //
+        // This intentionally does NOT key off com1Standby/com2Standby (the local radioState
+        // values, which update the instant a tuning command round-trips) or a separately-tracked
+        // pinned-callsign set, as an earlier version of this fix did. Every badge here (PINNED
+        // included) is server-authoritative on [Controller] itself (issue #18), broadcast on the
+        // plugin's own ~1/sec cadence -- decoupled from, and slower than, local radioState
+        // updates. Scrolling to the top on the early local signal effectively locked LazyColumn's
+        // key-based scroll anchor onto whatever row was at index 0 *at that moment* (unchanged,
+        // since the real reorder hadn't landed yet) -- then when the plugin's actual reorder
+        // arrived a beat later, Compose faithfully kept that same row in view as it dropped down
+        // the ranking, hiding everything above it (confirmed on-device: adding a delay() before
+        // the scroll call made this race land the same way *every* time instead of
+        // intermittently, rather than fixing it -- the real problem was firing on the wrong
+        // signal, not bad timing on the right one). Badges are exactly as stale as the visible
+        // ordering, since both come from the same broadcast -- keying on them fires this in step
+        // with the real reorder instead of ahead of it.
         val listState = rememberLazyListState()
-        data class ScrollTrigger(
-            val badgedCallsigns: Set<String>,
-            val pinnedCallsigns: Set<String>,
-            val com1Active: Int?,
-            val com2Active: Int?,
-            val com1Standby: Int?,
-            val com2Standby: Int?,
-            val hideTuned: Boolean
-        )
-        var previousTrigger by remember { mutableStateOf<ScrollTrigger?>(null) }
-        LaunchedEffect(visibleControllers, com1Active, com2Active, com1Standby, com2Standby, hideTuned) {
-            val current = ScrollTrigger(
-                badgedCallsigns = visibleControllers.filter { controller ->
-                    controllerBadges(controller, com1Active, com2Active).isNotEmpty()
-                }.mapTo(mutableSetOf()) { it.callsign },
-                pinnedCallsigns = visibleControllers.filter { it.isPinned }.mapTo(mutableSetOf()) { it.callsign },
-                com1Active = com1Active, com2Active = com2Active,
-                com1Standby = com1Standby, com2Standby = com2Standby,
-                hideTuned = hideTuned
-            )
+        var previousBadgedCallsigns by remember { mutableStateOf<Set<String>?>(null) }
+        var previousHideTuned by remember { mutableStateOf(hideTuned) }
+        LaunchedEffect(visibleControllers, com1Active, com2Active, hideTuned) {
+            val currentBadged = visibleControllers.filter { controller ->
+                controllerBadges(controller, com1Active, com2Active).isNotEmpty()
+            }.mapTo(mutableSetOf()) { it.callsign }
 
-            val previous = previousTrigger
-            if (previous != null) {
-                val gainedBadge = (current.badgedCallsigns - previous.badgedCallsigns).isNotEmpty()
-                val pilotDrivenChange = current.pinnedCallsigns != previous.pinnedCallsigns ||
-                    current.com1Active != previous.com1Active || current.com2Active != previous.com2Active ||
-                    current.com1Standby != previous.com1Standby || current.com2Standby != previous.com2Standby ||
-                    current.hideTuned != previous.hideTuned
-                if (gainedBadge || pilotDrivenChange) {
-                    listState.animateScrollToItem(0)
-                }
+            val previous = previousBadgedCallsigns
+            // Toggling "hide tuned" is its own explicit trigger -- a direct, immediate pilot
+            // action that can leave the badge set completely unchanged (e.g. no tuned rows exist
+            // yet), so it wouldn't otherwise be caught by the check above.
+            if (previous != null && (currentBadged != previous || hideTuned != previousHideTuned)) {
+                listState.scrollToItem(0)
             }
-            previousTrigger = current
+            previousBadgedCallsigns = currentBadged
+            previousHideTuned = hideTuned
         }
 
         // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;
