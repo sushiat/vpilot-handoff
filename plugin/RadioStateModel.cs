@@ -200,12 +200,10 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
-        /// Plugin-internal write capability for COM transmitter-select/receive-select (issue #20)
-        /// -- these 4 methods exist so the SimConnect/IPC plumbing is ready, but nothing calls
-        /// them yet. Deliberately not wired to a client-facing WebSocket command
-        /// (ClientCommand/ProtocolMessages.ParseClientCommand/HandoffWebSocketServer) or any
-        /// Android UI in this pass -- how "swap active transmitter" and "toggle receive" should
-        /// fit into the existing COM1/COM2 tune UI needs its own design pass first.
+        /// COM transmitter-select/receive-select write capability (issue #20), wired to the
+        /// client-facing selectCom1Transmitter/selectCom2Transmitter/setCom1ReceiveEnabled/
+        /// setCom2ReceiveEnabled WebSocket commands by HandoffWebSocketServer (issue #29's
+        /// MIC/MON buttons).
         /// </summary>
         public void SelectCom1Transmitter()
         {

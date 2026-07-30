@@ -39,13 +39,17 @@ import at.sushi.handoff.network.IgnoredDeviceStore
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RefreshFlightPlanCommand
+import at.sushi.handoff.protocol.SelectCom1TransmitterCommand
+import at.sushi.handoff.protocol.SelectCom2TransmitterCommand
 import at.sushi.handoff.protocol.SendPrivateMessageCommand
 import at.sushi.handoff.protocol.SendRadioMessageCommand
 import at.sushi.handoff.protocol.SetCom1ActiveAndStandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetCom1FrequencyCommand
+import at.sushi.handoff.protocol.SetCom1ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom1StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetCom2ActiveAndStandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetCom2FrequencyCommand
+import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
@@ -391,6 +395,23 @@ private fun MainScreenContent() {
                 onOpenCom1Dialog = { comDialogOpen = 1 },
                 onOpenCom2Dialog = { comDialogOpen = 2 },
                 onOpenXpdrDialog = { xpdrDialogOpen = true },
+                // Flip which COM transmits -- the plugin doesn't enforce mutual exclusivity, but
+                // real avionics only ever have one, so a simple toggle is the natural gesture.
+                onToggleMic = {
+                    if (radioState.com1TransmitEnabled) send(SelectCom2TransmitterCommand())
+                    else send(SelectCom1TransmitterCommand())
+                },
+                // Toggles receive on whichever COM ISN'T currently transmitting -- the
+                // transmitting COM's own receive is left untouched. Off = listening only to the
+                // transmitting COM; on = listening to both ("1+2"), matching the reference
+                // mockup's monText (monSecondary ? '1+2' : txCom).
+                onToggleMon = {
+                    if (radioState.com1TransmitEnabled) {
+                        send(SetCom2ReceiveEnabledCommand(enabled = !radioState.com2ReceiveEnabled))
+                    } else {
+                        send(SetCom1ReceiveEnabledCommand(enabled = !radioState.com1ReceiveEnabled))
+                    }
+                },
                 // Unconditional: chatOpen is simply unused/harmless in fullscreen mode (the
                 // overlay host below is only ever invoked while layoutMode == SPLIT), so there's
                 // no need to gate the toggle itself on layoutMode -- doing so previously meant a

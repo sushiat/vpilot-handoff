@@ -236,6 +236,18 @@ namespace Handoff.Plugin
                 case ClientCommand.TypeSetTransponderCode:
                     if (command.TransponderCode.HasValue) _radioState.SetTransponderCode(command.TransponderCode.Value);
                     break;
+                case ClientCommand.TypeSelectCom1Transmitter:
+                    _radioState.SelectCom1Transmitter();
+                    break;
+                case ClientCommand.TypeSelectCom2Transmitter:
+                    _radioState.SelectCom2Transmitter();
+                    break;
+                case ClientCommand.TypeSetCom1ReceiveEnabled:
+                    if (command.Enabled.HasValue) _radioState.SetCom1ReceiveEnabled(command.Enabled.Value);
+                    break;
+                case ClientCommand.TypeSetCom2ReceiveEnabled:
+                    if (command.Enabled.HasValue) _radioState.SetCom2ReceiveEnabled(command.Enabled.Value);
+                    break;
                 case ClientCommand.TypeSetSimbriefCredentials:
                     _flightPlanState.SetSimbriefCredentials(command.SimbriefUserId, command.SimbriefUsername);
                     break;

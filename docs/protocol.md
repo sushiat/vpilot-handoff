@@ -302,8 +302,9 @@ which has no exposed hooks at all). Transmit is normally mutually exclusive betw
 enforce that -- it just forwards whatever the sim reports. Receive is genuinely independent per
 COM: both `true` at once is a normal "listening on both" state. Both transmit and both receive
 fields can be `false` at once too (radio/avionics powered off, or before the first SimConnect
-read completes). These fields are currently read-only/display-only from the client's perspective
--- there is no client command yet to change which COM transmits or toggle receive from the app.
+read completes). See `selectCom1Transmitter`/`selectCom2Transmitter` and
+`setCom1ReceiveEnabled`/`setCom2ReceiveEnabled` below for the client commands that change
+these.
 
 ### `flightPlan`
 
@@ -523,6 +524,32 @@ by the plugin.
 
 ```json
 {"type": "setTransponderCode", "transponderCode": 1200}
+```
+
+### `selectCom1Transmitter` / `selectCom2Transmitter`
+
+Selects which COM is the transmitter, via MSFS's `COM1_TRANSMIT_SELECT`/
+`COM2_TRANSMIT_SELECT` SimConnect events (the same events
+`RadioStateModel.SelectCom1Transmitter`/`SelectCom2Transmitter` already use for the
+plugin-internal capability added in issue #20). Real avionics only let one COM transmit at
+a time, but as with the `radioState` fields themselves, the plugin doesn't enforce or
+validate that -- it just forwards the event. Carries no fields of its own.
+
+```json
+{"type": "selectCom1Transmitter"}
+{"type": "selectCom2Transmitter"}
+```
+
+### `setCom1ReceiveEnabled` / `setCom2ReceiveEnabled`
+
+Sets whether that COM's receiver is enabled, via MSFS's `COM1_RECEIVE_SELECT`/
+`COM2_RECEIVE_SELECT` SimConnect events. Independent per COM -- both `true` at once is a
+normal "listening on both" state (see `radioState`'s `com1ReceiveEnabled`/
+`com2ReceiveEnabled` below).
+
+```json
+{"type": "setCom1ReceiveEnabled", "enabled": true}
+{"type": "setCom2ReceiveEnabled", "enabled": false}
 ```
 
 ### `setSimbriefCredentials`
