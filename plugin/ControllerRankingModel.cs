@@ -154,6 +154,18 @@ namespace Handoff.Plugin
         private string _lastObservedDestination;
         private bool _routeInvalidatedByDiversion;
 
+        // Abeam-point waypoint sequencing state (issue #22) -- see SequenceRemainingWaypoints.
+        // _routeAnchor is the geographic point the active leg's course is measured from, frozen
+        // at the last committed advance (or ownship's first known position); _committedWaypointIndex
+        // only ever advances. Pending/since mirror the _committedLeader/_pendingChallenger/
+        // _pendingSince hysteresis pattern above, reusing HysteresisWindow.
+        private double? _routeAnchorLat;
+        private double? _routeAnchorLon;
+        private int _committedWaypointIndex;
+        private int? _pendingWaypointIndex;
+        private DateTimeOffset _pendingWaypointIndexSince;
+        private IReadOnlyList<FlightPlanWaypoint> _lastWaypointsSeen;
+
         public event EventHandler Changed;
 
         public ControllerRankingModel(HandoffControllerStateModel controllerState, IRadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimFeed, PilotSessionModel pilotSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, Action<string> logDebug = null, Func<DateTimeOffset> now = null)
@@ -232,6 +244,10 @@ namespace Handoff.Plugin
             }
             if (destination != null) _lastObservedDestination = destination;
 
+            var remainingWaypoints = _routeInvalidatedByDiversion || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue
+                ? new List<FlightPlanWaypoint>()
+                : SequenceRemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
+
             UpdateVerticalTrend(telemetry);
 
             var pressureAltitudeFl = telemetry.PressureAltitudeFeet / 100.0;
@@ -292,12 +308,12 @@ namespace Handoff.Plugin
             else
             {
                 var twrAppCandidates = bucketCandidates.Where(c => IsTwrOrApp(c.Callsign.ParseControllerTier())).ToList();
-                var bucket7Result = ComputeBucket7Highlight(twrAppCandidates, controllers, routeAirport, flightPlan, telemetry, vatGlassesRegions);
+                var bucket7Result = ComputeBucket7Highlight(twrAppCandidates, controllers, routeAirport, remainingWaypoints, telemetry, vatGlassesRegions);
                 highlightBlocks.Add(bucket7Result);
                 excludedFromRest.UnionWith(bucket7Result.HighlightedCallsigns);
 
                 var ctrCandidates = bucketCandidates.Where(c => c.Callsign.ParseControllerTier() == ControllerTier.Center).ToList();
-                var bucket8Result = ComputeBucket8Highlight(ctrCandidates, controllers, flightPlan, telemetry, pressureAltitudeFl, qnhTrueAltitudeFl, vatGlassesRegions, vatSpyBoundaries, currentCallsigns);
+                var bucket8Result = ComputeBucket8Highlight(ctrCandidates, controllers, remainingWaypoints, telemetry, pressureAltitudeFl, qnhTrueAltitudeFl, vatGlassesRegions, vatSpyBoundaries, currentCallsigns);
                 highlightBlocks.Add(bucket8Result);
                 excludedFromRest.UnionWith(bucket8Result.HighlightedCallsigns);
 
@@ -820,7 +836,7 @@ namespace Handoff.Plugin
             List<HandoffController> candidates,
             IReadOnlyCollection<HandoffController> allOnlineControllers,
             string routeAirport,
-            FlightPlan flightPlan,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
             OwnshipTelemetry telemetry,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions)
         {
@@ -876,7 +892,7 @@ namespace Handoff.Plugin
             // 7c (APP/DEP) -- entering is independent of the 30nm highlight radius (a route/heading
             // convergence match can exist well beyond it), so a genuinely entering candidate is
             // added to IsHighlighted here too if it wasn't already.
-            var entering = FindEnteringOwnerMatches(telemetry, flightPlan, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
+            var entering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
                 .GroupBy(x => x.Owner.Callsign, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.OrderBy(x => x.Match.DistanceNauticalMiles).First())
                 .OrderBy(x => x.Match.DistanceNauticalMiles)
@@ -953,7 +969,7 @@ namespace Handoff.Plugin
         /// <summary>Shared route/heading-projected "entering" search used by both bucket 7c (APP/DEP) and bucket 8 (CTR) -- walks approach matches nearest-first, resolves each to every online controller matching its chain (see VatGlassesOwnershipResolver -- more than one is possible for an ambiguous same-prefix/tier chain, deliberately not collapsed here so downstream tie-detection sees all of them), and keeps only ones matching tierFilter.</summary>
         private List<(HandoffController Owner, VatGlassesSectorLookup.VatGlassesApproachMatch Match)> FindEnteringOwnerMatches(
             OwnshipTelemetry telemetry,
-            FlightPlan flightPlan,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
             IReadOnlyCollection<HandoffController> allOnlineControllers,
             ControllerTier tierFilter,
@@ -964,9 +980,6 @@ namespace Handoff.Plugin
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approachMatches;
-            var remainingWaypoints = _routeInvalidatedByDiversion
-                ? new List<FlightPlanWaypoint>()
-                : RemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
 
             if (remainingWaypoints.Count > 0)
             {
@@ -1002,7 +1015,7 @@ namespace Handoff.Plugin
         /// </summary>
         private List<(HandoffController Owner, VatSpyBoundaryLookup.VatSpyApproachMatch Match)> FindVatSpyEnteringOwnerMatches(
             OwnshipTelemetry telemetry,
-            FlightPlan flightPlan,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
             IReadOnlyList<VatSpyFirBoundary> vatSpyBoundaries,
             IReadOnlyCollection<HandoffController> allOnlineControllers,
             double routeMaxNm,
@@ -1012,9 +1025,6 @@ namespace Handoff.Plugin
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             IReadOnlyList<VatSpyBoundaryLookup.VatSpyApproachMatch> approachMatches;
-            var remainingWaypoints = _routeInvalidatedByDiversion
-                ? new List<FlightPlanWaypoint>()
-                : RemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
 
             if (remainingWaypoints.Count > 0)
             {
@@ -1051,7 +1061,7 @@ namespace Handoff.Plugin
         private HighlightResult ComputeBucket8Highlight(
             List<HandoffController> candidates,
             IReadOnlyCollection<HandoffController> allOnlineControllers,
-            FlightPlan flightPlan,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
             OwnshipTelemetry telemetry,
             double? pressureAltitudeFl,
             double? qnhTrueAltitudeFl,
@@ -1130,7 +1140,7 @@ namespace Handoff.Plugin
             }
 
             // "Converging" -- lateral entering AND vertical satisfied-or-converging.
-            foreach (var (owner, approach) in FindEnteringOwnerMatches(telemetry, flightPlan, regions, allOnlineControllers, ControllerTier.Center, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
+            foreach (var (owner, approach) in FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.Center, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
             {
                 if (currentCallsigns.Contains(owner.Callsign)) continue;
                 if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue; // already counted as "satisfied" above
@@ -1141,7 +1151,7 @@ namespace Handoff.Plugin
             // Issue #11: vatspy "converging" fallback, same VATGlasses-has-no-data precedence gate
             // as the satisfied fallback above. Vertical is trivially satisfied -- no band data to
             // check against at all.
-            foreach (var (owner, approach) in FindVatSpyEnteringOwnerMatches(telemetry, flightPlan, vatSpyBoundaries, allOnlineControllers, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
+            foreach (var (owner, approach) in FindVatSpyEnteringOwnerMatches(telemetry, remainingWaypoints, vatSpyBoundaries, allOnlineControllers, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
             {
                 if (currentCallsigns.Contains(owner.Callsign)) continue;
                 if (containedCallsigns.Contains(owner.Callsign) || vatSpyContainedCallsigns.Contains(owner.Callsign)) continue; // already counted as "satisfied"
@@ -1242,40 +1252,94 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
-        /// The nearest SimBrief waypoint to ownship's current position, plus everything after it
-        /// in route order -- the "remaining planned track" used by the route-projected approach
-        /// checks (bucket 7c/8's FindEnteringOwnerMatches). No persistent "last passed waypoint"
-        /// state -- recomputed fresh every tick, safe in practice since point-to-point routes
-        /// don't double back near an earlier waypoint.
+        /// The remaining planned track from ownship's current position onward -- the "remaining
+        /// planned track" used by the route-projected approach checks (bucket 7c/8's
+        /// FindEnteringOwnerMatches). Originally "nearest waypoint by distance, recomputed fresh
+        /// every tick" -- a direct-to clearance could cut a corner close enough to a *skipped*
+        /// waypoint that it still read as nearest, projecting the remaining route through a
+        /// stale leg (flight-test feedback, issue #17). A heading-vs-bearing-to-waypoint check
+        /// (skip forward if more than 90 degrees off) was tried and rejected -- it breaks
+        /// holding patterns, where heading legitimately sweeps through the full 360 degrees
+        /// every circuit.
         ///
-        /// A direct-to breaks that assumption (flight-test feedback, issue #17): cutting a corner
-        /// can pass close enough to a *skipped* waypoint that it reads as "nearest" even though
-        /// ownship is no longer flying to it, projecting the remaining route through a stale leg.
-        /// A heading-vs-bearing-to-waypoint check (skip forward if more than 90 degrees off) was
-        /// tried and rejected -- it breaks holding patterns, where heading legitimately sweeps
-        /// through the full 360 degrees every circuit. A real fix needs sustained-disagreement
-        /// state (similar to _verticalTrendSign/HysteresisWindow elsewhere in this class) to tell
-        /// "genuinely passed via direct-to" apart from "briefly pointed away mid-turn" -- left as
-        /// a known limitation, not attempted here.
+        /// Issue #22's fix: abeam-point geometric projection, the same technique real FMS use
+        /// for direct-to sequencing. _committedWaypointIndex only ever advances, tested against
+        /// the great-circle course from _routeAnchor (frozen at the last committed advance,
+        /// playing the role of a direct-to leg's "FROM" point) to each candidate waypoint in
+        /// turn -- a waypoint counts as passed once ownship's along-track position
+        /// (GeoDistance.AlongTrackDistanceNm) reaches or exceeds the anchor-to-waypoint
+        /// distance, independent of current heading, so it doesn't misread a hold's heading
+        /// sweep as "already passed". Sustained-disagreement state (_pendingWaypointIndex /
+        /// _pendingWaypointIndexSince, the same HysteresisWindow used elsewhere in this class)
+        /// absorbs a momentary abeam-plane crossing mid-turn without committing to it.
         /// </summary>
-        private static List<FlightPlanWaypoint> RemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
+        private List<FlightPlanWaypoint> SequenceRemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
         {
             var all = flightPlan.Waypoints;
-            if (all == null || all.Count == 0) return new List<FlightPlanWaypoint>();
 
-            var nearestIndex = 0;
-            var nearestDistance = double.MaxValue;
-            for (var i = 0; i < all.Count; i++)
+            lock (_gate)
             {
-                var d = GeoDistance.NauticalMiles(lat, lon, all[i].Latitude, all[i].Longitude);
-                if (d < nearestDistance)
+                if (all == null || all.Count == 0)
                 {
-                    nearestDistance = d;
-                    nearestIndex = i;
+                    _lastWaypointsSeen = all;
+                    _committedWaypointIndex = 0;
+                    _pendingWaypointIndex = null;
+                    _routeAnchorLat = null;
+                    _routeAnchorLon = null;
+                    return new List<FlightPlanWaypoint>();
                 }
-            }
 
-            return all.Skip(nearestIndex).ToList();
+                if (!ReferenceEquals(all, _lastWaypointsSeen))
+                {
+                    _lastWaypointsSeen = all;
+                    _committedWaypointIndex = 0;
+                    _pendingWaypointIndex = null;
+                    _routeAnchorLat = null;
+                    _routeAnchorLon = null;
+                }
+
+                if (_routeAnchorLat == null || _routeAnchorLon == null)
+                {
+                    _routeAnchorLat = lat;
+                    _routeAnchorLon = lon;
+                }
+
+                var anchorLat = _routeAnchorLat.Value;
+                var anchorLon = _routeAnchorLon.Value;
+
+                var naturalIndex = _committedWaypointIndex;
+                for (var i = _committedWaypointIndex; i < all.Count; i++)
+                {
+                    var legDistance = GeoDistance.NauticalMiles(anchorLat, anchorLon, all[i].Latitude, all[i].Longitude);
+                    var alongTrack = GeoDistance.AlongTrackDistanceNm(anchorLat, anchorLon, all[i].Latitude, all[i].Longitude, lat, lon);
+                    if (alongTrack < legDistance) break;
+                    naturalIndex = i + 1;
+                }
+
+                if (naturalIndex == _committedWaypointIndex)
+                {
+                    _pendingWaypointIndex = null;
+                }
+                else if (_pendingWaypointIndex == naturalIndex)
+                {
+                    if (_now() - _pendingWaypointIndexSince >= HysteresisWindow)
+                    {
+                        _committedWaypointIndex = naturalIndex;
+                        _pendingWaypointIndex = null;
+                        _routeAnchorLat = lat;
+                        _routeAnchorLon = lon;
+                    }
+                }
+                else
+                {
+                    _pendingWaypointIndex = naturalIndex;
+                    _pendingWaypointIndexSince = _now();
+                }
+
+                return _committedWaypointIndex >= all.Count
+                    ? new List<FlightPlanWaypoint>()
+                    : all.Skip(_committedWaypointIndex).ToList();
+            }
         }
 
         private void Log(string message)
