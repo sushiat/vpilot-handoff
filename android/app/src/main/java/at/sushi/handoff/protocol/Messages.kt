@@ -167,6 +167,20 @@ data class PongMessage(
     val serverTimestamp: Long
 ) : ServerMessage
 
+/** Reply to an AuthenticateCommand (issue #15's device-authorization layer, docs/protocol.md).
+ *  [token] is only present when a *new* one was just issued (a successful pairing-code
+ *  exchange) -- validating an already-known token gets [success] with no token, nothing new to
+ *  persist. [reason] is only meaningful when [success] is false: "pairingRequired" means the
+ *  plugin doesn't recognize the presented token (or none was sent) and is now showing a pairing
+ *  code on its own screen; "invalidCode" means the submitted pairingCode didn't match. */
+@Serializable
+data class AuthResultMessage(
+    val type: String = "authResult",
+    val success: Boolean,
+    val token: String? = null,
+    val reason: String? = null
+) : ServerMessage
+
 private val json = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true // the "type" discriminator field has a default value per subtype
@@ -186,6 +200,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "subsystemStatus" -> json.decodeFromJsonElement<SubsystemStatusMessage>(element)
         "operationProgress" -> json.decodeFromJsonElement<OperationProgressMessage>(element)
         "pong" -> json.decodeFromJsonElement<PongMessage>(element)
+        "authResult" -> json.decodeFromJsonElement<AuthResultMessage>(element)
         else -> null
     }
 }
@@ -336,4 +351,19 @@ data class PingCommand(
     val clientTimestamp: Long
 ) : ClientCommand {
     override fun encode() = json.encodeToString(PingCommand.serializer(), this)
+}
+
+/** Must be the first message sent on every connection (docs/protocol.md, issue #15) -- the
+ *  plugin sends no application data at all to a socket until it's authenticated. Send [token]
+ *  if one is already stored for this exact pinned certificate fingerprint; send [pairingCode]
+ *  once the pilot has read one off the plugin's on-screen pairing window and typed it in; send
+ *  neither ("I have nothing yet") on a first-ever connection to a given plugin, which just
+ *  triggers the plugin to show its pairing window without needing a code guess. */
+@Serializable
+data class AuthenticateCommand(
+    val type: String = "authenticate",
+    val token: String? = null,
+    val pairingCode: String? = null
+) : ClientCommand {
+    override fun encode() = json.encodeToString(AuthenticateCommand.serializer(), this)
 }

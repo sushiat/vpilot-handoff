@@ -35,6 +35,11 @@
     </Reference>
     <!-- Used by SimBriefClient to fetch the flight plan from the SimBrief API. -->
     <Reference Include="System.Net.Http" />
+    <!-- HandoffPairingWindow's on-screen pairing-code display (issue #15 device-authorization
+         follow-up): vPilot is already a Windows Forms/WPF app with its own message loop
+         running, so Form.Show() attaches to that rather than needing Application.Run() here. -->
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
   </ItemGroup>
 
 </Project>

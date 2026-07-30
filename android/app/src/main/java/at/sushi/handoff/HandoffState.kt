@@ -50,17 +50,18 @@ data class OperationProgressState(val message: OperationProgressMessage, val rec
  *  in-flight alongside it; SUCCESS/FAILURE only apply once nothing's running anymore. */
 enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCCESS, FAILURE }
 
-/** A TLS trust decision (issue #15) awaiting the pilot's Trust/Cancel response --
- *  HandoffConnectionService.onCertificateSeen sets this after a handshake whose certificate isn't
- *  already pinned; CertificateTrustDialog observes it and calls back into
- *  HandoffConnectionService.respondToCertTrust. All 4 fields are shown together so the pilot has
- *  enough to make an informed trust decision, not just the fingerprint. */
-data class PendingCertTrust(
+/** A device-pairing prompt awaiting the pilot's action (issue #15) -- set by
+ *  HandoffConnectionService.handleAuthResult when the plugin reports "pairingRequired" (no
+ *  token, or an unrecognized/stale one), observed by PairingCodeDialog. [errorMessage] is set
+ *  after a submitted code comes back "invalidCode", so the dialog can show it without losing the
+ *  host/port/hostname context underneath. The certificate's fingerprint is deliberately NOT part
+ *  of this -- see CertTrustStore's doc comment for why it's pinned silently instead of shown
+ *  here. */
+data class PendingPairing(
     val host: String,
     val port: Int,
     val commonName: String?,
-    val fingerprint: String,
-    val isChanged: Boolean
+    val errorMessage: String? = null
 )
 
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
@@ -157,8 +158,8 @@ object HandoffState {
     private val _splitSide = MutableStateFlow(SplitSide.LEFT)
     val splitSide: StateFlow<SplitSide> = _splitSide.asStateFlow()
 
-    private val _pendingCertTrust = MutableStateFlow<PendingCertTrust?>(null)
-    val pendingCertTrust: StateFlow<PendingCertTrust?> = _pendingCertTrust.asStateFlow()
+    private val _pendingPairing = MutableStateFlow<PendingPairing?>(null)
+    val pendingPairing: StateFlow<PendingPairing?> = _pendingPairing.asStateFlow()
 
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
@@ -185,10 +186,11 @@ object HandoffState {
         _subsystemStatus.value = SubsystemStatusMessage()
         _operationProgress.value = emptyMap()
         _latencyMs.value = null
-        // A dropped connection (as opposed to the pilot explicitly answering the prompt via
-        // respondToCertTrust, which already clears this) makes any pending trust prompt stale --
-        // the next connection attempt will re-present it fresh if still relevant.
-        _pendingCertTrust.value = null
+        // A dropped connection (as opposed to the pilot explicitly answering via
+        // HandoffConnectionService.submitPairingCode/cancelPairing, which already clears this)
+        // makes any pending pairing prompt stale -- the next connection attempt will re-present
+        // it fresh if still relevant.
+        _pendingPairing.value = null
     }
 
     fun update(message: ControllersMessage) {
@@ -269,7 +271,7 @@ object HandoffState {
         _splitSide.value = side
     }
 
-    fun setPendingCertTrust(pending: PendingCertTrust?) {
-        _pendingCertTrust.value = pending
+    fun setPendingPairing(pending: PendingPairing?) {
+        _pendingPairing.value = pending
     }
 }

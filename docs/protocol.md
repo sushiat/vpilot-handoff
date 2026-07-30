@@ -30,35 +30,79 @@ Windows side). Not yet configurable; a fixed port for v1.
 The certificate is self-signed, generated (and cached across restarts) by the plugin on first
 run — there's no CA involved, since this is a local, self-discovered pairing between one plugin
 instance and one client instance, not a public-facing service. Its Subject CN is the Windows
-machine name, so a client can show a recognizable hostname alongside the fingerprint without
-needing a separate protocol field for it.
+machine name.
 
-Because there's no CA to validate against, any client implementing this protocol MUST do
-trust-on-first-use (TOFU) certificate pinning — the same model SSH uses for unknown hosts, not
-blind encrypt-and-trust:
+TLS alone only authenticates the *server* to the client — encryption plus "am I talking to the
+right PC," not "is this the right pilot's device talking to me." The plugin will complete a TLS
+handshake with anyone on the LAN; a client's certificate fingerprint check (below) catches a
+spoofed/MITM server, but does nothing to stop an unrecognized client from opening a connection
+and issuing commands. Device-level authorization (pairing code + bearer token, below) is what
+actually gates that.
 
-- **First connection to a given plugin**: after the TLS handshake succeeds, present the pilot
-  with the certificate's fingerprint (and ideally the host/port and Subject CN too, for a fully
-  informed decision) and ask for explicit confirmation before treating the connection as
-  legitimate. Persist the accepted fingerprint locally.
-- **Subsequent connections**: compare the presented certificate's fingerprint against the
-  persisted one. A match proceeds silently; there is exactly one plugin instance a given client
-  is ever paired with at a time, so no per-host bookkeeping is needed.
-- **Changed fingerprint**: do NOT silently re-prompt as if this were a first-time connection —
-  a changed fingerprint could be a legitimate cert rotation (reinstalled/reset plugin) or a
-  genuine MITM/spoof, and treating it identically to first-trust would let a real spoof get
-  quietly re-approved the same way initial trust would. Show a distinct, more alarming warning
-  instead; a legitimate rotation still requires an explicit re-trust tap, just through a
-  scarier dialog than first-trust.
+### Certificate pinning (silent)
 
-The fingerprint format is SHA-256 of the certificate's public key, uppercase colon-separated
-hex (e.g. `AB:12:CD:34:...`) — matches HandoffDiscoveryListener's discovery-reply field above.
+The client pins the certificate's fingerprint (SHA-256 of the public key, uppercase
+colon-separated hex) itself, the same TOFU model SSH uses for unknown hosts — but this
+happens **silently**, as a side effect of a successful pairing (below), never as its own
+prompt. A raw hash means nothing to the overwhelming majority of pilots installing this app, so
+asking them to eyeball-compare one and tap "Trust" is nothing but a rubber stamp in practice — a
+pairing code, read off the PC's own screen, is what actually proves you're pairing with the
+right machine (see below).
 
-On connect, the server immediately sends a `controllers`, a `chat`, and a `radioState`
-message — the client's full current state, with no need to wait for the next change. After
-that, each message type is re-sent in full (not as an incremental diff) whenever its backing
-state changes. This is deliberately simple: resending full state is cheap on a LAN and avoids
-an entire class of missed-message/reconnect bugs that incremental delivery would introduce.
+A later mismatch between the pinned fingerprint and what's presented (a swapped/rogue server
+now answering on the same IP, or a legitimately reinstalled plugin) forces the full
+pairing-code flow again, even if the client is still holding an otherwise-valid bearer token —
+the certificate identity changed, so the client can no longer assume the token's issuer is who
+it used to be.
+
+### Device authorization (pairing code + bearer token)
+
+No application data — not `controllers`, not `chat`, nothing — is sent to a socket until it's
+authenticated. An unauthenticated socket is entirely mute from the plugin's side; there is no
+reason to prepare or send anything to a client the plugin doesn't yet recognize.
+
+The client's first message on every connection MUST be `authenticate`:
+
+```json
+{"type": "authenticate", "token": "<previously-issued bearer token>"}
+{"type": "authenticate", "pairingCode": "123456"}
+{"type": "authenticate"}
+```
+
+Send `token` if the client already holds one for this exact pinned certificate fingerprint.
+Send `pairingCode` once the pilot has read one off the plugin's on-screen pairing window and
+typed it into the client. Send neither (bare `authenticate`) to mean "I have nothing yet, tell
+me what you need" — this is also what a client should send on its very first-ever connection to
+a given plugin, before any pairing code has been entered.
+
+The plugin replies with `authResult`:
+
+```json
+{"type": "authResult", "success": true, "token": "<newly-issued bearer token>"}
+{"type": "authResult", "success": false, "reason": "pairingRequired"}
+{"type": "authResult", "success": false, "reason": "invalidCode"}
+```
+
+- `success: true` — the socket is now authenticated. A fresh bearer token accompanies it; the
+  plugin persists a hash of that token (not the plaintext) against a list of paired clients —
+  multiple devices can be paired to one plugin at once, there's no hard single-device limit.
+  The client should persist this token and send it on every future connection instead of
+  re-pairing.
+- `reason: "pairingRequired"` — the plugin doesn't recognize the presented token (missing,
+  unknown, or revoked). It now displays a short-lived numeric pairing code in a small on-screen
+  window (so a pilot who's never heard of a debug console can still see it); the client should
+  show its own "enter the code shown on the PC" prompt and resend `authenticate` with
+  `pairingCode` once the pilot has typed it in.
+- `reason: "invalidCode"` — the submitted `pairingCode` didn't match the plugin's currently
+  displayed one (mistyped, or it expired — codes are only valid for a few minutes). The client
+  should let the pilot retry.
+
+Once a socket is authenticated, the plugin immediately sends a `controllers`, a `chat`, and a
+`radioState` message — the client's full current state, with no need to wait for the next
+change. After that, each message type is re-sent in full (not as an incremental diff) whenever
+its backing state changes. This is deliberately simple: resending full state is cheap on a LAN
+and avoids an entire class of missed-message/reconnect bugs that incremental delivery would
+introduce.
 
 `controllers` is the one exception to "resent whenever its backing state changes": the
 ranking recompute itself stays fully event-driven/reactive (any controller/radio/flight-plan/

@@ -87,6 +87,8 @@ fun SettingsDialog(
     initialTheme: ThemeMode,
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
+    initialIgnoredDeviceCount: Int,
+    onClearIgnoredDevices: () -> Unit,
     onDismiss: () -> Unit,
     onOpenRowColorEditor: () -> Unit,
     onSave: (
@@ -107,6 +109,7 @@ fun SettingsDialog(
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
     var discoveryStatus by remember { mutableStateOf("") }
+    var ignoredDeviceCount by remember { mutableStateOf(initialIgnoredDeviceCount) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -251,6 +254,33 @@ fun SettingsDialog(
                             }
                             if (discoveryStatus.isNotBlank()) {
                                 Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
+                            }
+                            // Issue #15 -- no per-device management UI yet, just a way back from
+                            // "Ignore this machine" (PairingCodeDialog's cancel flow) without
+                            // that being a one-way door. Only shown once there's actually
+                            // something to clear.
+                            if (ignoredDeviceCount > 0) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Ignored devices ($ignoredDeviceCount)",
+                                        fontSize = 12.sp,
+                                        color = colors.textMuted
+                                    )
+                                    Text(
+                                        "Clear",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accent,
+                                        modifier = Modifier.clickable {
+                                            onClearIgnoredDevices()
+                                            ignoredDeviceCount = 0
+                                        }
+                                    )
+                                }
                             }
 
                             SectionLabel("DEFAULT CHANNEL SPACING")

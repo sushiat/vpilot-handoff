@@ -23,6 +23,9 @@ namespace Handoff.Plugin
         private HandoffWebSocketServer _webSocketServer;
         private HandoffDiscoveryListener _discoveryListener;
         private HandoffCertificateStore _certificateStore;
+        private HandoffPairedClientStore _pairedClients;
+        private HandoffPairingWindow _pairingWindow;
+        private HandoffPairingSession _pairingSession;
 
         public void Initialize(IBroker broker)
         {
@@ -109,7 +112,19 @@ namespace Handoff.Plugin
             // reply's fingerprint field need the same certificate identity (see issue #15).
             _certificateStore = new HandoffCertificateStore(_broker.PostDebugMessage);
 
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _broker.PostDebugMessage);
+            // Device authorization on top of the certificate's own (silent) TOFU pinning --
+            // TLS alone only proves "this is the right PC," not "this is the right pilot's
+            // device," so an unauthenticated socket gets no data and no command execution until
+            // it pairs (docs/protocol.md). HandoffPairingWindow needs vPilot's own UI-thread
+            // SynchronizationContext, captured here since Initialize runs on it -- ShowCode/
+            // CloseWindow get called later from HandoffWebSocketServer's Fleck callbacks, which
+            // run on Fleck's own socket threads, not this one.
+            var uiContext = SynchronizationContext.Current ?? new System.Windows.Forms.WindowsFormsSynchronizationContext();
+            _pairedClients = new HandoffPairedClientStore(_broker.PostDebugMessage);
+            _pairingWindow = new HandoffPairingWindow(uiContext);
+            _pairingSession = new HandoffPairingSession(_pairingWindow, _broker.PostDebugMessage);
+
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);
