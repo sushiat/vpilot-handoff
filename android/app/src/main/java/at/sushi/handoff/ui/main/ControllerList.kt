@@ -64,26 +64,7 @@ import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.controllerRowGroup
 import at.sushi.handoff.ui.theme.facilitySuffixName
 import at.sushi.handoff.ui.theme.oklch
-import kotlinx.coroutines.delay
-
-/** A row with an active, unresolved "contact me" (or the SELCAL badge) alternates between two
- *  colors every 500ms, hard-cut (not eased) -- matches the reference's own
- *  `@keyframes contactFlash{0%,49%{a} 50%,99%{b}}` over a 1s cycle exactly. */
-@Composable
-private fun rememberFlashPhaseA(isFlashing: Boolean): Boolean {
-    var phaseA by remember { mutableStateOf(true) }
-    LaunchedEffect(isFlashing) {
-        if (!isFlashing) {
-            phaseA = true
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(500)
-            phaseA = !phaseA
-        }
-    }
-    return phaseA
-}
+import at.sushi.handoff.ui.theme.rememberFlashPhaseA
 
 /** The reference's fixed "phase B" text color for a flashing row/badge (`--flash-text-b:#111`),
  *  distinct from the near-black `rgba(0,0,0,.82)` used elsewhere. */

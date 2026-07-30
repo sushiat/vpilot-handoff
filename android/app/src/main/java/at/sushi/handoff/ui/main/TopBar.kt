@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -51,6 +52,7 @@ import at.sushi.handoff.ui.theme.RobotoMono
 import at.sushi.handoff.ui.theme.nearBlackText
 import at.sushi.handoff.ui.theme.oklch
 import at.sushi.handoff.ui.theme.perceptualLightness
+import at.sushi.handoff.ui.theme.rememberFlashPhaseA
 
 /** The main screen's top bar: the app's own header ("Handoff" wordmark + "by sushi.at" +
  *  version, per issue #13's Assets section) above the button panel.
@@ -86,6 +88,7 @@ fun TopBar(
     radioState: RadioStateMessage,
     lastMessageLabel: String?,
     unreadCount: Int,
+    hasDirectedUnread: Boolean,
     // The station currently tuned on each COM, if any -- shown as a small third line under the
     // frequency (Garmin-style: freq, then station identifier below it). Looked up by the caller
     // from the live controller list (a frequency match, not the isCurrent flag -- see
@@ -159,7 +162,7 @@ fun TopBar(
                     com1Callsign = com1Callsign, com2Callsign = com2Callsign,
                     com1StandbyCallsign = com1StandbyCallsign, com2StandbyCallsign = com2StandbyCallsign,
                     micBadges = micBadges, monBadges = monBadges,
-                    unreadCount = unreadCount,
+                    unreadCount = unreadCount, hasDirectedUnread = hasDirectedUnread,
                     onSwapCom1 = onSwapCom1, onSwapCom2 = onSwapCom2,
                     onOpenCom1Dialog = onOpenCom1Dialog, onOpenCom2Dialog = onOpenCom2Dialog,
                     onOpenXpdrDialog = onOpenXpdrDialog,
@@ -172,7 +175,7 @@ fun TopBar(
                     com1Callsign = com1Callsign, com2Callsign = com2Callsign,
                     com1StandbyCallsign = com1StandbyCallsign, com2StandbyCallsign = com2StandbyCallsign,
                     micBadges = micBadges, monBadges = monBadges,
-                    unreadCount = unreadCount,
+                    unreadCount = unreadCount, hasDirectedUnread = hasDirectedUnread,
                     onSwapCom1 = onSwapCom1, onSwapCom2 = onSwapCom2,
                     onOpenCom1Dialog = onOpenCom1Dialog, onOpenCom2Dialog = onOpenCom2Dialog,
                     onOpenXpdrDialog = onOpenXpdrDialog,
@@ -185,7 +188,7 @@ fun TopBar(
                     com1Callsign = com1Callsign, com2Callsign = com2Callsign,
                     com1StandbyCallsign = com1StandbyCallsign, com2StandbyCallsign = com2StandbyCallsign,
                     micBadges = micBadges, monBadges = monBadges,
-                    unreadCount = unreadCount, msgDisplayValue = msgDisplayValue,
+                    unreadCount = unreadCount, hasDirectedUnread = hasDirectedUnread, msgDisplayValue = msgDisplayValue,
                     onSwapCom1 = onSwapCom1, onSwapCom2 = onSwapCom2,
                     onOpenCom1Dialog = onOpenCom1Dialog, onOpenCom2Dialog = onOpenCom2Dialog,
                     onOpenXpdrDialog = onOpenXpdrDialog,
@@ -428,18 +431,16 @@ private val MessageBubbleIcon: ImageVector by lazy {
  *  pale-grey value was a light-theme-only constant that went invisible against this app's near
  *  identical light-theme card background, and would have been just as wrong the other way round
  *  against a dark card); unread directed at the pilot (a private message, or a radio message
- *  mentioning our callsign) -> orange; unread not directed at us -> blue. The count's own color
- *  isn't a fixed per-state choice either -- it's [perceptualLightness] of the actual bubble color,
- *  same black-vs-white contrast decision [at.sushi.handoff.ui.theme.controllerRowColors] already
- *  uses for row text, so this can't silently drift out of sync if the bubble hues are ever
- *  retuned (or the no-unread color swaps between light/dark theme).
- *
- *  TODO: [hasDirectedUnread] has no real data source yet -- unreadCount aggregation
- *  (`unreadByTab` in MainScreen.kt) is itself still a stub that's never incremented, so this
- *  always renders as "unread, not directed" (blue) whenever unreadCount > 0. Wiring up per-tab
- *  unread tracking plus a directed-at-me check (private-message tabs, or a radio message
- *  matching ownCallsign, mirroring ChatPanelContent's existing `mentionsUs` logic) is follow-up
- *  work, not part of this pass. */
+ *  mentioning our callsign) -> orange, flashing against hazard-yellow every 500ms (same hard-cut
+ *  cadence as the controller list's contact-me row flash, via the shared
+ *  [at.sushi.handoff.ui.theme.rememberFlashPhaseA] -- issue #32 asked for this exact treatment so
+ *  a directed message can't be missed at a glance); unread not directed at us -> a static blue
+ *  (ambient frequency chatter isn't urgent enough to flash). The count's own color isn't a fixed
+ *  per-state choice either -- it's [perceptualLightness] of the actual bubble color, same
+ *  black-vs-white contrast decision [at.sushi.handoff.ui.theme.controllerRowColors] already uses
+ *  for row text, so the hazard-yellow flash phase automatically gets readable (black) count text
+ *  without a separate branch, and this can't silently drift out of sync if the bubble hues are
+ *  ever retuned. */
 @Composable
 private fun MessageIcon(
     unreadCount: Int,
@@ -450,9 +451,10 @@ private fun MessageIcon(
 ) {
     val colors = LocalHandoffColors.current
     val hasUnread = unreadCount > 0
+    val flashPhaseA = rememberFlashPhaseA(hasDirectedUnread)
     val iconColor = when {
         !hasUnread -> colors.text
-        hasDirectedUnread -> oklch(0.70f, 0.17f, 45f)
+        hasDirectedUnread -> if (flashPhaseA) oklch(0.70f, 0.17f, 45f) else FacilityColors.hazardYellow
         else -> oklch(0.68f, 0.14f, 250f)
     }
     val countColor = if (perceptualLightness(iconColor) < 54f) Color.White else nearBlackText
@@ -463,6 +465,14 @@ private fun MessageIcon(
             fontSize = countFontSize,
             fontWeight = FontWeight.Bold,
             color = countColor,
+            // Centering on the full icon box (as this used to do) visually reads as low-and-left
+            // of center: MessageBubbleIcon's own 24x24 path is a rounded-rect body from y4-18
+            // (tail excluded) spanning the full x4-22 width, centered at (13,11) in viewBox units
+            // -- one unit right and one unit up of the box's own (12,12) center -- because the
+            // little pointer/tail hanging off the bottom-left (down to y22) pulls the *box's*
+            // center down without being part of what reads as the bubble's body. Shifting by that
+            // same 1/24 fraction of iconSize re-centers the count on the body instead of the box.
+            modifier = Modifier.offset(x = iconSize / 24, y = -(iconSize / 24)),
             style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
         )
     }
@@ -503,7 +513,7 @@ private fun TopBarWide(
     xpdrValue: String, modeCEnabled: Boolean,
     com1Callsign: String?, com2Callsign: String?, com1StandbyCallsign: String?, com2StandbyCallsign: String?,
     micBadges: List<MicMonBadge>, monBadges: List<MicMonBadge>,
-    unreadCount: Int, msgDisplayValue: String,
+    unreadCount: Int, hasDirectedUnread: Boolean, msgDisplayValue: String,
     onSwapCom1: () -> Unit, onSwapCom2: () -> Unit,
     onOpenCom1Dialog: () -> Unit, onOpenCom2Dialog: () -> Unit, onOpenXpdrDialog: () -> Unit,
     onToggleMic: () -> Unit, onToggleMon: () -> Unit, onToggleChat: () -> Unit
@@ -528,7 +538,7 @@ private fun TopBarWide(
             WideComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby1Value, large = false, callsign = com1StandbyCallsign, onClick = onOpenCom1Dialog)
             WideMicMonButton(Modifier.width(s.fixedMicMonWidth).fillMaxHeight(), "MON", monBadges, onToggleMon)
             WideComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby2Value, large = false, callsign = com2StandbyCallsign, onClick = onOpenCom2Dialog)
-            WideMsgButton(Modifier.width(s.fixedXpdrMsgWidth).fillMaxHeight(), unreadCount, msgDisplayValue, onToggleChat)
+            WideMsgButton(Modifier.width(s.fixedXpdrMsgWidth).fillMaxHeight(), unreadCount, hasDirectedUnread, msgDisplayValue, onToggleChat)
         }
     }
 }
@@ -589,7 +599,7 @@ private fun RowScope.WideMicMonButton(modifier: Modifier, label: String, badges:
 }
 
 @Composable
-private fun RowScope.WideMsgButton(modifier: Modifier, unreadCount: Int, displayValue: String, onClick: () -> Unit) {
+private fun RowScope.WideMsgButton(modifier: Modifier, unreadCount: Int, hasDirectedUnread: Boolean, displayValue: String, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     val s = WideSizes
     val shape = RoundedCornerShape(10.dp)
@@ -599,7 +609,7 @@ private fun RowScope.WideMsgButton(modifier: Modifier, unreadCount: Int, display
     ) {
         Box(Modifier.fillMaxWidth()) {
             ButtonLabel("MSG", s.labelFontSize, 0.7f, modifier = Modifier.align(Alignment.CenterStart))
-            MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize, modifier = Modifier.align(Alignment.CenterEnd))
+            MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize, modifier = Modifier.align(Alignment.CenterEnd), hasDirectedUnread = hasDirectedUnread)
         }
         Text(
             displayValue, fontSize = s.msgNameFontSize, fontWeight = FontWeight.Medium,
@@ -639,7 +649,7 @@ private fun TopBarCompact(
     xpdrValue: String, modeCEnabled: Boolean,
     com1Callsign: String?, com2Callsign: String?, com1StandbyCallsign: String?, com2StandbyCallsign: String?,
     micBadges: List<MicMonBadge>, monBadges: List<MicMonBadge>,
-    unreadCount: Int,
+    unreadCount: Int, hasDirectedUnread: Boolean,
     onSwapCom1: () -> Unit, onSwapCom2: () -> Unit,
     onOpenCom1Dialog: () -> Unit, onOpenCom2Dialog: () -> Unit, onOpenXpdrDialog: () -> Unit,
     onToggleMic: () -> Unit, onToggleMon: () -> Unit, onToggleChat: () -> Unit
@@ -657,7 +667,7 @@ private fun TopBarCompact(
             CompactComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby1Value, large = false, callsign = com1StandbyCallsign, onClick = onOpenCom1Dialog)
             CompactMicMonButton(Modifier.width(s.fixedMicMonWidth).fillMaxHeight(), "MON", monBadges, onToggleMon)
             CompactComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby2Value, large = false, callsign = com2StandbyCallsign, onClick = onOpenCom2Dialog)
-            CompactMsgButton(Modifier.width(s.fixedXpdrMsgWidth).fillMaxHeight(), unreadCount, onToggleChat)
+            CompactMsgButton(Modifier.width(s.fixedXpdrMsgWidth).fillMaxHeight(), unreadCount, hasDirectedUnread, onToggleChat)
         }
     }
 }
@@ -718,7 +728,7 @@ private fun RowScope.CompactMicMonButton(modifier: Modifier, label: String, badg
 }
 
 @Composable
-private fun RowScope.CompactMsgButton(modifier: Modifier, unreadCount: Int, onClick: () -> Unit) {
+private fun RowScope.CompactMsgButton(modifier: Modifier, unreadCount: Int, hasDirectedUnread: Boolean, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     val s = CompactSizes
     val shape = RoundedCornerShape(8.dp)
@@ -726,7 +736,7 @@ private fun RowScope.CompactMsgButton(modifier: Modifier, unreadCount: Int, onCl
         modifier.background(colors.panelAlt, shape).border(1.dp, colors.border, shape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize)
+        MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize, hasDirectedUnread = hasDirectedUnread)
     }
 }
 
@@ -767,7 +777,7 @@ private fun TopBarMinimum(
     xpdrValue: String, modeCEnabled: Boolean,
     com1Callsign: String?, com2Callsign: String?, com1StandbyCallsign: String?, com2StandbyCallsign: String?,
     micBadges: List<MicMonBadge>, monBadges: List<MicMonBadge>,
-    unreadCount: Int,
+    unreadCount: Int, hasDirectedUnread: Boolean,
     onSwapCom1: () -> Unit, onSwapCom2: () -> Unit,
     onOpenCom1Dialog: () -> Unit, onOpenCom2Dialog: () -> Unit, onOpenXpdrDialog: () -> Unit,
     onToggleMic: () -> Unit, onToggleMon: () -> Unit, onToggleChat: () -> Unit
@@ -789,7 +799,7 @@ private fun TopBarMinimum(
             MinimumXpdrButton(Modifier.weight(1f).fillMaxHeight(), xpdrValue, modeCEnabled, onOpenXpdrDialog)
             MinimumMicMonButton(Modifier.weight(1f).fillMaxHeight(), "MIC", micBadges, onToggleMic)
             MinimumMicMonButton(Modifier.weight(1f).fillMaxHeight(), "MON", monBadges, onToggleMon)
-            MinimumMsgButton(Modifier.weight(1f).fillMaxHeight(), unreadCount, onToggleChat)
+            MinimumMsgButton(Modifier.weight(1f).fillMaxHeight(), unreadCount, hasDirectedUnread, onToggleChat)
         }
     }
 }
@@ -862,7 +872,7 @@ private fun RowScope.MinimumMicMonButton(modifier: Modifier, label: String, badg
 }
 
 @Composable
-private fun RowScope.MinimumMsgButton(modifier: Modifier, unreadCount: Int, onClick: () -> Unit) {
+private fun RowScope.MinimumMsgButton(modifier: Modifier, unreadCount: Int, hasDirectedUnread: Boolean, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     val s = MinimumSizes
     val shape = RoundedCornerShape(8.dp)
@@ -870,7 +880,7 @@ private fun RowScope.MinimumMsgButton(modifier: Modifier, unreadCount: Int, onCl
         modifier.background(colors.panelAlt, shape).border(1.dp, colors.border, shape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize)
+        MessageIcon(unreadCount, s.msgIconSize, s.msgCountFontSize, hasDirectedUnread = hasDirectedUnread)
     }
 }
 

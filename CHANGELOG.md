@@ -10,6 +10,21 @@ once it has its first release.
 
 ### Added
 
+- Android: the MSG button's unread badge is wired up (issue #32) — per-tab
+  unread counts now increment on incoming radio/broadcast and private
+  messages, cleared on switching to a tab or opening the chat panel to view
+  the currently-active one (fullscreen counts a tab as "viewed" whenever
+  it's on screen, not just while a since-unused `chatOpen` toggle happens
+  to be true — that flag only ever meant something for the split-screen
+  overlay). A tab with an unread message directed at the pilot (a private
+  message, or a radio message mentioning `ownCallsign`) now flashes the MSG
+  badge orange/hazard-yellow every 500ms, reusing the same hard-cut flash
+  cadence as the controller list's contact-me row flash (both now share
+  `rememberFlashPhaseA` from `HandoffTheme.kt`); undirected/ambient unread
+  stays a static blue. Also re-centers the unread count on the message
+  bubble icon's own body rather than its full bounding box — the SVG path's
+  bottom-left tail was pulling the box's geometric center down-left of
+  where the bubble visually reads as centered.
 - Plugin: `ControllerRankingModel.RemainingWaypoints` (feeding the route-
   projected approach/convergence checks in buckets 7c/8) replaced with
   abeam-point geometric waypoint sequencing (issue #22), the same technique

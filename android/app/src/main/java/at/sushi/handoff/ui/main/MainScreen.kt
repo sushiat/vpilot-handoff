@@ -55,8 +55,11 @@ import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import at.sushi.handoff.protocol.ChatEntry
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
+import at.sushi.handoff.ui.chat.RADIO_TAB
+import at.sushi.handoff.ui.chat.mentionsCallsign
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.DiversionConfirmDialog
@@ -234,6 +237,10 @@ private fun MainScreenContent() {
     var openChatTabs by remember { mutableStateOf(listOf<String>()) }
     var activeChatTab by remember { mutableStateOf<String?>(null) } // null = RADIO
     var unreadByTab by remember { mutableStateOf(mapOf<String, Int>()) }
+    // Tabs currently holding at least one unread message directed at the pilot (a private
+    // message, or a radio message mentioning ownCallsign) -- feeds TopBar's flashing
+    // orange/hazard-yellow badge treatment, distinct from the ambient/blue case (issue #32).
+    var directedUnreadTabs by remember { mutableStateOf(setOf<String>()) }
     var selcalDismissedTimestamp by remember { mutableStateOf<String?>(null) }
 
     val latestSelcalAlert = chat.selcalAlerts.maxByOrNull { it.timestamp }
@@ -241,10 +248,59 @@ private fun MainScreenContent() {
 
     fun send(command: at.sushi.handoff.protocol.ClientCommand) = HandoffConnectionService.instance?.sendCommand(command)
 
+    fun clearUnread(tab: String) {
+        unreadByTab = unreadByTab - tab
+        directedUnreadTabs = directedUnreadTabs - tab
+    }
+
     fun openChatWith(callsign: String) {
         if (callsign !in openChatTabs) openChatTabs = openChatTabs + callsign
         activeChatTab = callsign
         chatOpen = true
+        clearUnread(callsign)
+    }
+
+    // Diffs the full chat log (docs/protocol.md: `chat` is always resent in full, not as an
+    // incremental delta) against what was last processed, to find genuinely new incoming entries
+    // to count as unread. Guards against the log ever shrinking/changing underneath a matching
+    // prefix (a reconnect starting a fresh plugin session) -- in that case there's no reliable
+    // "new since last time" answer, so it just resyncs without incrementing anything rather than
+    // risk flooding the badge with entries that were already seen last session.
+    var previousChatMessages by remember { mutableStateOf(listOf<ChatEntry>()) }
+    LaunchedEffect(chat.messages) {
+        val current = chat.messages
+        val previous = previousChatMessages
+        val isAppend = current.size >= previous.size &&
+            current.subList(0, previous.size) == previous
+        val newEntries = if (isAppend) current.subList(previous.size, current.size) else emptyList()
+        previousChatMessages = current
+
+        for (entry in newEntries) {
+            if (entry.direction != "incoming") continue
+            val tab: String
+            val directed: Boolean
+            if (entry.channel == "private") {
+                val peer = entry.peer ?: continue
+                tab = peer
+                directed = true
+                // Silently opens a tab for a peer who messages first, without switching focus to
+                // it or popping the chat panel open -- matches how openChatWith already creates a
+                // tab, just without the "and view it" half.
+                if (peer !in openChatTabs) openChatTabs = openChatTabs + peer
+            } else {
+                tab = RADIO_TAB
+                directed = mentionsCallsign(entry.text, flightPlan.vatsimCallsign)
+            }
+            // In fullscreen the chat panel is always on screen (chatOpen only gates the split-
+            // screen overlay's own visibility -- see the onToggleChat comment below), so a tab
+            // sitting in plain sight there must never be flagged unread just because chatOpen
+            // itself never flips true in that layout.
+            val chatPanelVisible = layoutMode == LayoutMode.FULLSCREEN || chatOpen
+            val currentlyViewing = chatPanelVisible && (activeChatTab == tab || (tab == RADIO_TAB && activeChatTab == null))
+            if (currentlyViewing) continue
+            unreadByTab = unreadByTab + (tab to ((unreadByTab[tab] ?: 0) + 1))
+            if (directed) directedUnreadTabs = directedUnreadTabs + tab
+        }
     }
 
     // The nearby-aircraft dialog is folded in here (rendered as plain inline content layered
@@ -267,7 +323,10 @@ private fun MainScreenContent() {
                 // as on frequency -- not the SimBrief one, which has no guarantee of matching the
                 // real connection (see docs/protocol.md's flightPlan message).
                 ownCallsign = flightPlan.vatsimCallsign,
-                onSelectTab = { activeChatTab = it },
+                onSelectTab = { tab ->
+                    activeChatTab = tab
+                    clearUnread(tab ?: RADIO_TAB)
+                },
                 onCloseTab = { peer ->
                     openChatTabs = openChatTabs - peer
                     if (activeChatTab == peer) activeChatTab = null
@@ -366,6 +425,7 @@ private fun MainScreenContent() {
                 lastMessageLabel = activeChatTab
                     ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
+                hasDirectedUnread = directedUnreadTabs.isNotEmpty(),
                 // Frequency match, not the isCurrent flag -- a station can be isCurrent on either
                 // COM independently (docs/controller-ranking.md bucket 1), so matching by the
                 // radio's own actual tuned frequency is the more direct/authoritative lookup.
@@ -422,7 +482,11 @@ private fun MainScreenContent() {
                 // tap that landed while the (heuristic, possibly momentarily unstable)
                 // layoutMode read something other than SPLIT would silently no-op instead of
                 // toggling.
-                onToggleChat = { chatOpen = !chatOpen }
+                onToggleChat = {
+                    val opening = !chatOpen
+                    chatOpen = opening
+                    if (opening) clearUnread(activeChatTab ?: RADIO_TAB)
+                }
             )
 
             ControllerList(
