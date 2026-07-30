@@ -32,6 +32,8 @@ namespace Handoff.Plugin
         public const string TypePinController = "pinController";
         public const string TypeClearPinnedController = "clearPinnedController";
         public const string TypeDismissSelcal = "dismissSelcal";
+        public const string TypeConfirmDiversion = "confirmDiversion";
+        public const string TypeDismissDiversion = "dismissDiversion";
         public const string TypePing = "ping";
         public const string TypeAuthenticate = "authenticate";
 

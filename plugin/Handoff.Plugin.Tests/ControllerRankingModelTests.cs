@@ -909,7 +909,7 @@ namespace Handoff.Plugin.Tests
         // ---- Diversion invalidates the filed route -----------------------------------------
 
         [Fact]
-        public async Task Diversion_DestinationChange_DropsStaleRouteForApproachPrediction()
+        public async Task Diversion_DestinationChange_ArmsPendingConfirmation_WithoutDroppingRouteYet()
         {
             // Heading deliberately null throughout -- isolates the route-projected check
             // entirely (FindEnteringOwnerMatches only falls back to heading when there ARE no
@@ -929,15 +929,48 @@ namespace Handoff.Plugin.Tests
             var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+            Assert.Null(model.PendingDiversionDestination);
 
             // Same waypoints (the stale route toward the original destination), only the
             // destination itself changes -- exactly the scenario the doc describes: a
             // controller-issued diversion updates the effective destination immediately, but
-            // flightPlan.Waypoints on its own has no way to know it's now stale.
+            // flightPlan.Waypoints on its own has no way to know it's now stale. The route keeps
+            // being used until the pilot actually confirms the diversion, not the instant the
+            // feed shows a changed destination.
             currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "ZZZZ", null, waypoints);
             await flightPlan.RefreshAsync();
 
+            Assert.Equal("ZZZZ", model.PendingDiversionDestination);
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            model.ConfirmDiversion();
+
+            Assert.Null(model.PendingDiversionDestination);
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task Diversion_Dismissed_KeepsUsingFiledRoute()
+        {
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("WPT1", 4, 0) };
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "YYYY", null, waypoints);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
+
+            currentPlan = new Plugin.FlightPlan("BAW123", "AAAA", "ZZZZ", null, waypoints);
+            await flightPlan.RefreshAsync();
+            Assert.Equal("ZZZZ", model.PendingDiversionDestination);
+
+            model.DismissDiversion();
+
+            Assert.Null(model.PendingDiversionDestination);
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
         }
 
         // ---- Issue #22: abeam-point waypoint sequencing --------------------------------------

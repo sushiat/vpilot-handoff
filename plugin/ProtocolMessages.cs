@@ -133,6 +133,23 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
+        /// <summary>
+        /// A destination change just observed on the VATSIM data feed, awaiting pilot
+        /// confirmation (confirmDiversion/dismissDiversion) before the plugin drops the filed
+        /// route from approach prediction -- see ControllerRankingModel.PendingDiversionDestination.
+        /// destination is null whenever nothing is pending, same resendable-full-state shape as
+        /// the other Build*Message methods here (not one-shot like operationProgress).
+        /// </summary>
+        public static string BuildDiversionPendingMessage(string destination)
+        {
+            var payload = new
+            {
+                type = "diversionPending",
+                destination
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
         public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion)
         {
             var payload = new

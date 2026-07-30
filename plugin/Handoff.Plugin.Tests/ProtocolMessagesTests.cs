@@ -296,6 +296,23 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildDiversionPendingMessage_WithDestination()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildDiversionPendingMessage("EDDF"));
+
+            Assert.Equal("diversionPending", (string)json["type"]);
+            Assert.Equal("EDDF", (string)json["destination"]);
+        }
+
+        [Fact]
+        public void BuildDiversionPendingMessage_NothingPending_DestinationIsNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildDiversionPendingMessage(null));
+
+            Assert.Null((string)json["destination"]);
+        }
+
+        [Fact]
         public void BuildOperationProgressMessage_InProgress()
         {
             var json = JObject.Parse(ProtocolMessages.BuildOperationProgressMessage("vatGlassesSync", "Updating VatGlasses file 12/24", finished: false, success: true));
@@ -504,6 +521,22 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal(ClientCommand.TypeDismissSelcal, command.Type);
             Assert.Equal("EGLL_CTR", command.Callsign);
+        }
+
+        [Fact]
+        public void ParseClientCommand_ConfirmDiversion()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"confirmDiversion\"}");
+
+            Assert.Equal(ClientCommand.TypeConfirmDiversion, command.Type);
+        }
+
+        [Fact]
+        public void ParseClientCommand_DismissDiversion()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"dismissDiversion\"}");
+
+            Assert.Equal(ClientCommand.TypeDismissDiversion, command.Type);
         }
 
         [Fact]

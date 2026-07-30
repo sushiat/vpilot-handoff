@@ -153,6 +153,7 @@ namespace Handoff.Plugin
         private bool _hasTakenOffThisSession;
         private string _lastObservedDestination;
         private bool _routeInvalidatedByDiversion;
+        private string _pendingDiversionDestination;
 
         // Abeam-point waypoint sequencing state (issue #22) -- see SequenceRemainingWaypoints.
         // _routeAnchor is the geographic point the active leg's course is measured from, frozen
@@ -202,6 +203,42 @@ namespace Handoff.Plugin
             get { lock (_gate) { return _etaMinutes; } }
         }
 
+        /// <summary>A destination change just observed on the VATSIM data feed, awaiting pilot
+        /// confirmation via ConfirmDiversion/DismissDiversion before the filed route is dropped
+        /// from approach prediction -- null when nothing is pending. See docs/protocol.md's
+        /// diversionPending message.</summary>
+        public string PendingDiversionDestination
+        {
+            get { lock (_gate) { return _pendingDiversionDestination; } }
+        }
+
+        /// <summary>Pilot confirmed the pending destination change is a real diversion -- drops the
+        /// filed route from approach prediction, same as the old unconditional behavior did.</summary>
+        public void ConfirmDiversion()
+        {
+            bool changed;
+            lock (_gate)
+            {
+                changed = _pendingDiversionDestination != null;
+                if (changed)
+                {
+                    _routeInvalidatedByDiversion = true;
+                    _pendingDiversionDestination = null;
+                }
+            }
+            if (changed) Recompute();
+        }
+
+        /// <summary>Pilot dismissed the pending destination change (a false alarm -- feed lag,
+        /// misfile, etc.) -- keeps using the filed route as before, and won't re-prompt for this
+        /// same destination again.</summary>
+        public void DismissDiversion()
+        {
+            bool changed;
+            lock (_gate) { changed = _pendingDiversionDestination != null; _pendingDiversionDestination = null; }
+            if (changed) Recompute();
+        }
+
         private void Recompute()
         {
             var controllers = _controllerState.Controllers;
@@ -237,10 +274,11 @@ namespace Handoff.Plugin
             var routeAirport = _hasTakenOffThisSession ? destination : origin;
 
             if (_lastObservedDestination != null && destination != null &&
-                !string.Equals(_lastObservedDestination, destination, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(_lastObservedDestination, destination, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(_pendingDiversionDestination, destination, StringComparison.OrdinalIgnoreCase))
             {
-                _routeInvalidatedByDiversion = true;
-                Log("Destination changed from " + _lastObservedDestination + " to " + destination + " -- treating as a diversion, dropping the filed route for approach prediction.");
+                _pendingDiversionDestination = destination;
+                Log("Destination changed from " + _lastObservedDestination + " to " + destination + " -- awaiting pilot confirmation before dropping the filed route for approach prediction.");
             }
             if (destination != null) _lastObservedDestination = destination;
 

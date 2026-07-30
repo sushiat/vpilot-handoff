@@ -351,6 +351,25 @@ recurring mistake ("sorry, but you didn't file a flight plan" from Delivery), no
 feed. A mismatch between `simbrief*` and `vatsim*` (once both are known) is also worth flagging --
 it means the SimBrief OFP and what's actually filed on the network have diverged.
 
+### `diversionPending`
+
+A destination change the plugin just noticed on the VATSIM data feed (`vatsimDestination` above
+changing mid-session), awaiting pilot confirmation before it's treated as a real diversion. Until
+confirmed, the plugin keeps using the originally filed route for its own approach/convergence
+prediction (issue #22's route-projected checks) rather than silently dropping it the instant the
+feed shows a new arrival airport -- a feed hiccup or ATC typo shouldn't blow away route tracking
+without the pilot getting a say. Resent whenever it changes (same resendable-snapshot shape as
+`flightPlan`/`radioState`, not a one-shot like `operationProgress`).
+
+```json
+{"type": "diversionPending", "destination": "EDDF"}
+```
+
+`destination` is `null` whenever nothing is pending. A client should show a confirm/dismiss
+prompt ("Confirm diversion to EDDF?") whenever this transitions from `null` to non-null, and
+clear it whenever this transitions back to `null` (whether from `confirmDiversion`,
+`dismissDiversion`, or another client's action -- see below).
+
 ### `nearbyAircraft`
 
 Other traffic within 20nm of ownship, closest first -- feeds the chat panel's "start chat with
@@ -604,6 +623,19 @@ whether the alert's been seen.
 
 ```json
 {"type": "dismissSelcal", "callsign": "EGLL_CTR"}
+```
+
+### `confirmDiversion` / `dismissDiversion`
+
+Responds to a `diversionPending` prompt -- no payload, since only one destination can be pending
+at a time. `confirmDiversion` treats it as a real diversion (drops the filed route from approach
+prediction, same as the plugin's old unconditional behavior). `dismissDiversion` treats it as a
+false alarm and keeps using the filed route, without re-prompting for that same destination
+again. Both are no-ops if nothing is currently pending.
+
+```json
+{"type": "confirmDiversion"}
+{"type": "dismissDiversion"}
 ```
 
 ### `ping` / `pong`

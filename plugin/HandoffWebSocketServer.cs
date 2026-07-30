@@ -89,7 +89,11 @@ namespace Handoff.Plugin
                     socket.OnMessage = message => OnMessage(message, socket);
                 });
 
-                _broadcastTimer = new Timer(_ => Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes)), null, BroadcastInterval, BroadcastInterval);
+                _broadcastTimer = new Timer(_ =>
+                {
+                    Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
+                    Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
+                }, null, BroadcastInterval, BroadcastInterval);
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
                 _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
@@ -134,6 +138,7 @@ namespace Handoff.Plugin
         private void SendSnapshotTo(IWebSocketConnection socket)
         {
             socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
+            socket.Send(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
             socket.Send(BuildFlightPlanMessage());
@@ -262,6 +267,12 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeDismissSelcal:
                     _controllerState.ClearSelcal(command.Callsign);
+                    break;
+                case ClientCommand.TypeConfirmDiversion:
+                    _controllerRanking.ConfirmDiversion();
+                    break;
+                case ClientCommand.TypeDismissDiversion:
+                    _controllerRanking.DismissDiversion();
                     break;
                 default:
                     Log("Unknown client message type: " + command?.Type);
