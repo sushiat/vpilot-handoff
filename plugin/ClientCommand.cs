@@ -29,6 +29,7 @@ namespace Handoff.Plugin
         public const string TypeClearPinnedController = "clearPinnedController";
         public const string TypeDismissSelcal = "dismissSelcal";
         public const string TypePing = "ping";
+        public const string TypeAuthenticate = "authenticate";
 
         public string Type { get; set; }
 
@@ -71,5 +72,13 @@ namespace Handoff.Plugin
         // pong reply so the client can measure round-trip latency itself; the plugin does not
         // interpret this value.
         public long? ClientTimestamp { get; set; }
+
+        // authenticate -- exactly one of Token/PairingCode is normally set (Token for a
+        // returning, already-paired client; PairingCode for a client that just read a code off
+        // HandoffPairingWindow), or neither ("I have nothing yet, tell me what you need").
+        // DeviceId is optional, sent alongside either -- see docs/protocol.md.
+        public string Token { get; set; }
+        public string PairingCode { get; set; }
+        public string DeviceId { get; set; }
     }
 }

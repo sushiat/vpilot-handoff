@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Fleck;
 
@@ -20,13 +22,18 @@ namespace Handoff.Plugin
     public sealed class HandoffWebSocketServer
     {
         public const int Port = 48765;
-        private const string Address = "ws://0.0.0.0:48765";
+        private const string Address = "wss://0.0.0.0:48765";
 
         // Static until the plugin has a real versioning scheme -- see docs/protocol.md.
         private const string PluginVersion = "0.1.0";
 
         private readonly object _gate = new object();
-        private readonly List<IWebSocketConnection> _sockets = new List<IWebSocketConnection>();
+        // Only ever holds sockets that have completed device authorization (issue #15) --
+        // nothing is sent to (or accepted as a command from) a socket before it's in here. Not
+        // a superset tracked separately from "all open sockets": an unauthenticated socket gets
+        // no snapshot/broadcast traffic at all, so there's nothing to track for it beyond what
+        // Fleck itself already manages.
+        private readonly HashSet<IWebSocketConnection> _authenticatedSockets = new HashSet<IWebSocketConnection>();
         private readonly ControllerRankingModel _controllerRanking;
         private readonly ChatModel _chatModel;
         private readonly RadioStateModel _radioState;
@@ -36,7 +43,10 @@ namespace Handoff.Plugin
         private readonly HandoffControllerStateModel _controllerState;
         private readonly PilotSessionModel _pilotSession;
         private readonly OperationProgressModel _operationProgress;
+        private readonly HandoffPairedClientStore _pairedClients;
+        private readonly HandoffPairingSession _pairingSession;
         private readonly Action<string> _logDebug;
+        private readonly X509Certificate2 _certificate;
         private WebSocketServer _server;
         private Timer _broadcastTimer;
 
@@ -46,7 +56,7 @@ namespace Handoff.Plugin
         // the wire broadcast just goes out on a fixed cadence instead.
         private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(1);
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -57,6 +67,9 @@ namespace Handoff.Plugin
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
+            _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
+            _pairedClients = pairedClients ?? throw new ArgumentNullException(nameof(pairedClients));
+            _pairingSession = pairingSession ?? throw new ArgumentNullException(nameof(pairingSession));
             _logDebug = logDebug;
         }
 
@@ -64,7 +77,11 @@ namespace Handoff.Plugin
         {
             try
             {
-                _server = new WebSocketServer(Address);
+                _server = new WebSocketServer(Address)
+                {
+                    Certificate = _certificate,
+                    EnabledSslProtocols = SslProtocols.Tls12
+                };
                 _server.Start(socket =>
                 {
                     socket.OnOpen = () => OnOpen(socket);
@@ -105,9 +122,17 @@ namespace Handoff.Plugin
 
         private void OnOpen(IWebSocketConnection socket)
         {
-            lock (_gate) { _sockets.Add(socket); }
-            Log("Client connected: " + socket.ConnectionInfo.ClientIpAddress);
+            // Deliberately not added to _authenticatedSockets and sent nothing at all yet
+            // (issue #15) -- an unauthenticated socket is entirely mute from this side until it
+            // completes the authenticate handshake in OnMessage below. No point preparing or
+            // sending anything to a client this plugin doesn't yet recognize.
+            Log("Client connected (unauthenticated): " + socket.ConnectionInfo.ClientIpAddress);
+        }
 
+        /// <summary>Full current-state catch-up burst, sent once a socket authenticates --
+        /// previously sent unconditionally from OnOpen, before device authorization existed.</summary>
+        private void SendSnapshotTo(IWebSocketConnection socket)
+        {
             socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
@@ -141,7 +166,7 @@ namespace Handoff.Plugin
 
         private void OnClose(IWebSocketConnection socket)
         {
-            lock (_gate) { _sockets.Remove(socket); }
+            lock (_gate) { _authenticatedSockets.Remove(socket); }
             Log("Client disconnected: " + socket.ConnectionInfo.ClientIpAddress);
         }
 
@@ -159,6 +184,23 @@ namespace Handoff.Plugin
             }
 
             Log("Received client command: " + json);
+
+            if (command?.Type == ClientCommand.TypeAuthenticate)
+            {
+                HandleAuthenticate(command, socket);
+                return;
+            }
+
+            bool authenticated;
+            lock (_gate) { authenticated = _authenticatedSockets.Contains(socket); }
+            if (!authenticated)
+            {
+                // Not just "don't act on it" -- don't even acknowledge it. A client that hasn't
+                // authenticated yet gets silence for anything but authenticate, same as it gets
+                // silence instead of a snapshot in OnOpen (issue #15).
+                Log("Ignoring command from unauthenticated client: " + command?.Type);
+                return;
+            }
 
             switch (command?.Type)
             {
@@ -215,10 +257,61 @@ namespace Handoff.Plugin
             }
         }
 
+        /// <summary>
+        /// Handles a client's authenticate command (docs/protocol.md, issue #15) -- the one
+        /// message type an unauthenticated socket is allowed to send and get a reply to.
+        /// Token path: validates against HandoffPairedClientStore, no new token issued on
+        /// success (the client already has a working one). PairingCode path: validates against
+        /// HandoffPairingSession's currently displayed code; success issues and persists a fresh
+        /// token. Neither field set means "I have nothing," which just (re)shows the pairing
+        /// window without needing a code guess at all.
+        /// </summary>
+        private void HandleAuthenticate(ClientCommand command, IWebSocketConnection socket)
+        {
+            if (!string.IsNullOrEmpty(command.Token))
+            {
+                if (_pairedClients.IsTokenValid(command.Token))
+                {
+                    lock (_gate) { _authenticatedSockets.Add(socket); }
+                    Log("Client authenticated via token: " + socket.ConnectionInfo.ClientIpAddress);
+                    socket.Send(ProtocolMessages.BuildAuthResultMessage(success: true));
+                    SendSnapshotTo(socket);
+                    return;
+                }
+
+                Log("Rejected unknown/revoked token from " + socket.ConnectionInfo.ClientIpAddress);
+                _pairingSession.EnsureActiveCode();
+                socket.Send(ProtocolMessages.BuildAuthResultMessage(success: false, reason: "pairingRequired"));
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(command.PairingCode))
+            {
+                if (_pairingSession.TryConsumeCode(command.PairingCode))
+                {
+                    var token = _pairedClients.IssueToken(command.DeviceId);
+                    lock (_gate) { _authenticatedSockets.Add(socket); }
+                    Log("Client paired via code: " + socket.ConnectionInfo.ClientIpAddress);
+                    socket.Send(ProtocolMessages.BuildAuthResultMessage(success: true, token: token));
+                    SendSnapshotTo(socket);
+                    return;
+                }
+
+                Log("Rejected invalid/expired pairing code from " + socket.ConnectionInfo.ClientIpAddress);
+                socket.Send(ProtocolMessages.BuildAuthResultMessage(success: false, reason: "invalidCode"));
+                return;
+            }
+
+            // Bare authenticate -- "I have nothing yet." Shows (or refreshes) the pairing window
+            // so the pilot can read a code off it, but there's no guess to validate here.
+            _pairingSession.EnsureActiveCode();
+            socket.Send(ProtocolMessages.BuildAuthResultMessage(success: false, reason: "pairingRequired"));
+        }
+
         private void Broadcast(string message)
         {
             List<IWebSocketConnection> sockets;
-            lock (_gate) { sockets = _sockets.ToList(); }
+            lock (_gate) { sockets = _authenticatedSockets.ToList(); }
 
             foreach (var socket in sockets)
             {

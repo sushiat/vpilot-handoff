@@ -9,9 +9,9 @@ namespace Handoff.Plugin.Tests
     public class HandoffDiscoveryListenerTests
     {
         [Fact]
-        public void RepliesToDiscoveryRequestWithPort()
+        public void RepliesToDiscoveryRequestWithPortAndFingerprint()
         {
-            var listener = new HandoffDiscoveryListener();
+            var listener = new HandoffDiscoveryListener("AB:12:CD:34");
             listener.Start();
             try
             {
@@ -24,7 +24,7 @@ namespace Handoff.Plugin.Tests
                     var remote = new IPEndPoint(IPAddress.Any, 0);
                     var reply = client.Receive(ref remote);
 
-                    Assert.Equal("{\"port\":48765}", Encoding.UTF8.GetString(reply));
+                    Assert.Equal("{\"port\":48765,\"fingerprint\":\"AB:12:CD:34\"}", Encoding.UTF8.GetString(reply));
                 }
             }
             finally
@@ -36,7 +36,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void IgnoresUnrecognizedRequests()
         {
-            var listener = new HandoffDiscoveryListener();
+            var listener = new HandoffDiscoveryListener("AB:12:CD:34");
             listener.Start();
             try
             {

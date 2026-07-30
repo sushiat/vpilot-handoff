@@ -162,6 +162,24 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
+        /// <summary>
+        /// Reply to a client's `authenticate` command (docs/protocol.md, issue #15). `token` is
+        /// only present when a *new* token was just issued (a successful pairing-code exchange) --
+        /// a returning client validating an already-known token gets success with no token field,
+        /// nothing new to persist. `reason` is only meaningful when success is false.
+        /// </summary>
+        public static string BuildAuthResultMessage(bool success, string token = null, string reason = null)
+        {
+            var payload = new
+            {
+                type = "authResult",
+                success,
+                token,
+                reason
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
         public static string BuildPongMessage(long? clientTimestamp)
         {
             var payload = new

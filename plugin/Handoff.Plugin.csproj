@@ -14,6 +14,7 @@
          unlike HttpListener, so binding to a LAN-reachable address needs no admin rights or
          netsh URL-ACL setup. -->
     <PackageReference Include="Fleck" Version="1.2.0" />
+    <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,6 +35,19 @@
     </Reference>
     <!-- Used by SimBriefClient to fetch the flight plan from the SimBrief API. -->
     <Reference Include="System.Net.Http" />
+    <!-- HandoffPairingWindow's on-screen pairing-code display (issue #15 device-authorization
+         follow-up): vPilot is already a Windows Forms/WPF app with its own message loop
+         running, so Form.Show() attaches to that rather than needing Application.Run() here. -->
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- HandoffPairingWindow's logo: embedded (not deployed as a loose file) so it survives
+         the deploy task, which only copies *.dll from bin\Debug\net48. -->
+    <EmbeddedResource Include="Assets\logo.png">
+      <LogicalName>Handoff.Plugin.Assets.logo.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

@@ -35,6 +35,7 @@ import androidx.core.content.edit
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.LayoutMode
+import at.sushi.handoff.network.IgnoredDeviceStore
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RefreshFlightPlanCommand
@@ -50,6 +51,7 @@ import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
+import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
@@ -203,6 +205,7 @@ private fun MainScreenContent() {
     val latencyMs by HandoffState.latencyMs.collectAsState()
     val keepScreenAwake by HandoffState.keepScreenAwake.collectAsState()
     val operationProgress by HandoffState.operationProgress.collectAsState()
+    val pendingPairing by HandoffState.pendingPairing.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
     val operationIndicator = combineOperationIndicator(visibleOperations)
 
@@ -510,6 +513,17 @@ private fun MainScreenContent() {
         )
     }
 
+    // Driven by HandoffState.pendingPairing rather than a locally-owned open/closed flag, since
+    // this dialog is triggered by HandoffConnectionService reacting to the plugin's authResult
+    // (issue #15), not by a user-initiated button like the other dialogs here.
+    pendingPairing?.let { pending ->
+        PairingCodeDialog(
+            pending = pending,
+            onSubmitCode = { code -> HandoffConnectionService.instance?.submitPairingCode(code) },
+            onCancel = { permanent -> HandoffConnectionService.instance?.cancelPairing(permanent) }
+        )
+    }
+
     if (settingsDialogOpen) {
         SettingsDialog(
             connectionStatus = connectionStatus,
@@ -519,6 +533,8 @@ private fun MainScreenContent() {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
+            initialIgnoredDeviceCount = IgnoredDeviceStore.loadIgnored(prefs).size,
+            onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->

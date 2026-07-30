@@ -50,6 +50,28 @@ data class OperationProgressState(val message: OperationProgressMessage, val rec
  *  in-flight alongside it; SUCCESS/FAILURE only apply once nothing's running anymore. */
 enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCCESS, FAILURE }
 
+/** A device-pairing prompt awaiting the pilot's action (issue #15) -- set by
+ *  HandoffConnectionService.handleAuthResult when the plugin reports "pairingRequired" (no
+ *  token, or an unrecognized/stale one), observed by PairingCodeDialog. [errorMessage] is set
+ *  after a submitted code comes back "invalidCode", so the dialog can show it without losing the
+ *  host/port/hostname context underneath. The certificate's fingerprint is deliberately NOT part
+ *  of this -- see CertTrustStore's doc comment for why it's pinned silently instead of shown
+ *  here.
+ *
+ *  [certificateChanged] is true when this connection's certificate doesn't match whatever was
+ *  previously pinned for this host -- a legitimate cert rotation (reinstalled/reset plugin) looks
+ *  identical to a genuine MITM/spoof from here, so PairingCodeDialog surfaces this distinctly
+ *  rather than looking like an ordinary first-time pairing. This is purely informational, not a
+ *  different security gate -- re-pairing (reading a fresh code off the correct PC) is the actual
+ *  proof either way; a pilot just deserves to know "this wasn't expected" before doing it. */
+data class PendingPairing(
+    val host: String,
+    val port: Int,
+    val commonName: String?,
+    val errorMessage: String? = null,
+    val certificateChanged: Boolean = false
+)
+
 /** In-process shared state between HandoffConnectionService (writer) and the Compose UI
  *  (reader) -- no bindService/Messenger IPC needed since both run in the same process. */
 object HandoffState {
@@ -144,6 +166,9 @@ object HandoffState {
     private val _splitSide = MutableStateFlow(SplitSide.LEFT)
     val splitSide: StateFlow<SplitSide> = _splitSide.asStateFlow()
 
+    private val _pendingPairing = MutableStateFlow<PendingPairing?>(null)
+    val pendingPairing: StateFlow<PendingPairing?> = _pendingPairing.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -169,6 +194,11 @@ object HandoffState {
         _subsystemStatus.value = SubsystemStatusMessage()
         _operationProgress.value = emptyMap()
         _latencyMs.value = null
+        // A dropped connection (as opposed to the pilot explicitly answering via
+        // HandoffConnectionService.submitPairingCode/cancelPairing, which already clears this)
+        // makes any pending pairing prompt stale -- the next connection attempt will re-present
+        // it fresh if still relevant.
+        _pendingPairing.value = null
     }
 
     fun update(message: ControllersMessage) {
@@ -247,5 +277,9 @@ object HandoffState {
 
     fun setSplitSide(side: SplitSide) {
         _splitSide.value = side
+    }
+
+    fun setPendingPairing(pending: PendingPairing?) {
+        _pendingPairing.value = pending
     }
 }

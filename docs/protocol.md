@@ -9,24 +9,110 @@ conform to this, not to whichever client's source happens to exist first.
 The plugin's LAN IP isn't known in advance, so it also listens for a UDP broadcast discovery
 request on port `48766` — plain UDP, not mDNS/Bonjour, so no extra dependency is needed on
 either side. A client broadcasts the ASCII text `HANDOFF_DISCOVER` to `255.255.255.255:48766`;
-the plugin unicasts back `{"port":48765}` to the sender. This listener runs for the plugin's
-whole lifetime (not tied to the VATSIM connection), same as the WebSocket server below, so a
-client can discover it even before the pilot connects.
+the plugin unicasts back `{"port":48765,"fingerprint":"AB:12:CD:34:..."}` to the sender. This
+listener runs for the plugin's whole lifetime (not tied to the VATSIM connection), same as the
+WebSocket server below, so a client can discover it even before the pilot connects.
+
+`fingerprint` is the SHA-256 hash of the plugin's TLS certificate's public key, formatted as
+uppercase colon-separated hex — see Connection below. It's included here purely as a
+same-round-trip convenience; the actual trust-on-first-use decision is made against whatever
+certificate is presented during the TLS handshake itself, not against this discovery hint.
 
 Discovery isn't guaranteed to work on every network (some routers apply AP client isolation or
 block broadcast traffic), so clients should keep a manually-entered IP as a fallback.
 
 ## Connection
 
-The plugin listens on `ws://<pc-lan-ip>:48765/` (Fleck-based, plain TCP — no HTTP handshake
-beyond the WebSocket upgrade, and no admin/URL-ACL setup needed on the Windows side). Not yet
-configurable; a fixed port for v1.
+The plugin listens on `wss://<pc-lan-ip>:48765/` (Fleck-based, TLS 1.2, plain TCP otherwise —
+no HTTP handshake beyond the WebSocket upgrade, and no admin/URL-ACL setup needed on the
+Windows side). Not yet configurable; a fixed port for v1.
 
-On connect, the server immediately sends a `controllers`, a `chat`, and a `radioState`
-message — the client's full current state, with no need to wait for the next change. After
-that, each message type is re-sent in full (not as an incremental diff) whenever its backing
-state changes. This is deliberately simple: resending full state is cheap on a LAN and avoids
-an entire class of missed-message/reconnect bugs that incremental delivery would introduce.
+The certificate is self-signed, generated (and cached across restarts) by the plugin on first
+run — there's no CA involved, since this is a local, self-discovered pairing between one plugin
+instance and one client instance, not a public-facing service. Its Subject CN is the Windows
+machine name.
+
+TLS alone only authenticates the *server* to the client — encryption plus "am I talking to the
+right PC," not "is this the right pilot's device talking to me." The plugin will complete a TLS
+handshake with anyone on the LAN; a client's certificate fingerprint check (below) catches a
+spoofed/MITM server, but does nothing to stop an unrecognized client from opening a connection
+and issuing commands. Device-level authorization (pairing code + bearer token, below) is what
+actually gates that.
+
+### Certificate pinning (silent)
+
+The client pins the certificate's fingerprint (SHA-256 of the public key, uppercase
+colon-separated hex) itself, the same TOFU model SSH uses for unknown hosts — but this
+happens **silently**, as a side effect of a successful pairing (below), never as its own
+prompt. A raw hash means nothing to the overwhelming majority of pilots installing this app, so
+asking them to eyeball-compare one and tap "Trust" is nothing but a rubber stamp in practice — a
+pairing code, read off the PC's own screen, is what actually proves you're pairing with the
+right machine (see below).
+
+A later mismatch between the pinned fingerprint and what's presented (a swapped/rogue server
+now answering on the same IP, or a legitimately reinstalled plugin) forces the full
+pairing-code flow again, even if the client is still holding an otherwise-valid bearer token —
+the certificate identity changed, so the client can no longer assume the token's issuer is who
+it used to be.
+
+### Device authorization (pairing code + bearer token)
+
+No application data — not `controllers`, not `chat`, nothing — is sent to a socket until it's
+authenticated. An unauthenticated socket is entirely mute from the plugin's side; there is no
+reason to prepare or send anything to a client the plugin doesn't yet recognize.
+
+The client's first message on every connection MUST be `authenticate`:
+
+```json
+{"type": "authenticate", "token": "<previously-issued bearer token>", "deviceId": "<stable per-install id>"}
+{"type": "authenticate", "pairingCode": "123456", "deviceId": "<stable per-install id>"}
+{"type": "authenticate", "deviceId": "<stable per-install id>"}
+```
+
+Send `token` if the client already holds one for this exact pinned certificate fingerprint.
+Send `pairingCode` once the pilot has read one off the plugin's on-screen pairing window and
+typed it into the client. Send neither (bare `authenticate`) to mean "I have nothing yet, tell
+me what you need" — this is also what a client should send on its very first-ever connection to
+a given plugin, before any pairing code has been entered.
+
+`deviceId` is optional but recommended: a stable identifier for this specific app install (the
+Android client uses `Settings.Secure.ANDROID_ID` — no special permission needed, and it resets
+along with the client's own local storage on uninstall, which is exactly when its old token
+stops being relevant anyway). When a `pairingCode` pairing succeeds and `deviceId` was sent, the
+plugin drops any of its previously paired-client entries that share the same `deviceId` before
+adding the new one — otherwise every re-pair from the same physical device (e.g. after the
+plugin's certificate changed and forced a re-pair) leaves a stale, never-cleaned-up entry behind
+forever. Not a real IMEI or any hardware identifier — those need permissions this app has no
+business asking for, and aren't actually more correct here than an app-generated install id.
+
+The plugin replies with `authResult`:
+
+```json
+{"type": "authResult", "success": true, "token": "<newly-issued bearer token>"}
+{"type": "authResult", "success": false, "reason": "pairingRequired"}
+{"type": "authResult", "success": false, "reason": "invalidCode"}
+```
+
+- `success: true` — the socket is now authenticated. A fresh bearer token accompanies it; the
+  plugin persists a hash of that token (not the plaintext) against a list of paired clients —
+  multiple devices can be paired to one plugin at once, there's no hard single-device limit.
+  The client should persist this token and send it on every future connection instead of
+  re-pairing.
+- `reason: "pairingRequired"` — the plugin doesn't recognize the presented token (missing,
+  unknown, or revoked). It now displays a short-lived numeric pairing code in a small on-screen
+  window (so a pilot who's never heard of a debug console can still see it); the client should
+  show its own "enter the code shown on the PC" prompt and resend `authenticate` with
+  `pairingCode` once the pilot has typed it in.
+- `reason: "invalidCode"` — the submitted `pairingCode` didn't match the plugin's currently
+  displayed one (mistyped, or it expired — codes are only valid for a few minutes). The client
+  should let the pilot retry.
+
+Once a socket is authenticated, the plugin immediately sends a `controllers`, a `chat`, and a
+`radioState` message — the client's full current state, with no need to wait for the next
+change. After that, each message type is re-sent in full (not as an incremental diff) whenever
+its backing state changes. This is deliberately simple: resending full state is cheap on a LAN
+and avoids an entire class of missed-message/reconnect bugs that incremental delivery would
+introduce.
 
 `controllers` is the one exception to "resent whenever its backing state changes": the
 ranking recompute itself stays fully event-driven/reactive (any controller/radio/flight-plan/

@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Newtonsoft.Json;
 
 namespace Handoff.Plugin
 {
@@ -11,6 +12,11 @@ namespace Handoff.Plugin
     /// avoid-setup-burden reasoning as choosing Fleck over HttpListener for
     /// HandoffWebSocketServer.
     ///
+    /// The reply's fingerprint field (see issue #15) lets the Android app know the plugin's TLS
+    /// certificate fingerprint at discovery time, without a separate round-trip -- though the
+    /// actual TOFU trust decision is made against the certificate presented during the TLS
+    /// handshake itself, this is just a same-round-trip convenience.
+    ///
     /// Lifecycle: started once in HandoffPlugin.Initialize alongside HandoffWebSocketServer,
     /// lives for the plugin's lifetime.
     /// </summary>
@@ -18,13 +24,18 @@ namespace Handoff.Plugin
     {
         public const int Port = 48766;
         private const string RequestText = "HANDOFF_DISCOVER";
-        private static readonly string ReplyJson = "{\"port\":" + HandoffWebSocketServer.Port + "}";
 
+        private readonly string _replyJson;
         private readonly Action<string> _logDebug;
         private UdpClient _client;
 
-        public HandoffDiscoveryListener(Action<string> logDebug = null)
+        public HandoffDiscoveryListener(string fingerprintHex, Action<string> logDebug = null)
         {
+            _replyJson = JsonConvert.SerializeObject(new DiscoveryReply
+            {
+                Port = HandoffWebSocketServer.Port,
+                Fingerprint = fingerprintHex
+            });
             _logDebug = logDebug;
         }
 
@@ -73,7 +84,7 @@ namespace Handoff.Plugin
             {
                 if (Encoding.UTF8.GetString(data) == RequestText)
                 {
-                    var reply = Encoding.UTF8.GetBytes(ReplyJson);
+                    var reply = Encoding.UTF8.GetBytes(_replyJson);
                     client.Send(reply, reply.Length, sender);
                     Log("Replied to discovery request from " + sender);
                 }
@@ -91,6 +102,15 @@ namespace Handoff.Plugin
             var line = "HandoffDiscoveryListener: " + message;
             System.Diagnostics.Debug.WriteLine(line);
             _logDebug?.Invoke(line);
+        }
+
+        private sealed class DiscoveryReply
+        {
+            [JsonProperty("port")]
+            public int Port { get; set; }
+
+            [JsonProperty("fingerprint")]
+            public string Fingerprint { get; set; }
         }
     }
 }

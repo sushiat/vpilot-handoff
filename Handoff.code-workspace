@@ -41,7 +41,7 @@
 				"group": "build",
 				"dependsOn": "plugin: build",
 				"problemMatcher": [],
-				"detail": "Stops any running Handoff.RadioHost on VPILOT_HOST (so its locked files can be overwritten), then copies the plugin DLL and its dependencies (Newtonsoft.Json, Fleck) plus the Handoff.RadioHost helper's output folder (as a RadioHost\\ subfolder, so vPilot's plugin scan doesn't trip over its dependency DLLs) into the vPilot Plugins folder. Requires VPILOT_PLUGINS_DIR (and VPILOT_HOST, e.g. \"simrig\", if vPilot runs on a different machine) env vars; restart VS Code after setting them for the first time."
+				"detail": "Stops any running Handoff.RadioHost on VPILOT_HOST (so its locked files can be overwritten), then copies every DLL in bin\\Debug\\net48 (the plugin itself plus its dependencies -- Newtonsoft.Json, Fleck, BouncyCastle.Crypto as of issue #15's self-signed cert generation -- via a *.dll wildcard, so a newly added dependency is picked up automatically without needing this task updated) plus the Handoff.RadioHost helper's output folder (as a RadioHost\\ subfolder, so vPilot's plugin scan doesn't trip over its dependency DLLs) into the vPilot Plugins folder. Requires VPILOT_PLUGINS_DIR (and VPILOT_HOST, e.g. \"simrig\", if vPilot runs on a different machine) env vars; restart VS Code after setting them for the first time."
 			},
 			{
 				"label": "android: assembleDebug",
