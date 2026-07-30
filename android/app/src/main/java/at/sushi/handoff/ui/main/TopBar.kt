@@ -246,7 +246,7 @@ private fun AppHeaderRow() {
             tint = colors.textMuted,
             modifier = Modifier.size(18.dp)
         )
-        Text("Handoff", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
+        Text("Handoff", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
         Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
         Box(Modifier.weight(1f))
         Text(
@@ -423,12 +423,16 @@ private val MessageBubbleIcon: ImageVector by lazy {
 /** The message icon with the unread count painted directly on top of it -- see
  *  [MessageBubbleIcon]'s doc for why that's safe to do here (unlike a stock Material icon).
  *  Three solid (never dimmed) bubble colors, transcribed from the design study's own
- *  `msgIconColor`/`msgCountColor` logic: no unread -> pale near-white bubble; unread directed at
- *  the pilot (a private message, or a radio message mentioning our callsign) -> orange; unread
- *  not directed at us -> blue. The count's own color isn't a fixed per-state choice either -- it's
- *  [perceptualLightness] of the actual bubble color, same black-vs-white contrast decision
- *  [at.sushi.handoff.ui.theme.controllerRowColors] already uses for row text, so this can't
- *  silently drift out of sync if the bubble hues are ever retuned.
+ *  `msgIconColor`/`msgCountColor` logic: no unread -> the theme's own text color (i.e. whatever
+ *  already reads as "opposite of the panel background" in each theme -- the design study's own
+ *  pale-grey value was a light-theme-only constant that went invisible against this app's near
+ *  identical light-theme card background, and would have been just as wrong the other way round
+ *  against a dark card); unread directed at the pilot (a private message, or a radio message
+ *  mentioning our callsign) -> orange; unread not directed at us -> blue. The count's own color
+ *  isn't a fixed per-state choice either -- it's [perceptualLightness] of the actual bubble color,
+ *  same black-vs-white contrast decision [at.sushi.handoff.ui.theme.controllerRowColors] already
+ *  uses for row text, so this can't silently drift out of sync if the bubble hues are ever
+ *  retuned (or the no-unread color swaps between light/dark theme).
  *
  *  TODO: [hasDirectedUnread] has no real data source yet -- unreadCount aggregation
  *  (`unreadByTab` in MainScreen.kt) is itself still a stub that's never incremented, so this
@@ -444,9 +448,10 @@ private fun MessageIcon(
     modifier: Modifier = Modifier,
     hasDirectedUnread: Boolean = false
 ) {
+    val colors = LocalHandoffColors.current
     val hasUnread = unreadCount > 0
     val iconColor = when {
-        !hasUnread -> oklch(0.93f, 0.006f, 250f)
+        !hasUnread -> colors.text
         hasDirectedUnread -> oklch(0.70f, 0.17f, 45f)
         else -> oklch(0.68f, 0.14f, 250f)
     }
@@ -624,8 +629,8 @@ private object CompactSizes {
     val micMonBadgePaddingH = 5.dp
     val micMonBadgePaddingV = 2.dp
     val micMonBadgeGap = 4.dp
-    val msgIconSize = 48.dp
-    val msgCountFontSize = 21.sp
+    val msgIconSize = 41.dp
+    val msgCountFontSize = 18.sp
 }
 
 @Composable
@@ -752,8 +757,8 @@ private object MinimumSizes {
     val micMonBadgePaddingH = 5.dp
     val micMonBadgePaddingV = 2.dp
     val micMonBadgeGap = 4.dp
-    val msgIconSize = 42.dp
-    val msgCountFontSize = 21.sp
+    val msgIconSize = 36.dp
+    val msgCountFontSize = 18.sp
 }
 
 @Composable
@@ -842,13 +847,15 @@ private fun RowScope.MinimumMicMonButton(modifier: Modifier, label: String, badg
     val colors = LocalHandoffColors.current
     val s = MinimumSizes
     val shape = RoundedCornerShape(8.dp)
-    Box(
+    // Unlike Wide/Compact, MINIMUM's button is too short for the badge to center on the whole
+    // button without colliding with the label -- back to centering in the space below the label.
+    Column(
         modifier.background(colors.panelAlt, shape).border(1.dp, colors.border, shape).clickable(onClick = onClick)
-            .padding(horizontal = 1.dp, vertical = 5.dp)
+            .padding(horizontal = 1.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // See WideMicMonButton's comment -- centered on the whole button, not the space below the label.
-        ButtonLabel(label, s.micMonLabelFontSize, 0.7f, modifier = Modifier.align(Alignment.TopCenter))
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        ButtonLabel(label, s.micMonLabelFontSize, 0.7f)
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             MicMonBadgeRow(badges, s.micMonBadgeFontSize, s.micMonBadgePaddingH, s.micMonBadgePaddingV, s.micMonBadgeGap)
         }
     }
