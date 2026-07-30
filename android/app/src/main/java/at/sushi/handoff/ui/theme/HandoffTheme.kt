@@ -3,10 +3,16 @@ package at.sushi.handoff.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import at.sushi.handoff.ThemeMode
+import kotlinx.coroutines.delay
 
 /** One color per design token from the issue's "Design Tokens" table. Facility/status hues are
  *  kept separate in [FacilityColors] since they're shared across light/dark (only the
@@ -120,6 +126,27 @@ object FacilityColors {
         val chroma = baseChroma * (1f - kotlin.math.abs(offset))
         return FacilityColor(oklch(lightnessPercent / 100f, chroma, hue), Color.Transparent)
     }
+}
+
+/** A value that alternates between two states every 500ms, hard-cut (not eased), while
+ *  [isFlashing] is true -- matches the reference's own `@keyframes contactFlash{0%,49%{a}
+ *  50%,99%{b}}` over a 1s cycle exactly. Shared by the controller list's contact-me row flash
+ *  (`ControllerList.kt`) and the top bar's directed-unread MSG badge flash (`TopBar.kt`), so both
+ *  alternate on the same clock/cadence. */
+@Composable
+internal fun rememberFlashPhaseA(isFlashing: Boolean): Boolean {
+    var phaseA by remember { mutableStateOf(true) }
+    LaunchedEffect(isFlashing) {
+        if (!isFlashing) {
+            phaseA = true
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(500)
+            phaseA = !phaseA
+        }
+    }
+    return phaseA
 }
 
 val LocalHandoffColors: ProvidableCompositionLocal<HandoffColors> =

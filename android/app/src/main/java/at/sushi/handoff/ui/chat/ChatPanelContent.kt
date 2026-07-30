@@ -57,7 +57,16 @@ import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.util.formatLocalTime
 
-private const val RADIO_TAB = "radio"
+// Not private: MainScreen.kt's unread-tracking needs the same tab key for radio/broadcast
+// messages as this file uses for the RADIO tab's own unread lookup.
+internal const val RADIO_TAB = "radio"
+
+/** Whether [text] mentions [ownCallsign] as a whole word (word-boundary matched, not a plain
+ *  substring, so e.g. callsign "OE-TZ" doesn't false-positive inside "OE-TZZ"). Shared between
+ *  [MessageRow]'s attention-highlight and MainScreen.kt's directed-unread tracking, so both use
+ *  the exact same "is this addressed to me" check. */
+internal fun mentionsCallsign(text: String, ownCallsign: String?): Boolean =
+    ownCallsign != null && Regex("\\b${Regex.escape(ownCallsign)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
 /** Which edge gets the reference's `border-left`/`border-right` (`chatPanelStyle`) -- always
  *  the edge facing the controller list/main app: fullscreen always uses START (chat sits to the
@@ -290,8 +299,7 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
 private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
     val colors = LocalHandoffColors.current
     val outgoing = entry.direction == "outgoing"
-    val mentionsUs = !outgoing && entry.channel == "radio" && ownCallsign != null &&
-        Regex("\\b${Regex.escape(ownCallsign)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(entry.text)
+    val mentionsUs = !outgoing && entry.channel == "radio" && mentionsCallsign(entry.text, ownCallsign)
     val metaText = buildString {
         append(entry.peer ?: entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) } ?: "")
         if (isNotEmpty()) append(" · ")
