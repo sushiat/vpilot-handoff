@@ -134,33 +134,30 @@ jobs:
         run: dotnet build plugin/Handoff.RadioHost/Handoff.RadioHost.csproj -c Release -o plugin/publish/plugin/RadioHost
         shell: pwsh
 
-      - name: Assemble release package
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+        shell: pwsh
+
+      - name: Build installer
+        # Sources directly from the Release build output (plugin/publish/plugin) -- the .iss
+        # script's own [Files] section already picks out exactly Handoff.Plugin.dll,
+        # Newtonsoft.Json.dll, Fleck.dll, and the RadioHost subfolder (see plugin/README.md's
+        # Deploy section for why this layout, and why RadioHost needs its own subfolder), so
+        # there's no need to stage a filtered copy first the way the old zip packaging did.
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          $stage = "plugin-package"
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $version = "${{ needs.validate.outputs.version }}"
+          $sourceDir = Join-Path $pwd "plugin\publish\plugin"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version /DSourceDir="$sourceDir" plugin/installer/Handoff-Setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC.exe failed with exit code $LASTEXITCODE" }
 
-          # Plugin DLL + its runtime deps at the package root (vPilot's plugin-folder scan
-          # skips DLLs with no IPlugin type, same as it does for its own dependencies) -- see
-          # plugin/README.md's Deploy section for why this layout, and why RadioHost needs its
-          # own subfolder instead.
-          Copy-Item plugin/publish/plugin/Handoff.Plugin.dll $stage/
-          Copy-Item plugin/publish/plugin/Newtonsoft.Json.dll $stage/
-          Copy-Item plugin/publish/plugin/Fleck.dll $stage/
-
-          # RadioHost's full build output, in its own subfolder so its dependency DLLs
-          # (CTrue.FsConnect.dll, its own Newtonsoft.Json.dll, etc.) don't get scanned as
-          # stray non-plugin DLLs by vPilot.
-          Copy-Item plugin/publish/plugin/RadioHost "$stage/RadioHost" -Recurse
-
-          $zipName = "Handoff-Plugin-$tag.zip"
-          Compress-Archive -Path "$stage/*" -DestinationPath $zipName
+          $installer = "plugin/installer/Handoff-Setup-v$version.exe"
+          Move-Item $installer . -Force
 
       - uses: actions/upload-artifact@v7
         with:
           name: plugin-package
-          path: Handoff-Plugin-*.zip
+          path: Handoff-Setup-*.exe
 
   android:
     name: Build Android release APK
@@ -240,7 +237,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            Handoff-Plugin-*.zip
+            Handoff-Setup-*.exe
             Handoff-*.apk
           body_path: release-notes.md
           prerelease: false

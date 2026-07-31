@@ -4,6 +4,44 @@ The WebSocket contract between the vPilot plugin (server) and any client (Androi
 ports). This is the source of truth for message shapes — client implementations should
 conform to this, not to whichever client's source happens to exist first.
 
+## Compatibility
+
+Plugin and client can now update independently — the plugin auto-updates itself (issue #34) on
+its own schedule, and the Android app updates via Obtainium or a manual sideload notice, neither
+tied to the other anymore. Historically both shipped from the same tagged release and were
+always in lockstep (`release.yml`'s `validate` job still enforces matching version numbers at
+release time); that guarantee no longer holds once either side is running, so version skew
+between the two is a normal state to design for, not an edge case.
+
+The contract is additive/backward-compatible by design, not version-gated — a client refusing to
+connect over a version mismatch is deliberately not how this works. Both sides already parse
+defensively (Android's JSON decoding uses `ignoreUnknownKeys = true`; the plugin's C# side reads
+optional fields with null-coalescing), and that's meant to stay the actual contract going
+forward: new fields are added nullable/optional with sensible defaults on the older side,
+existing field meanings are never repurposed, and a field that needs to go away gets deprecated
+(left in place but unused) for a release or two rather than dropped outright. New capabilities
+show up as new message types or new optional fields, not changed shapes of old ones.
+
+This works because there's exactly one plugin talking to one pilot's own paired device(s), not a
+public API serving unknown third-party clients — the usual reason to hard-gate on version
+(protecting against incompatible strangers) doesn't apply here. A hard refuse-to-connect gate
+would also be a worse failure mode than a missing field: it could turn "the tablet hasn't
+auto-updated yet" into "no controller list in the cockpit" at the worst possible moment. If a
+truly unavoidable breaking change ever comes up, the fallback is a soft "your Handoff app may be
+out of date" warning (same pattern as the plugin's own update-available prompt), not an outright
+connection refusal — and even that's a one-off case-by-case call, not a general mechanism worth
+building ahead of time.
+
+## Changelog
+
+Tracks changes to this document's message shapes specifically, not every plugin/app feature
+release — see the top-level `CHANGELOG.md` for that. Only gets an entry here when something in
+this contract actually changes shape; a release with no protocol changes adds nothing below.
+
+### [0.1.0] - 2026-07-31
+
+Initial public release.
+
 ## Discovery
 
 The plugin's LAN IP isn't known in advance, so it also listens for a UDP broadcast discovery

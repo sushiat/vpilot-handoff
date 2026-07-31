@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -85,7 +84,7 @@ namespace Handoff.Plugin
 
         private Form BuildForm()
         {
-            var logo = LoadLogo();
+            var logo = HandoffBrandedFormChrome.LoadLogo();
 
             _codeLabel = new Label
             {
@@ -138,77 +137,13 @@ namespace Handoff.Plugin
             form.Controls.Add(_codeLabel);
             form.Controls.Add(instructions);
             form.Controls.Add(_expiryLabel);
-            form.Controls.Add(BuildHeader(logo, formWidth, headerHeight));
+            form.Controls.Add(HandoffBrandedFormChrome.BuildHeader(logo, formWidth, headerHeight));
 
             _countdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _countdownTimer.Tick += (s, e) => UpdateExpiryLabel();
             _countdownTimer.Start();
 
             return form;
-        }
-
-        /// <summary>Logo + "Handoff" wordmark, side by side, centered as one group within a
-        /// Dock=Top panel -- WinForms has no built-in "center this row of controls" layout short
-        /// of FlowLayoutPanel (which left-aligns, not centers), so this measures both pieces and
-        /// positions them by hand instead. Falls back to just the centered text if the logo
-        /// failed to load (see LoadLogo).</summary>
-        private static Panel BuildHeader(Image logo, int formWidth, int headerHeight)
-        {
-            const int logoSize = 60;
-            const int gap = 14;
-
-            var header = new Panel { Dock = DockStyle.Top, Height = headerHeight };
-
-            // Font size matched to the logo's on-screen height (logoSize), not an arbitrary
-            // pick -- per the pilot's ask that the wordmark read as roughly the same visual
-            // weight as the mark next to it.
-            var titleFont = new Font("Segoe UI", 28f, FontStyle.Bold);
-            var titleLabel = new Label
-            {
-                Text = "Handoff",
-                Font = titleFont,
-                AutoSize = true,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            var titleSize = TextRenderer.MeasureText(titleLabel.Text, titleFont);
-
-            var totalWidth = logo != null ? logoSize + gap + titleSize.Width : titleSize.Width;
-            var startX = (formWidth - totalWidth) / 2;
-
-            if (logo != null)
-            {
-                header.Controls.Add(new PictureBox
-                {
-                    Image = logo,
-                    SizeMode = PictureBoxSizeMode.Zoom,
-                    Size = new Size(logoSize, logoSize),
-                    Location = new Point(startX, (headerHeight - logoSize) / 2)
-                });
-                startX += logoSize + gap;
-            }
-
-            titleLabel.Location = new Point(startX, (headerHeight - titleSize.Height) / 2);
-            header.Controls.Add(titleLabel);
-
-            return header;
-        }
-
-        /// <summary>Loads the embedded logo (Assets/logo.png, see Handoff.Plugin.csproj's
-        /// EmbeddedResource entry), or null if it's ever missing/corrupt -- a missing logo
-        /// shouldn't take the whole pairing window down with it, just render without one.</summary>
-        private static Image LoadLogo()
-        {
-            try
-            {
-                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Handoff.Plugin.Assets.logo.png"))
-                {
-                    return stream != null ? Image.FromStream(stream) : null;
-                }
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         private void UpdateExpiryLabel()
