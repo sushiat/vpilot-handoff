@@ -44,6 +44,7 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
+        /// <summary>Creates the model, initially disconnected from Handoff.RadioHost.</summary>
         /// <param name="logDebug">
         /// Typically IBroker.PostDebugMessage, so lifecycle events show up in vPilot's
         /// /dbgwin window -- Debug.WriteLine alone isn't visible without attaching a
@@ -262,7 +263,7 @@ namespace Handoff.Plugin
             }
 
             var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var radioHostPath = Path.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
+            var radioHostPath = PathJoin.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
 
             if (!File.Exists(radioHostPath))
             {
@@ -307,41 +308,43 @@ namespace Handoff.Plugin
                         _radioHostConnected = true;
 
                         var writer = new StreamWriter(commandPipe) { AutoFlush = true };
-                        var reader = new StreamReader(statePipe);
                         lock (_gate) { _writer = writer; }
 
-                        RadioIpcMessage message;
-                        while (_running && (message = RadioIpcProtocol.ReadMessage(reader)) != null)
+                        using (var reader = new StreamReader(statePipe))
                         {
-                            if (!_loggedFirstState)
+                            RadioIpcMessage message;
+                            while (_running && (message = RadioIpcProtocol.ReadMessage(reader)) != null)
                             {
-                                Log("Received message from Handoff.RadioHost, type=" + message.Type);
-                            }
-
-                            if (message.Type == RadioIpcMessage.TypeRadioState)
-                            {
-                                var next = new RadioState(
-                                    message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency,
-                                    message.ModeCEnabled ?? false, message.TransponderCode,
-                                    message.Com1TransmitEnabled ?? false, message.Com2TransmitEnabled ?? false,
-                                    message.Com1ReceiveEnabled ?? false, message.Com2ReceiveEnabled ?? false,
-                                    DateTimeOffset.Now);
-                                lock (_gate) { _current = next; }
-                                _simulatorConnected = true;
-
                                 if (!_loggedFirstState)
                                 {
-                                    _loggedFirstState = true;
-                                    Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Standby={next.Com1StandbyFrequency}, Com2Standby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}");
+                                    Log("Received message from Handoff.RadioHost, type=" + message.Type);
                                 }
 
-                                Changed?.Invoke(this, EventArgs.Empty);
-                            }
-                            else if (message.Type == RadioIpcMessage.TypeOwnshipTelemetry)
-                            {
-                                var next = new OwnshipTelemetry(message.OnGround, message.GroundSpeedKnots, message.AltitudeAboveGroundFeet, message.VerticalSpeedFpm, message.HeadingDegrees, message.Latitude, message.Longitude, DateTimeOffset.Now, message.PressureAltitudeFeet, message.SeaLevelPressureHpa);
-                                lock (_gate) { _telemetry = next; }
-                                Changed?.Invoke(this, EventArgs.Empty);
+                                if (message.Type == RadioIpcMessage.TypeRadioState)
+                                {
+                                    var next = new RadioState(
+                                        message.Com1Frequency, message.Com2Frequency, message.Com1StandbyFrequency, message.Com2StandbyFrequency,
+                                        message.ModeCEnabled ?? false, message.TransponderCode,
+                                        message.Com1TransmitEnabled ?? false, message.Com2TransmitEnabled ?? false,
+                                        message.Com1ReceiveEnabled ?? false, message.Com2ReceiveEnabled ?? false,
+                                        DateTimeOffset.Now);
+                                    lock (_gate) { _current = next; }
+                                    _simulatorConnected = true;
+
+                                    if (!_loggedFirstState)
+                                    {
+                                        _loggedFirstState = true;
+                                        Log($"First radio state received: Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Standby={next.Com1StandbyFrequency}, Com2Standby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}");
+                                    }
+
+                                    Changed?.Invoke(this, EventArgs.Empty);
+                                }
+                                else if (message.Type == RadioIpcMessage.TypeOwnshipTelemetry)
+                                {
+                                    var next = new OwnshipTelemetry(message.OnGround, message.GroundSpeedKnots, message.AltitudeAboveGroundFeet, message.VerticalSpeedFpm, message.HeadingDegrees, message.Latitude, message.Longitude, DateTimeOffset.Now, message.PressureAltitudeFeet, message.SeaLevelPressureHpa);
+                                    lock (_gate) { _telemetry = next; }
+                                    Changed?.Invoke(this, EventArgs.Empty);
+                                }
                             }
                         }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using Handoff.Plugin;
 
 namespace Handoff.RadioHost
 {
@@ -13,7 +14,7 @@ namespace Handoff.RadioHost
     /// </summary>
     internal static class Logger
     {
-        private static readonly string LogPath = Path.Combine(Path.GetTempPath(), "Handoff.RadioHost.log");
+        private static readonly string LogPath = PathJoin.Combine(Path.GetTempPath(), "Handoff.RadioHost.log");
         private static readonly object Gate = new object();
 
         public static void Log(string message)

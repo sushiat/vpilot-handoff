@@ -12,7 +12,7 @@ namespace Handoff.Plugin.Tests
 {
     public class ControllerRankingModelTests : IDisposable
     {
-        private readonly string _configPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json");
+        private readonly string _configPath = PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json");
         private readonly FakeBroker _broker = new FakeBroker();
         private readonly FakeRadioStateModel _radio = new FakeRadioStateModel();
         private readonly VatsimDataFeedModel _vatsimFeed = new VatsimDataFeedModel();
@@ -24,12 +24,12 @@ namespace Handoff.Plugin.Tests
         // route-match fallback path unchanged. VatGlasses-specific tests build their own model
         // via CreateVatGlassesDataModel below.
         private readonly VatGlassesDataModel _vatGlassesData = new VatGlassesDataModel(
-            new OperationProgressModel(), cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+            new OperationProgressModel(), cacheDirectory: PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
         // Same "nonexistent cache directory -> stays empty" shape as _vatGlassesData above --
         // tests that don't care about vatspy geometry/naming exercise the unchanged fallback
         // path. VatSpy-specific tests build their own model via CreateVatSpyDataModel below.
         private readonly VatSpyDataModel _vatSpyData = new VatSpyDataModel(
-            new OperationProgressModel(), cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+            new OperationProgressModel(), cacheDirectory: PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
 
         public ControllerRankingModelTests()
         {
@@ -383,7 +383,7 @@ namespace Handoff.Plugin.Tests
                 new List<VatsimControllerInfo>(),
                 new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
             feed.Start();
             raised.Wait(TimeSpan.FromSeconds(5));
@@ -396,7 +396,7 @@ namespace Handoff.Plugin.Tests
                 new List<VatsimControllerInfo> { new VatsimControllerInfo(callsign, 1, "Test Controller", 4, 3, textAtis) },
                 new List<VatsimPilotInfo>());
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
             feed.Start();
             raised.Wait(TimeSpan.FromSeconds(5));
@@ -1284,7 +1284,7 @@ namespace Handoff.Plugin.Tests
         {
             var model = new VatGlassesDataModel(
                 new OperationProgressModel(),
-                cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
+                cacheDirectory: PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
                 fetchLatestSha: () => Task.FromResult("sha1"),
                 listFiles: () => Task.FromResult<IReadOnlyList<VatGlassesDataFile>>(new List<VatGlassesDataFile> { new VatGlassesDataFile("test.json", "http://test/test.json") }),
                 fetchFile: url => Task.FromResult(regionJson));
@@ -1299,7 +1299,7 @@ namespace Handoff.Plugin.Tests
         {
             var model = new VatSpyDataModel(
                 new OperationProgressModel(),
-                cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
+                cacheDirectory: PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
                 fetchLatestSha: () => Task.FromResult("sha1"),
                 fetchBoundariesJson: () => Task.FromResult(boundariesJson),
                 fetchVatSpyDat: () => Task.FromResult(vatSpyDat));

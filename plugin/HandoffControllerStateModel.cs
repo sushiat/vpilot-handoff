@@ -123,14 +123,9 @@ namespace Handoff.Plugin
         {
             lock (_gate)
             {
-                if (_controllers.TryGetValue(e.Callsign, out var existing) && existing.IsHidden)
-                {
-                    _controllers[e.Callsign] = existing.Reconnected();
-                }
-                else
-                {
-                    _controllers[e.Callsign] = new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
-                }
+                _controllers[e.Callsign] = _controllers.TryGetValue(e.Callsign, out var existing) && existing.IsHidden
+                    ? existing.Reconnected()
+                    : new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
             }
             RaiseChanged();
         }
@@ -189,13 +184,10 @@ namespace Handoff.Plugin
                 {
                     var newAlerts = alerts.Skip(_processedSelcalAlertCount).ToList();
                     _processedSelcalAlertCount = alerts.Count;
-                    foreach (var alert in newAlerts)
+                    foreach (var alert in newAlerts.Where(a => _controllers.ContainsKey(a.From)))
                     {
-                        if (_controllers.TryGetValue(alert.From, out var selcalTarget))
-                        {
-                            _controllers[alert.From] = selcalTarget.WithSelcalExpiry(_now() + SelcalExpiryWindow);
-                            changed = true;
-                        }
+                        _controllers[alert.From] = _controllers[alert.From].WithSelcalExpiry(_now() + SelcalExpiryWindow);
+                        changed = true;
                     }
                 }
             }

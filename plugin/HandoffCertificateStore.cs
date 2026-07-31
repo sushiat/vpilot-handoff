@@ -35,7 +35,7 @@ namespace Handoff.Plugin
         // password itself could leak.
         private const string PfxPassword = "handoff-local-cert";
 
-        private static readonly string Default_configPath = Path.Combine(
+        private static readonly string Default_configPath = PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "cert.pfx");
 
         private readonly Action<string> _logDebug;
@@ -48,6 +48,7 @@ namespace Handoff.Plugin
         /// sent in HandoffDiscoveryListener's reply.</summary>
         public string FingerprintHex { get; }
 
+        /// <summary>Loads (or generates, on first run) this machine's self-signed TLS certificate.</summary>
         /// <param name="configPath">Overridable only for tests, same reasoning as
         /// FlightPlanModel's configPath.</param>
         public HandoffCertificateStore(Action<string> logDebug = null, string configPath = null)

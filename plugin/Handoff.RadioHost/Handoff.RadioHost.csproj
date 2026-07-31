@@ -29,6 +29,7 @@
     <Compile Include="..\Shared\RadioIpcMessage.cs" Link="Shared\RadioIpcMessage.cs" />
     <Compile Include="..\Shared\RadioIpcProtocol.cs" Link="Shared\RadioIpcProtocol.cs" />
     <Compile Include="..\Shared\TransponderCode.cs" Link="Shared\TransponderCode.cs" />
+    <Compile Include="..\Shared\PathJoin.cs" Link="Shared\PathJoin.cs" />
   </ItemGroup>
 
 </Project>

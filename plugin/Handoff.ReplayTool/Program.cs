@@ -76,7 +76,7 @@ namespace Handoff.ReplayTool
                         : Environment.TickCount;
                     var outDir = TryGetOptionValue(args, "--out", out var outDirValue)
                         ? outDirValue
-                        : Path.Combine("replay-results", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                        : PathJoin.Combine("replay-results", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 
                     await RunRandomTestAsync(http, count, seed, outDir);
                     return 0;
@@ -325,14 +325,10 @@ namespace Handoff.ReplayTool
             if (array == null) return new List<VatawarePosition>();
 
             var positions = new List<VatawarePosition>();
-            foreach (var t in array)
+            bool HasValue(JToken t, string field) => t[field] != null && t[field].Type != JTokenType.Null;
+            foreach (var t in array.Where(t =>
+                HasValue(t, "timestamp") && HasValue(t, "altitude") && HasValue(t, "latitude") && HasValue(t, "longitude") && HasValue(t, "heading")))
             {
-                if (t["timestamp"] == null || t["timestamp"].Type == JTokenType.Null) continue;
-                if (t["altitude"] == null || t["altitude"].Type == JTokenType.Null) continue;
-                if (t["latitude"] == null || t["latitude"].Type == JTokenType.Null) continue;
-                if (t["longitude"] == null || t["longitude"].Type == JTokenType.Null) continue;
-                if (t["heading"] == null || t["heading"].Type == JTokenType.Null) continue;
-
                 positions.Add(new VatawarePosition(
                     (DateTimeOffset)t["timestamp"],
                     (double)t["altitude"],
@@ -512,9 +508,8 @@ namespace Handoff.ReplayTool
                         (string)chosen["positions_url"],
                         (string)chosen["flightplans_url"]));
 
-                    foreach (var chosen in eligible.Take(MaxFlightsPerAirport))
+                    foreach (var flight in eligible.Take(MaxFlightsPerAirport).Select(toFlight))
                     {
-                        var flight = toFlight(chosen);
                         picked.Add(flight);
                         Console.WriteLine($"  [{icao}] picked {flight.Callsign} ({flight.FlightId}).");
                     }
@@ -586,7 +581,7 @@ namespace Handoff.ReplayTool
                         continue;
                     }
 
-                    var detailPath = Path.Combine(outDir, $"{flight.FlightId}.txt");
+                    var detailPath = PathJoin.Combine(outDir, $"{flight.FlightId}.txt");
                     using (var writer = new StreamWriter(detailPath, false, System.Text.Encoding.UTF8))
                     {
                         writer.WriteLine($"Flight {flight.Callsign} ({flight.FlightId}), discovered via {flight.Icao}");
@@ -619,7 +614,7 @@ namespace Handoff.ReplayTool
             summaryLines.Add("");
             summaryLines.Add($"TOTAL: {overall.Describe()}");
 
-            var summaryPath = Path.Combine(outDir, "summary.txt");
+            var summaryPath = PathJoin.Combine(outDir, "summary.txt");
             File.WriteAllLines(summaryPath, summaryLines, System.Text.Encoding.UTF8);
 
             Console.WriteLine();

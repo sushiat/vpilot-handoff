@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -91,7 +92,7 @@ namespace Handoff.RadioHost
 
         public static void Run(string[] args)
         {
-            var fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
+            using var fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
 
             // The main RadioSimConnectClient retries its own Connect() every 5s in a loop and
             // silently swallows failures until one succeeds -- meaning occasional E_FAIL
@@ -110,8 +111,10 @@ namespace Handoff.RadioHost
                     // out given the main process's identical connect call works fine.
                     fsConnect.Connect("Handoff", 0);
                 }
-                catch (Exception ex)
+                catch (COMException ex)
                 {
+                    // E_FAIL while the sim isn't running yet -- expected, keep retrying. Anything
+                    // else is a real bug and should surface directly rather than retry-spam for 20s.
                     Console.WriteLine("Connect attempt failed: " + ex.Message + " -- retrying...");
                     Thread.Sleep(2000);
                     continue;
@@ -272,9 +275,9 @@ namespace Handoff.RadioHost
             ReadVars? result = null;
             void Handler(object sender, FsDataReceivedEventArgs e)
             {
-                foreach (var obj in e.Data)
+                foreach (var vars in e.Data.OfType<ReadVars>())
                 {
-                    if (obj is ReadVars vars) result = vars;
+                    result = vars;
                 }
             }
 

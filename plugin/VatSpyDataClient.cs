@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
@@ -126,19 +127,13 @@ namespace Handoff.Plugin
                         result[id] = rings;
                     }
 
-                    foreach (var polygon in polygons)
+                    // polygon[0] is the outer ring; polygon[1..] (if present) are holes, skipped.
+                    foreach (var outerRing in polygons
+                        .Select(polygon => polygon is JArray polygonRings && polygonRings.Count > 0 ? polygonRings[0] as JArray : null)
+                        .Where(outerRing => outerRing != null))
                     {
-                        // polygon[0] is the outer ring; polygon[1..] (if present) are holes, skipped.
-                        if (!(polygon is JArray polygonRings) || polygonRings.Count == 0) continue;
-                        if (!(polygonRings[0] is JArray outerRing)) continue;
-
-                        var points = new List<VatSpyPoint>(outerRing.Count);
-                        foreach (var coord in outerRing)
-                        {
-                            // GeoJSON order is [lon, lat] -- reversed from VatGlasses' (lat, lon) convention.
-                            points.Add(new VatSpyPoint((double)coord[1], (double)coord[0]));
-                        }
-                        rings.Add(points);
+                        // GeoJSON order is [lon, lat] -- reversed from VatGlasses' (lat, lon) convention.
+                        rings.Add(outerRing.Select(coord => new VatSpyPoint((double)coord[1], (double)coord[0])).ToList());
                     }
                 }
                 catch (Exception ex)

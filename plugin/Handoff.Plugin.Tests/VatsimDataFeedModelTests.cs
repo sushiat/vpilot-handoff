@@ -21,7 +21,7 @@ namespace Handoff.Plugin.Tests
         {
             var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
 
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();
 
             model.Start();
@@ -36,7 +36,7 @@ namespace Handoff.Plugin.Tests
         {
             var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<VatsimDataFeedSnapshot>(null));
 
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();
 
             model.Start();
@@ -51,7 +51,7 @@ namespace Handoff.Plugin.Tests
         {
             var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>())));
 
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             model.Changed += (s, e) => raised.Set();
             model.Start();
             Assert.True(raised.Wait(TimeSpan.FromSeconds(5)));

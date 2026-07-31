@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Handoff.Plugin
 {
@@ -50,9 +51,8 @@ namespace Handoff.Plugin
         public static IReadOnlyList<VatSpyFirBoundary> FindContainingBoundaries(IReadOnlyList<VatSpyFirBoundary> boundaries, double lat, double lon)
         {
             var matches = new List<VatSpyFirBoundary>();
-            foreach (var boundary in boundaries)
+            foreach (var boundary in boundaries.Where(boundary => BoundingBoxMayContain(lat, lon, boundary, 0)))
             {
-                if (!BoundingBoxMayContain(lat, lon, boundary, 0)) continue;
                 if (IsPointInPolygon(lat, lon, boundary)) matches.Add(boundary);
             }
             return matches;
@@ -114,9 +114,8 @@ namespace Handoff.Plugin
             var legStartY = 0.0;
             var cumulativeNm = 0.0;
 
-            foreach (var wp in remainingWaypoints)
+            foreach (var legEnd in remainingWaypoints.Select(wp => Project(lat, lon, wp.Latitude, wp.Longitude)))
             {
-                var legEnd = Project(lat, lon, wp.Latitude, wp.Longitude);
                 var dx = legEnd.X - legStartX;
                 var dy = legEnd.Y - legStartY;
                 var legLength = Math.Sqrt(dx * dx + dy * dy);
@@ -140,10 +139,8 @@ namespace Handoff.Plugin
             IReadOnlyList<VatSpyFirBoundary> boundaries, double lat, double lon, double headingDegrees, double maxNauticalMiles)
         {
             var results = new List<VatSpyApproachMatch>();
-            foreach (var boundary in boundaries)
+            foreach (var boundary in boundaries.Where(boundary => DistanceToBoundingBoxNm(lat, lon, boundary) <= maxNauticalMiles))
             {
-                if (DistanceToBoundingBoxNm(lat, lon, boundary) > maxNauticalMiles) continue;
-
                 var distance = DistanceToPolygonAlongHeadingNm(lat, lon, headingDegrees, boundary);
                 if (distance.HasValue && distance.Value <= maxNauticalMiles)
                 {
@@ -161,10 +158,8 @@ namespace Handoff.Plugin
             var results = new List<VatSpyApproachMatch>();
             if (remainingWaypoints == null || remainingWaypoints.Count == 0) return results;
 
-            foreach (var boundary in boundaries)
+            foreach (var boundary in boundaries.Where(boundary => DistanceToBoundingBoxNm(lat, lon, boundary) <= maxNauticalMiles))
             {
-                if (DistanceToBoundingBoxNm(lat, lon, boundary) > maxNauticalMiles) continue;
-
                 var distance = DistanceToPolygonAlongRouteNm(lat, lon, remainingWaypoints, boundary);
                 if (distance.HasValue && distance.Value <= maxNauticalMiles)
                 {

@@ -17,7 +17,7 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class FlightPlanModel
     {
-        private static readonly string Default_configPath = Path.Combine(
+        private static readonly string Default_configPath = PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "simbrief.json");
 
         private readonly object _gate = new object();
@@ -31,6 +31,8 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
+        /// <summary>Creates the model; call <see cref="SetSimbriefCredentials"/> and
+        /// <see cref="RefreshAsync"/> to start fetching a plan.</summary>
         /// <param name="configPath">
         /// Overridable only for tests, so they don't read/write the real
         /// %LOCALAPPDATA%\Handoff\simbrief.json on the dev machine.

@@ -6,7 +6,7 @@ namespace Handoff.Plugin.Tests
 {
     public class HandoffPairedClientStoreTests : IDisposable
     {
-        private readonly string _configPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json");
+        private readonly string _configPath = PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json");
 
         public void Dispose()
         {

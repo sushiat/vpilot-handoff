@@ -17,7 +17,7 @@ namespace Handoff.Plugin.Tests
             try
             {
                 Directory.CreateDirectory(cacheDir);
-                File.WriteAllText(Path.Combine(cacheDir, "_commit.sha"), "abc123");
+                File.WriteAllText(PathJoin.Combine(cacheDir, "_commit.sha"), "abc123");
 
                 var progress = new OperationProgressModel();
                 var events = new List<OperationProgressEventArgs>();
@@ -78,10 +78,10 @@ namespace Handoff.Plugin.Tests
                 Assert.Equal(2, model.Regions.Count);
                 Assert.Contains("Updating VatGlasses file 1/2", reportedStatuses);
                 Assert.Contains("Updating VatGlasses file 2/2", reportedStatuses);
-                Assert.True(File.Exists(Path.Combine(cacheDir, "_commit.sha")));
-                Assert.Equal("sha-new", File.ReadAllText(Path.Combine(cacheDir, "_commit.sha")));
-                Assert.True(File.Exists(Path.Combine(cacheDir, "lo.json")));
-                Assert.True(File.Exists(Path.Combine(cacheDir, "ld.json")));
+                Assert.True(File.Exists(PathJoin.Combine(cacheDir, "_commit.sha")));
+                Assert.Equal("sha-new", File.ReadAllText(PathJoin.Combine(cacheDir, "_commit.sha")));
+                Assert.True(File.Exists(PathJoin.Combine(cacheDir, "lo.json")));
+                Assert.True(File.Exists(PathJoin.Combine(cacheDir, "ld.json")));
             }
             finally
             {
@@ -125,8 +125,8 @@ namespace Handoff.Plugin.Tests
             try
             {
                 Directory.CreateDirectory(cacheDir);
-                File.WriteAllText(Path.Combine(cacheDir, "_commit.sha"), "old-sha");
-                File.WriteAllText(Path.Combine(cacheDir, "lo.json"), EmptyRegionJson);
+                File.WriteAllText(PathJoin.Combine(cacheDir, "_commit.sha"), "old-sha");
+                File.WriteAllText(PathJoin.Combine(cacheDir, "lo.json"), EmptyRegionJson);
 
                 var progress = new OperationProgressModel();
                 OperationProgressEventArgs lastEvent = null;
@@ -147,7 +147,7 @@ namespace Handoff.Plugin.Tests
                 await model.SyncAsync();
 
                 Assert.Single(model.Regions);
-                Assert.Equal("old-sha", File.ReadAllText(Path.Combine(cacheDir, "_commit.sha")));
+                Assert.Equal("old-sha", File.ReadAllText(PathJoin.Combine(cacheDir, "_commit.sha")));
                 Assert.True(lastEvent.Finished);
                 Assert.Contains("incomplete (0/1 files)", lastEvent.Status);
             }
@@ -189,13 +189,13 @@ namespace Handoff.Plugin.Tests
                 Assert.True(model.Regions.ContainsKey("lo.json"));
                 Assert.True(model.Regions.ContainsKey("ld.json"));
                 Assert.False(model.Regions.ContainsKey("broken.json"));
-                Assert.True(File.Exists(Path.Combine(cacheDir, "lo.json")));
-                Assert.True(File.Exists(Path.Combine(cacheDir, "ld.json")));
-                Assert.False(File.Exists(Path.Combine(cacheDir, "broken.json")));
+                Assert.True(File.Exists(PathJoin.Combine(cacheDir, "lo.json")));
+                Assert.True(File.Exists(PathJoin.Combine(cacheDir, "ld.json")));
+                Assert.False(File.Exists(PathJoin.Combine(cacheDir, "broken.json")));
 
                 // Marker withheld -- the next sync attempt must see this as still out of date and
                 // retry the full list (including re-fetching lo.json/ld.json, which is fine).
-                Assert.False(File.Exists(Path.Combine(cacheDir, "_commit.sha")));
+                Assert.False(File.Exists(PathJoin.Combine(cacheDir, "_commit.sha")));
                 Assert.True(lastEvent.Finished);
                 Assert.Contains("incomplete (2/3 files)", lastEvent.Status);
             }
@@ -212,9 +212,9 @@ namespace Handoff.Plugin.Tests
             try
             {
                 Directory.CreateDirectory(cacheDir);
-                File.WriteAllText(Path.Combine(cacheDir, "lo.json"), EmptyRegionJson);
-                File.WriteAllText(Path.Combine(cacheDir, "broken.json"), "{ not valid json");
-                File.WriteAllText(Path.Combine(cacheDir, "ld.json"), EmptyRegionJson);
+                File.WriteAllText(PathJoin.Combine(cacheDir, "lo.json"), EmptyRegionJson);
+                File.WriteAllText(PathJoin.Combine(cacheDir, "broken.json"), "{ not valid json");
+                File.WriteAllText(PathJoin.Combine(cacheDir, "ld.json"), EmptyRegionJson);
 
                 var progress = new OperationProgressModel();
                 var model = new VatGlassesDataModel(progress, cacheDirectory: cacheDir);
@@ -231,6 +231,6 @@ namespace Handoff.Plugin.Tests
         }
 
         private static string CreateTempCacheDir() =>
-            Path.Combine(Path.GetTempPath(), "HandoffTests-VatGlasses-" + Guid.NewGuid());
+            PathJoin.Combine(Path.GetTempPath(), "HandoffTests-VatGlasses-" + Guid.NewGuid());
     }
 }
