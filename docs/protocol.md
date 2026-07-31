@@ -289,6 +289,7 @@ outgoing) or alert arrives.
       "channel": "radio",
       "direction": "incoming",
       "peer": null,
+      "from": "EGLL_TWR",
       "text": "traffic in the pattern, report final",
       "frequencies": [23725],
       "timestamp": "2026-07-25T10:16:05Z"
@@ -302,8 +303,9 @@ outgoing) or alert arrives.
 
 `channel` is one of `private` | `radio` | `broadcast`. `direction` is `incoming` | `outgoing`.
 `peer` is the other party's callsign for `private`/`broadcast`, `null` for `radio` (the
-frequency identifies the channel instead). `frequencies` is populated only for `radio`
-messages and SELCAL alerts, `null` otherwise.
+frequency identifies the channel instead). `from` is the transmitting station's callsign for
+incoming `radio` messages, `null` otherwise (private/broadcast already carry this in `peer`).
+`frequencies` is populated only for `radio` messages and SELCAL alerts, `null` otherwise.
 
 ### `radioState`
 

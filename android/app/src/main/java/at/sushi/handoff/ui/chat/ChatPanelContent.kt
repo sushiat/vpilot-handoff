@@ -285,9 +285,9 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
 
 /** Matches the reference's message bubble exactly (`activeMessagesView` in the JS): a bordered,
  *  rounded bubble aligned left/right by [ChatEntry.direction], with a small muted mono meta line
- *  above the body -- peer callsign for private messages, tuned frequency for radio, then the
- *  timestamp. This previously rendered as plain unstyled text with no box/border/alignment and no
- *  frequency/timestamp at all -- a real gap, not a style tweak.
+ *  above the body -- peer callsign for private messages, sender callsign + tuned frequency for
+ *  radio, then the timestamp. This previously rendered as plain unstyled text with no
+ *  box/border/alignment and no frequency/timestamp at all -- a real gap, not a style tweak.
  *
  *  Incoming radio messages that mention [ownCallsign] as a whole word are highlighted
  *  (`colors.attentionBg`) -- this is chatter directed at us specifically (a controller instruction,
@@ -301,7 +301,9 @@ private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
     val outgoing = entry.direction == "outgoing"
     val mentionsUs = !outgoing && entry.channel == "radio" && mentionsCallsign(entry.text, ownCallsign)
     val metaText = buildString {
-        append(entry.peer ?: entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) } ?: "")
+        val frequencyLabel = entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) }
+        val leading = entry.peer ?: listOfNotNull(entry.from, frequencyLabel).joinToString(" · ").ifEmpty { null }
+        append(leading ?: "")
         if (isNotEmpty()) append(" · ")
         append(formatLocalTime(entry.timestamp))
     }

@@ -259,6 +259,10 @@ private fun MainScreenContent() {
 
     var openChatTabs by remember { mutableStateOf(listOf<String>()) }
     var activeChatTab by remember { mutableStateOf<String?>(null) } // null = RADIO
+    // Who actually sent us the most recent private message -- distinct from activeChatTab, which
+    // also changes just from the user pressing a controller's msg button with nothing received
+    // yet (issue #53: that button must not make the top bar claim a message arrived).
+    var lastReceivedPeer by remember { mutableStateOf<String?>(null) }
     var unreadByTab by remember { mutableStateOf(mapOf<String, Int>()) }
     // Tabs currently holding at least one unread message directed at the pilot (a private
     // message, or a radio message mentioning ownCallsign) -- feeds TopBar's flashing
@@ -306,6 +310,7 @@ private fun MainScreenContent() {
                 val peer = entry.peer ?: continue
                 tab = peer
                 directed = true
+                lastReceivedPeer = peer
                 // Silently opens a tab for a peer who messages first, without switching focus to
                 // it or popping the chat panel open -- matches how openChatWith already creates a
                 // tab, just without the "and view it" half.
@@ -444,8 +449,10 @@ private fun MainScreenContent() {
             TopBar(
                 radioState = radioState,
                 // Blank until there's actually been any chat activity -- defaulting to "RADIO"
-                // unconditionally (even with nothing ever received) was misleading.
-                lastMessageLabel = activeChatTab
+                // unconditionally (even with nothing ever received) was misleading. Driven by
+                // lastReceivedPeer, not activeChatTab -- opening a chat tab via the msg button
+                // must not make this claim a message was received (issue #53).
+                lastMessageLabel = lastReceivedPeer
                     ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
                 hasDirectedUnread = directedUnreadTabs.isNotEmpty(),

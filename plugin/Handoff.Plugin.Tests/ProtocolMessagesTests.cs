@@ -138,16 +138,17 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("private", (string)message["channel"]);
             Assert.Equal("incoming", (string)message["direction"]);
             Assert.Equal("EGLL_TWR", (string)message["peer"]);
+            Assert.Equal(JTokenType.Null, message["from"].Type);
             Assert.Equal("cleared for takeoff", (string)message["text"]);
             Assert.Equal(JTokenType.Null, message["frequencies"].Type);
         }
 
         [Fact]
-        public void BuildChatMessage_RadioMessage_IncludesFrequencies()
+        public void BuildChatMessage_RadioMessage_IncludesFrequenciesAndSenderCallsign()
         {
             var messages = new List<ChatMessage>
             {
-                new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, "report final", new[] { 23725 }, DateTimeOffset.UtcNow)
+                new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, "report final", new[] { 23725 }, DateTimeOffset.UtcNow, "EGLL_TWR")
             };
 
             var json = JObject.Parse(ProtocolMessages.BuildChatMessage(messages, new List<SelcalAlert>()));
@@ -155,6 +156,7 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal("radio", (string)message["channel"]);
             Assert.Equal(JTokenType.Null, message["peer"].Type);
+            Assert.Equal("EGLL_TWR", (string)message["from"]);
             Assert.Equal(23725, (int)message["frequencies"][0]);
         }
 

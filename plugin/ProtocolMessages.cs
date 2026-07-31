@@ -62,6 +62,7 @@ namespace Handoff.Plugin
                     channel = m.Channel,
                     direction = m.Direction,
                     peer = m.Peer,
+                    from = m.From,
                     text = m.Text,
                     frequencies = m.Frequencies,
                     timestamp = m.Timestamp.UtcDateTime

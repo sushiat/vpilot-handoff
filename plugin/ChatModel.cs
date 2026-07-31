@@ -70,7 +70,7 @@ namespace Handoff.Plugin
 
         private void OnRadioMessageReceived(object sender, RadioMessageReceivedEventArgs e)
         {
-            AddMessage(new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, e.Message, e.Frequencies, DateTimeOffset.Now));
+            AddMessage(new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, e.Message, e.Frequencies, DateTimeOffset.Now, e.From));
         }
 
         private void OnBroadcastMessageReceived(object sender, BroadcastMessageReceivedEventArgs e)
