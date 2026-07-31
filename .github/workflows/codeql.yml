@@ -31,7 +31,7 @@ jobs:
           Copy-Item ci/plugin-stub-ref/out/RossCarlson.Vatsim.Vpilot.Plugins.dll plugin/lib/
         shell: pwsh
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: csharp
           queries: security-and-quality
@@ -44,7 +44,7 @@ jobs:
           dotnet build plugin/Handoff.Plugin.Tests/Handoff.Plugin.Tests.csproj
           dotnet build plugin/Handoff.ReplayTool/Handoff.ReplayTool.csproj
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: /language:csharp
 
@@ -69,7 +69,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: java-kotlin
           queries: security-and-quality
@@ -82,7 +82,7 @@ jobs:
         working-directory: android
         run: ./gradlew clean assembleDebug --no-daemon --no-build-cache
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: /language:java-kotlin
 
@@ -95,10 +95,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: actions
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: /language:actions
