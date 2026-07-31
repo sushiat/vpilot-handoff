@@ -63,17 +63,16 @@ in transit.
 
 ### vPilot plugin
 
-1. Download the `Handoff-Plugin-v*.zip` asset from the same [Release](../../releases).
-2. Extract it into vPilot's `Plugins` folder. By default that's
-   `%LOCALAPPDATA%\vPilot\Plugins`, but vPilot's installer lets you pick a different
-   location - check `%LOCALAPPDATA%\vPilot` first, or look up
-   `HKEY_CURRENT_USER\Software\vPilot\Install_Dir` in the registry if you're not sure
-   where you installed it.
-3. Restart vPilot.
+1. Download the `Handoff-Setup-v*.exe` asset from the same [Release](../../releases) and
+   run it. No options to pick and no admin prompt - it's a per-user install, and it finds
+   vPilot's `Plugins` folder on its own from the registry, so you don't need to know where
+   vPilot is installed.
+2. Restart vPilot if it's already running.
 
-Automatic in-app updates for the plugin are planned but not in this release yet -
-for now, updating means repeating these steps with the newer release zip. See
-`plugin/README.md` for the exact file layout if you're building from source instead.
+From then on the plugin checks for updates itself on every vPilot startup, downloads and
+verifies a newer release automatically, and asks you to confirm (a small popup on the PC,
+not the tablet) before installing it - no need to repeat these steps for future releases.
+See `plugin/README.md` for the exact file layout if you're building from source instead.
 
 ## Status
 
