@@ -26,6 +26,7 @@ namespace Handoff.Plugin
         private HandoffPairedClientStore _pairedClients;
         private HandoffPairingWindow _pairingWindow;
         private HandoffPairingSession _pairingSession;
+        private PluginUpdateModel _pluginUpdate;
 
         public void Initialize(IBroker broker)
         {
@@ -129,6 +130,14 @@ namespace Handoff.Plugin
 
             _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);
             _discoveryListener.Start();
+
+            // Checks GitHub releases on every VATSIM connect (issue #34) -- reuses the
+            // NetworkConnected-tied pattern VatsimDataFeedModel/RadioStateModel already follow,
+            // no separate timer. CheckMarker (a prior update having just been applied) isn't
+            // network-tied -- it just reports whatever the installer left behind on this load.
+            _pluginUpdate = new PluginUpdateModel(_operationProgress, _broker.PostDebugMessage);
+            _pluginUpdate.CheckMarker();
+            _broker.NetworkConnected += (sender, e) => _ = _pluginUpdate.CheckAsync();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }

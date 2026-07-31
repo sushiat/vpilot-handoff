@@ -57,9 +57,41 @@ dotnet build Handoff.RadioHost/Handoff.RadioHost.csproj
 
 (The **plugin: build** VS Code task builds both.)
 
-## Deploy
+## Install (end users)
 
-Two things need copying into `%LOCALAPPDATA%\vPilot\Plugins`:
+Download `Handoff-Setup-vX.Y.Z.exe` from the [latest release](../../releases/latest) and run it —
+no options to pick, no admin prompt (`PrivilegesRequired=lowest` — the install target is a
+per-user folder, same as the `HKCU\Software\vPilot\Install_Dir` registry key it reads to find that
+folder). See `plugin/installer/Handoff-Setup.iss` for the full install logic (Pascal Script:
+resolve `Install_Dir`, wait for vPilot to exit if it's running, copy files, write the auto-update
+marker).
+
+## Auto-update (issue #34)
+
+Once installed, the plugin checks this repo's GitHub releases for a newer version on every VATSIM
+connect (`PluginUpdateModel.CheckAsync`, wired off `IBroker.NetworkConnected` in
+`HandoffPlugin.cs` — no separate timer). On finding one, it downloads the same
+`Handoff-Setup-*.exe` asset, verifies it against the sha256 GitHub's API already serves per-asset
+(`assets[].digest` — no separate `.sha256` file to publish or trust out-of-band; this only catches
+a corrupted/truncated download, not a compromised release, since both would come from the same
+source), then launches it silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) and returns — the
+installer itself now owns waiting for vPilot to exit and doing the actual file swap.
+
+After a successful upgrade, the installer writes `Plugins\update-applied.json`; the plugin picks
+that up on its next load (`PluginUpdateModel.CheckMarker`, called once from `Initialize`, not
+network-tied) and reports it through the existing `operationProgress` protocol message (see
+`docs/protocol.md`) so a reconnecting Android app sees a one-time "updated to X.Y.Z" notice, then
+deletes the marker.
+
+Progress/failure of an in-flight update is also reported through `operationProgress`
+(`OperationIdPrefix = "pluginUpdate"`), same mechanism `VatGlassesDataModel`'s startup sync
+already uses — no new protocol message type was needed.
+
+## Deploy (dev iteration)
+
+For iterating without building an installer every time, two things still need copying into
+`%LOCALAPPDATA%\vPilot\Plugins` (or wherever `HKCU\Software\vPilot\Install_Dir` actually points —
+see above):
 
 1. `Handoff.Plugin.dll` **and its dependency DLLs** (`Newtonsoft.Json.dll`, `Fleck.dll`) —
    no longer single-file since Costura.Fody was dropped (it existed only to bundle
@@ -78,6 +110,17 @@ the first time so its integrated terminal picks it up.
 
 Check the Plugins folder for any stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml`
 copies first — a known FSLabs-installer bug drops these there and breaks plugin loading.
+
+## Building the installer
+
+Requires [Inno Setup](https://jrsoftware.org/isinfo.php) (`choco install innosetup` — same as
+`build.yml`/`release.yml` use in CI). Build Release output first, then compile:
+
+```
+dotnet build Handoff.Plugin.csproj -c Release -o publish/plugin
+dotnet build Handoff.RadioHost/Handoff.RadioHost.csproj -c Release -o publish/plugin/RadioHost
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.1.0 /DSourceDir=publish\plugin installer\Handoff-Setup.iss
+```
 
 ## VATGlasses sector-ranking replay tool (dev-only, not deployed)
 
