@@ -128,12 +128,11 @@ namespace Handoff.Plugin
             {
                 foreach (var sector in kv.Value.Airspace)
                 {
-                    foreach (var level in sector.Levels.Where(level => BoundingBoxMayContain(lat, lon, level, 0)))
+                    foreach (var level in sector.Levels
+                        .Where(level => BoundingBoxMayContain(lat, lon, level, 0))
+                        .Where(level => IsPointInPolygon(lat, lon, level)))
                     {
-                        if (IsPointInPolygon(lat, lon, level))
-                        {
-                            matches.Add(new VatGlassesSectorMatch(kv.Key, sector, level));
-                        }
+                        matches.Add(new VatGlassesSectorMatch(kv.Key, sector, level));
                     }
                 }
             }

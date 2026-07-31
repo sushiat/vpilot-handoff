@@ -51,9 +51,11 @@ namespace Handoff.Plugin
         public static IReadOnlyList<VatSpyFirBoundary> FindContainingBoundaries(IReadOnlyList<VatSpyFirBoundary> boundaries, double lat, double lon)
         {
             var matches = new List<VatSpyFirBoundary>();
-            foreach (var boundary in boundaries.Where(boundary => BoundingBoxMayContain(lat, lon, boundary, 0)))
+            foreach (var boundary in boundaries
+                .Where(boundary => BoundingBoxMayContain(lat, lon, boundary, 0))
+                .Where(boundary => IsPointInPolygon(lat, lon, boundary)))
             {
-                if (IsPointInPolygon(lat, lon, boundary)) matches.Add(boundary);
+                matches.Add(boundary);
             }
             return matches;
         }

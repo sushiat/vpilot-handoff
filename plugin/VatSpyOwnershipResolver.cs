@@ -31,11 +31,12 @@ namespace Handoff.Plugin
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var result = new List<HandoffController>();
 
-            foreach (var c in onlineControllers.Where(c =>
-                c.Callsign.ParseControllerTier() == ControllerTier.Center &&
-                boundary.CallsignPrefixes.Any(prefix => c.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))))
+            foreach (var c in onlineControllers
+                .Where(c => c.Callsign.ParseControllerTier() == ControllerTier.Center
+                    && boundary.CallsignPrefixes.Any(prefix => c.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                .Where(c => seen.Add(c.Callsign)))
             {
-                if (seen.Add(c.Callsign)) result.Add(c);
+                result.Add(c);
             }
 
             return result;

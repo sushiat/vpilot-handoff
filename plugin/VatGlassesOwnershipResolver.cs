@@ -42,18 +42,18 @@ namespace Handoff.Plugin
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var result = new List<HandoffController>();
 
-            foreach (var positionId in chain.Where(positions.ContainsKey))
+            foreach (var position in chain.Where(positions.ContainsKey).Select(id => positions[id]))
             {
-                var position = positions[positionId];
                 var expectedTier = ParsePositionTier(position.Type);
                 if (!expectedTier.HasValue) continue;
                 var tier = expectedTier.Value;
 
-                foreach (var c in onlineControllers.Where(c =>
-                    c.Callsign.ParseControllerTier() == tier &&
-                    position.Prefixes.Any(prefix => c.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))))
+                foreach (var c in onlineControllers
+                    .Where(c => c.Callsign.ParseControllerTier() == tier
+                        && position.Prefixes.Any(prefix => c.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                    .Where(c => seen.Add(c.Callsign)))
                 {
-                    if (seen.Add(c.Callsign)) result.Add(c);
+                    result.Add(c);
                 }
             }
 

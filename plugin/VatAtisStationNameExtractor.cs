@@ -108,9 +108,11 @@ namespace Handoff.Plugin
         private static string SplitAtSeparator(string line)
         {
             var cut = -1;
-            foreach (var index in new[] { " - ", " | ", " / ", "." }.Select(separator => line.IndexOf(separator, StringComparison.Ordinal)))
+            foreach (var index in new[] { " - ", " | ", " / ", "." }
+                .Select(separator => line.IndexOf(separator, StringComparison.Ordinal))
+                .Where(index => index >= 0 && (cut < 0 || index < cut)))
             {
-                if (index >= 0 && (cut < 0 || index < cut)) cut = index;
+                cut = index;
             }
             return cut >= 0 ? line.Substring(0, cut) : line;
         }
