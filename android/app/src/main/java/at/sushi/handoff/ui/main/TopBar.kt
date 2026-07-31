@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -383,20 +384,31 @@ private fun MicMonBadgeRow(badges: List<MicMonBadge>, fontSize: TextUnit, paddin
 
 /** Mode C indicator, band A style: a small colored "C" letter next to the XPDR label. Hidden
  *  entirely when Mode C is off (matches the design study -- simpler than the old always-shown,
- *  differently-colored-when-off badge). */
+ *  differently-colored-when-off badge).
+ *
+ *  [fontSize] renders larger than the XPDR label beside it (bulkier glyph, see the Text's own
+ *  comment below) -- rendered inside a [labelFontSize]-tall box with `wrapContentHeight(unbounded
+ *  = true)` so the taller glyph overflows that box visually instead of growing it, which would
+ *  otherwise grow the whole label row's height only while Mode C is on and push the frequency
+ *  line below it down a few pixels (confirmed on-device: this shift is exactly what happened
+ *  before this box existed). */
 @Composable
-private fun ModeCLetter(modeCEnabled: Boolean, fontSize: TextUnit) {
+private fun ModeCLetter(modeCEnabled: Boolean, fontSize: TextUnit, labelFontSize: TextUnit) {
     if (!modeCEnabled) return
     val colors = LocalHandoffColors.current
-    Text(
-        // RobotoMono.kt only bundles up to a Bold (700) weight font file -- there's no bundled
-        // Black/ExtraBold asset to render a genuinely bulkier "C" glyph. FontWeight.Black still
-        // has an effect: Compose's default fontSynthesis synthetically thickens the matched Bold
-        // face further rather than just clamping to it, which is the "bulkier" bump asked for
-        // without adding a new font file.
-        "C", fontSize = fontSize, fontWeight = FontWeight.Black, letterSpacing = 0.06f.em,
-        color = colors.accent, fontFamily = RobotoMono
-    )
+    val density = LocalDensity.current
+    Box(Modifier.height(with(density) { labelFontSize.toDp() }), contentAlignment = Alignment.Center) {
+        Text(
+            // RobotoMono.kt only bundles up to a Bold (700) weight font file -- there's no bundled
+            // Black/ExtraBold asset to render a genuinely bulkier "C" glyph. FontWeight.Black still
+            // has an effect: Compose's default fontSynthesis synthetically thickens the matched Bold
+            // face further rather than just clamping to it, which is the "bulkier" bump asked for
+            // without adding a new font file.
+            "C", fontSize = fontSize, fontWeight = FontWeight.Black, letterSpacing = 0.06f.em,
+            color = colors.accent, fontFamily = RobotoMono,
+            modifier = Modifier.wrapContentHeight(unbounded = true)
+        )
+    }
 }
 
 /** Mode C indicator, band B/C style: a small colored dot. Hidden entirely when Mode C is off. */
@@ -574,7 +586,7 @@ private fun RowScope.WideXpdrButton(modifier: Modifier, value: String, modeCEnab
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             ButtonLabel("XPDR", s.labelFontSize, 0.7f)
-            ModeCLetter(modeCEnabled, s.modeCFontSize)
+            ModeCLetter(modeCEnabled, s.modeCFontSize, s.labelFontSize)
         }
         FrequencyValueText(value, s.valueFontSize, FontWeight.Bold, colors.text, availableWidth = s.fixedXpdrMsgWidth - s.buttonPaddingH * 2)
     }
