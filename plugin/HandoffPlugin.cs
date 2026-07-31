@@ -26,6 +26,7 @@ namespace Handoff.Plugin
         private HandoffPairedClientStore _pairedClients;
         private HandoffPairingWindow _pairingWindow;
         private HandoffPairingSession _pairingSession;
+        private PluginUpdateModel _pluginUpdate;
 
         public void Initialize(IBroker broker)
         {
@@ -129,6 +130,18 @@ namespace Handoff.Plugin
 
             _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);
             _discoveryListener.Start();
+
+            // Checks GitHub releases once at plugin startup, not on VATSIM connect (issue #34) --
+            // a pilot setting up the sim/tablet is exactly the moment they'd want to notice and
+            // quit to update, not after they've already committed to a VATSIM session. Own
+            // background thread, same reasoning as VatGlassesDataModel/VatSpyDataModel's startup
+            // sync above -- network I/O (and now a blocking confirmation prompt) must never touch
+            // vPilot's own Initialize-calling thread. CheckMarker (a prior update having just been
+            // applied) is cheap local-disk-only, safe to run inline first.
+            _pluginUpdate = new PluginUpdateModel(_operationProgress, new HandoffUpdatePromptWindow(uiContext), _broker.PostDebugMessage);
+            _pluginUpdate.CheckMarker();
+            new Thread(() => _pluginUpdate.CheckAsync().GetAwaiter().GetResult())
+            { Name = "PluginUpdateModel.Startup", IsBackground = true }.Start();
 
             _broker.PostDebugMessage("Handoff plugin loaded.");
         }
