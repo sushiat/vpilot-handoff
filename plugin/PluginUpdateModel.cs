@@ -11,10 +11,17 @@ namespace Handoff.Plugin
 {
     /// <summary>
     /// Checks this repo's GitHub releases for a newer plugin version and, if found, downloads and
-    /// sha256-verifies the Handoff-Setup installer before launching it silently (issue #34). The
+    /// sha256-verifies the Handoff-Setup installer, asks the pilot to confirm (see
+    /// IHandoffUpdatePromptDisplay), and if accepted launches it silently (issue #34). The
     /// installer itself (plugin/installer/Handoff-Setup.iss) owns everything past that point --
     /// waiting for vPilot to exit, resolving the install folder from the registry, and copying
     /// files -- so this class's job ends at "hand off a verified, trusted binary."
+    ///
+    /// Runs once at plugin startup (HandoffPlugin.Initialize), not on VATSIM connect -- a pilot
+    /// setting up the sim/tablet is exactly the moment they'd want to notice and quit to update,
+    /// not after they've already committed to a VATSIM session. Mirrors VatGlassesDataModel/
+    /// VatSpyDataModel's own startup-sync pattern (own background thread, never vPilot's
+    /// Initialize-calling thread).
     ///
     /// Also reports a one-shot "update applied" notification: the installer writes
     /// Plugins\update-applied.json after an upgrade (not a fresh install), and CheckMarker (called
@@ -30,18 +37,21 @@ namespace Handoff.Plugin
         private static readonly HttpClient Http = new HttpClient();
 
         private readonly OperationProgressModel _operationProgress;
+        private readonly IHandoffUpdatePromptDisplay _promptDisplay;
         private readonly Action<string> _logDebug;
 
-        public PluginUpdateModel(OperationProgressModel operationProgress, Action<string> logDebug)
+        public PluginUpdateModel(OperationProgressModel operationProgress, IHandoffUpdatePromptDisplay promptDisplay, Action<string> logDebug)
         {
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
+            _promptDisplay = promptDisplay ?? throw new ArgumentNullException(nameof(promptDisplay));
             _logDebug = logDebug;
         }
 
         /// <summary>
         /// Checks for and applies an update. Fire-and-forget from the caller's perspective (never
-        /// throws) -- runs on whatever thread it's called from, so callers should not await it on
-        /// vPilot's own event-dispatch thread; see HandoffPlugin's NetworkConnected wiring.
+        /// throws) -- runs on whatever thread it's called from, and blocks that thread while the
+        /// confirmation prompt is up, so callers must run this on its own background thread, never
+        /// vPilot's own; see HandoffPlugin's startup wiring.
         /// </summary>
         public async Task CheckAsync()
         {
@@ -89,6 +99,16 @@ namespace Handoff.Plugin
                 {
                     _logDebug?.Invoke($"PluginUpdateModel: sha256 mismatch (expected {release.ExpectedSha256}, got {actualHash}) -- discarding download.");
                     _operationProgress.Finish(operationId, "Update verification failed -- discarded.", success: false);
+                    TryDeleteDirectory(stagingDir);
+                    return;
+                }
+
+                _operationProgress.Report(operationId, "Waiting for confirmation...");
+                if (!_promptDisplay.AskToInstall(release.Version))
+                {
+                    _logDebug?.Invoke($"PluginUpdateModel: pilot declined update to {release.Version}.");
+                    _operationProgress.Finish(operationId, "Update declined.", success: false);
+                    TryDeleteDirectory(stagingDir);
                     return;
                 }
 
@@ -104,12 +124,12 @@ namespace Handoff.Plugin
                 // The installer waits for vPilot to exit before it does anything to the live
                 // install, so this is "handed off successfully," not "install complete" -- the
                 // marker-file check on next plugin load reports actual completion.
-                _operationProgress.Finish(operationId, $"Update {release.Version} downloading in background -- restart vPilot to apply.", success: true);
+                _operationProgress.Finish(operationId, $"Update {release.Version} will install once vPilot is closed.", success: true);
             }
             catch (Exception ex)
             {
                 _logDebug?.Invoke("PluginUpdateModel: download/verify/launch failed: " + ex.Message);
-                _operationProgress.Finish(operationId, "Update failed -- will retry next connect.", success: false);
+                _operationProgress.Finish(operationId, "Update failed -- will retry next startup.", success: false);
                 TryDeleteDirectory(stagingDir);
             }
         }

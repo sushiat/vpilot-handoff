@@ -68,13 +68,19 @@ marker).
 
 ## Auto-update (issue #34)
 
-Once installed, the plugin checks this repo's GitHub releases for a newer version on every VATSIM
-connect (`PluginUpdateModel.CheckAsync`, wired off `IBroker.NetworkConnected` in
-`HandoffPlugin.cs` — no separate timer). On finding one, it downloads the same
+Once installed, the plugin checks this repo's GitHub releases for a newer version once at plugin
+startup (`PluginUpdateModel.CheckAsync`, its own background thread off `HandoffPlugin.Initialize`
+— same pattern as `VatGlassesDataModel`/`VatSpyDataModel`'s startup sync, not tied to VATSIM
+connect). Checking at startup rather than on connect is deliberate: that's the moment a pilot
+setting up the sim/tablet would actually want to notice and quit to update, not after they've
+already committed to a VATSIM session. On finding a newer version, it downloads the same
 `Handoff-Setup-*.exe` asset, verifies it against the sha256 GitHub's API already serves per-asset
 (`assets[].digest` — no separate `.sha256` file to publish or trust out-of-band; this only catches
 a corrupted/truncated download, not a compromised release, since both would come from the same
-source), then launches it silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) and returns — the
+source), then asks the pilot to confirm via a small local Windows dialog
+(`HandoffUpdatePromptWindow` — deliberately not round-tripped through the Android app, since the
+check can run before the tablet is even connected/paired for the session). If accepted, it
+launches the installer silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) and returns — the
 installer itself now owns waiting for vPilot to exit and doing the actual file swap.
 
 After a successful upgrade, the installer writes `Plugins\update-applied.json`; the plugin picks
