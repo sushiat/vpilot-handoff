@@ -38,8 +38,16 @@ plugin process and talks to a native Android client over your LAN. That gets you
 
 ## Screenshots
 
-*(Coming soon - first-release screenshots are being captured from a real VATSIM
-session.)*
+[![Fullscreen controller list, light mode](assets/01-fullscreen-interface.png)](https://raw.githubusercontent.com/sushiat/vpilot-handoff/master/assets/01-fullscreen-interface.png)
+> Fullscreen controller list, light mode, with live data populated highlighting missing VATSIM flight plan.
+
+[![Dark mode with Settings open](assets/02-darkmode-settings.png)](https://raw.githubusercontent.com/sushiat/vpilot-handoff/master/assets/02-darkmode-settings.png)
+> Dark mode, with the Settings dialog open.
+
+[![Split-screen mode](assets/03-splitscreen-controller.png)](https://raw.githubusercontent.com/sushiat/vpilot-handoff/master/assets/03-splitscreen-controller.png)
+> Split-screen mode, with a controller's info/tune dialog open, next to your other favourite cockpit app.
+
+More screenshots in the [gallery](assets/gallery.md).
 
 ## Installation
 
