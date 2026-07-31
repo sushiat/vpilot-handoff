@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -38,6 +39,16 @@ namespace Handoff.RadioHost
     /// Threading: no window handle needed (confirmed via FsConnect's own docs). Runs its own
     /// background poll loop and invokes onStateChanged whenever a new reading comes in;
     /// Program.cs forwards that to whichever pipe client is currently connected, if any.
+    ///
+    /// Every SimConnect call -- both this class's own poll (RequestData) and every write
+    /// (TransmitClientEvent via the public Set*/Select* methods) -- must happen on that one
+    /// poll-loop thread, never concurrently from a second one. SimConnect connections aren't
+    /// safe for multi-threaded access (confirmed live: writes from Program.cs's separate
+    /// ProcessCommandQueue thread racing against this class's own poll thread corrupted the
+    /// connection mid-flight -- readback stalled for minutes and eventually stopped
+    /// altogether, while writes kept silently succeeding). The public methods below don't call
+    /// SimConnect directly any more; they enqueue onto _commandQueue, which only
+    /// ReadFromSimConnect's own thread ever drains and executes.
     /// </summary>
     internal sealed class RadioSimConnectClient
     {
@@ -137,6 +148,14 @@ namespace Handoff.RadioHost
         private readonly FsConnect _fsConnect;
         private readonly Action<RadioState> _onStateChanged;
         private readonly Action<OwnshipTelemetry> _onTelemetryChanged;
+
+        // Every write (TransmitClientEvent) is enqueued here instead of calling SimConnect
+        // directly from whichever thread the public Set*/Select* method was called on --
+        // ReadFromSimConnect's own thread is the only one ever allowed to touch _fsConnect/
+        // _rawSimConnect, draining this queue each poll tick before its own RequestData call.
+        // See the class doc comment.
+        private readonly BlockingCollection<Action> _commandQueue = new BlockingCollection<Action>();
+
         private volatile bool _dataDefinitionsRegistered;
         private bool _loggedFirstState;
         private SimConnect _rawSimConnect;
@@ -175,25 +194,25 @@ namespace Handoff.RadioHost
         public void SetCom1Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            SetFrequencyViaEvent("COM1 active", megahertz, Events.SetCom1FrequencyHz, () => _lastCom1FrequencyMhz);
+            _commandQueue.Add(() => SetFrequencyViaEvent("COM1 active", megahertz, Events.SetCom1FrequencyHz, () => _lastCom1FrequencyMhz));
         }
 
         public void SetCom2Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            SetFrequencyViaEvent("COM2 active", megahertz, Events.SetCom2FrequencyHz, () => _lastCom2FrequencyMhz);
+            _commandQueue.Add(() => SetFrequencyViaEvent("COM2 active", megahertz, Events.SetCom2FrequencyHz, () => _lastCom2FrequencyMhz));
         }
 
         public void SetCom1StandbyFrequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            SetFrequencyViaEvent("COM1 standby", megahertz, Events.SetCom1StandbyFrequencyHz, () => _lastCom1StandbyFrequencyMhz);
+            _commandQueue.Add(() => SetFrequencyViaEvent("COM1 standby", megahertz, Events.SetCom1StandbyFrequencyHz, () => _lastCom1StandbyFrequencyMhz));
         }
 
         public void SetCom2StandbyFrequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            SetFrequencyViaEvent("COM2 standby", megahertz, Events.SetCom2StandbyFrequencyHz, () => _lastCom2StandbyFrequencyMhz);
+            _commandQueue.Add(() => SetFrequencyViaEvent("COM2 standby", megahertz, Events.SetCom2StandbyFrequencyHz, () => _lastCom2StandbyFrequencyMhz));
         }
 
         /// <summary>
@@ -210,18 +229,18 @@ namespace Handoff.RadioHost
         {
             RadioFrequency.ValidateAirbandRange(activeMegahertz);
             RadioFrequency.ValidateAirbandRange(standbyMegahertz);
-            SetActiveAndStandbyViaEvents(
+            _commandQueue.Add(() => SetActiveAndStandbyViaEvents(
                 "COM1", activeMegahertz, Events.SetCom1FrequencyHz, standbyMegahertz, Events.SetCom1StandbyFrequencyHz,
-                () => _lastCom1FrequencyMhz, () => _lastCom1StandbyFrequencyMhz);
+                () => _lastCom1FrequencyMhz, () => _lastCom1StandbyFrequencyMhz));
         }
 
         public void SetCom2ActiveAndStandbyFrequency(double activeMegahertz, double standbyMegahertz)
         {
             RadioFrequency.ValidateAirbandRange(activeMegahertz);
             RadioFrequency.ValidateAirbandRange(standbyMegahertz);
-            SetActiveAndStandbyViaEvents(
+            _commandQueue.Add(() => SetActiveAndStandbyViaEvents(
                 "COM2", activeMegahertz, Events.SetCom2FrequencyHz, standbyMegahertz, Events.SetCom2StandbyFrequencyHz,
-                () => _lastCom2FrequencyMhz, () => _lastCom2StandbyFrequencyMhz);
+                () => _lastCom2FrequencyMhz, () => _lastCom2StandbyFrequencyMhz));
         }
 
         private void SetActiveAndStandbyViaEvents(
@@ -251,16 +270,22 @@ namespace Handoff.RadioHost
         /// </summary>
         public void SelectCom1Transmitter()
         {
-            Logger.Log("Selecting COM1 as transmitter via SimConnect event.");
-            TransmitPriorityEvent(Events.SelectCom1Transmitter, 0);
-            Thread.Sleep(SettleWaitMs);
+            _commandQueue.Add(() =>
+            {
+                Logger.Log("Selecting COM1 as transmitter via SimConnect event.");
+                TransmitPriorityEvent(Events.SelectCom1Transmitter, 0);
+                Thread.Sleep(SettleWaitMs);
+            });
         }
 
         public void SelectCom2Transmitter()
         {
-            Logger.Log("Selecting COM2 as transmitter via SimConnect event.");
-            TransmitPriorityEvent(Events.SelectCom2Transmitter, 0);
-            Thread.Sleep(SettleWaitMs);
+            _commandQueue.Add(() =>
+            {
+                Logger.Log("Selecting COM2 as transmitter via SimConnect event.");
+                TransmitPriorityEvent(Events.SelectCom2Transmitter, 0);
+                Thread.Sleep(SettleWaitMs);
+            });
         }
 
         /// <summary>
@@ -274,35 +299,44 @@ namespace Handoff.RadioHost
         /// </summary>
         public void SetCom1ReceiveEnabled(bool enabled)
         {
-            if (_lastCom1ReceiveEnabled == enabled)
+            // The already-X-skip check runs when this actually executes on the poll thread, not
+            // at enqueue time -- _lastCom1ReceiveEnabled may well have moved on by then, and the
+            // freshest read is what should decide whether a redundant SimConnect call is skipped.
+            _commandQueue.Add(() =>
             {
-                Logger.Log("COM1 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
-                return;
-            }
+                if (_lastCom1ReceiveEnabled == enabled)
+                {
+                    Logger.Log("COM1 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
+                    return;
+                }
 
-            Logger.Log("Setting COM1 receive to " + enabled + " via SimConnect event.");
-            TransmitPriorityEvent(Events.SetCom1ReceiveSelect, enabled ? 1u : 0u);
-            Thread.Sleep(SettleWaitMs);
-            // Unlike SetFrequencyViaEvent/SetTransponderCode, this event's own effect was never
-            // verified end to end before this was actually wired to a client-facing command --
-            // log whether it actually took, since COM1_RECEIVE_SELECT not being implemented by a
-            // given aircraft's custom avionics (same category of issue as any other legacy K-event
-            // a complex addon doesn't wire up) would otherwise look identical to a plugin bug.
-            Logger.Log("COM1 receive now reads " + _lastCom1ReceiveEnabled + " (target " + enabled + ").");
+                Logger.Log("Setting COM1 receive to " + enabled + " via SimConnect event.");
+                TransmitPriorityEvent(Events.SetCom1ReceiveSelect, enabled ? 1u : 0u);
+                Thread.Sleep(SettleWaitMs);
+                // Unlike SetFrequencyViaEvent/SetTransponderCode, this event's own effect was never
+                // verified end to end before this was actually wired to a client-facing command --
+                // log whether it actually took, since COM1_RECEIVE_SELECT not being implemented by a
+                // given aircraft's custom avionics (same category of issue as any other legacy K-event
+                // a complex addon doesn't wire up) would otherwise look identical to a plugin bug.
+                Logger.Log("COM1 receive now reads " + _lastCom1ReceiveEnabled + " (target " + enabled + ").");
+            });
         }
 
         public void SetCom2ReceiveEnabled(bool enabled)
         {
-            if (_lastCom2ReceiveEnabled == enabled)
+            _commandQueue.Add(() =>
             {
-                Logger.Log("COM2 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
-                return;
-            }
+                if (_lastCom2ReceiveEnabled == enabled)
+                {
+                    Logger.Log("COM2 receive already " + (enabled ? "enabled" : "disabled") + ", skipping SimConnect event.");
+                    return;
+                }
 
-            Logger.Log("Setting COM2 receive to " + enabled + " via SimConnect event.");
-            TransmitPriorityEvent(Events.SetCom2ReceiveSelect, enabled ? 1u : 0u);
-            Thread.Sleep(SettleWaitMs);
-            Logger.Log("COM2 receive now reads " + _lastCom2ReceiveEnabled + " (target " + enabled + ").");
+                Logger.Log("Setting COM2 receive to " + enabled + " via SimConnect event.");
+                TransmitPriorityEvent(Events.SetCom2ReceiveSelect, enabled ? 1u : 0u);
+                Thread.Sleep(SettleWaitMs);
+                Logger.Log("COM2 receive now reads " + _lastCom2ReceiveEnabled + " (target " + enabled + ").");
+            });
         }
 
         public void SetTransponderCode(int squawk)
@@ -310,11 +344,14 @@ namespace Handoff.RadioHost
             Handoff.Plugin.TransponderCode.ValidateSquawkRange(squawk);
             var targetBcd = Handoff.Plugin.TransponderCode.ToBcd(squawk);
 
-            Logger.Log("Setting transponder code via XPNDR_SET: " + squawk + " (bcd=0x" + targetBcd.ToString("X4") + ")");
-            TransmitPriorityEvent(Events.SetTransponderCode, (uint)targetBcd);
+            _commandQueue.Add(() =>
+            {
+                Logger.Log("Setting transponder code via XPNDR_SET: " + squawk + " (bcd=0x" + targetBcd.ToString("X4") + ")");
+                TransmitPriorityEvent(Events.SetTransponderCode, (uint)targetBcd);
 
-            Thread.Sleep(SettleWaitMs);
-            Logger.Log("Transponder code now reads 0x" + _lastTransponderCodeBcd.ToString("X4") + " (target 0x" + targetBcd.ToString("X4") + ").");
+                Thread.Sleep(SettleWaitMs);
+                Logger.Log("Transponder code now reads 0x" + _lastTransponderCodeBcd.ToString("X4") + " (target 0x" + targetBcd.ToString("X4") + ").");
+            });
         }
 
         private void SetFrequencyViaEvent(string label, double megahertz, Events eventId, Func<double> readCurrent)
@@ -506,12 +543,27 @@ namespace Handoff.RadioHost
 
                     if (_fsConnect.Connected && _dataDefinitionsRegistered)
                     {
+                        // Drains every write queued by the public Set*/Select* methods (called
+                        // from Program.cs's own ProcessCommandQueue thread) before this tick's
+                        // own poll -- see the class doc comment for why this must all happen on
+                        // this one thread. Each queued action already does its own settle-wait,
+                        // so a burst of commands pushes this tick's RequestData/telemetry poll
+                        // back accordingly rather than racing it.
+                        while (_commandQueue.TryTake(out var queuedCommand))
+                        {
+                            try
+                            {
+                                queuedCommand();
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Log("Error executing queued SimConnect command: " + ex);
+                            }
+                        }
+
                         // One thread, two independent cadences: tick at the shorter (radio)
                         // interval and only re-request telemetry once enough ticks have
-                        // accumulated to reach TelemetryPollIntervalMs. Avoids a second thread
-                        // making concurrent SimConnect calls, which the class isn't designed
-                        // for (see TransmitPriorityEvent/OnRecvException handling above --
-                        // SimConnect calls here are assumed single-threaded).
+                        // accumulated to reach TelemetryPollIntervalMs.
                         _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
 
                         _msSinceLastTelemetryPoll += PollIntervalMs;
