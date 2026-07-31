@@ -12,7 +12,9 @@ This is a monorepo with two independently buildable components:
   JDK and the Android SDK.
 
 CI (`.github/workflows/build.yml`) builds and tests both on every push/PR — that's the
-baseline both need to pass.
+baseline both need to pass. CodeQL also runs on every PR, both as classic code scanning
+and the newer code quality analysis — any `ERROR`-severity finding from either blocks
+the merge (see the "Protect master" ruleset).
 
 ## Workflow
 

@@ -26,11 +26,14 @@ vPilot companion app: live VATSIM controller list + two-way chat on an Android E
 
 ## Open items to verify empirically once the plugin skeleton exists
 
-- Does `FlightPlanReceived`/`RequestFlightPlan()` still function post-removal of vPilot's in-client filing UI?
 - Confirm no stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml` copies exist in the plugin folder (known FSLabs-installer bug that breaks plugin loading).
 
 ## Resolved
 
+- **vPilot's in-client flight-plan filing UI is fully gone, not just deprecated** — confirmed
+  directly, nothing left of it at all. Consistent with (and reinforces) the flight-plan
+  finding above: there's no legacy in-client path that could resurface a `FlightPlanReceived`
+  equivalent later, on top of the plugin API surface itself never having exposed one.
 - **vPilot install location is user-configurable, not fixed.** `%LOCALAPPDATA%\vPilot` is
   only the installer's *default* — the user can pick a different folder at install time.
   The authoritative source is the registry: `HKCU\Software\vPilot`, value `Install_Dir`

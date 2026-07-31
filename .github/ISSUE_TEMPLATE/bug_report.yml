@@ -35,9 +35,7 @@ body:
       options:
         - MSFS 2020
         - MSFS 2024
-        - X-Plane
-        - Prepar3D
-        - Other
+        - Other (untested -- Handoff.RadioHost targets modern SimConnect only, see plugin/README.md)
     validations:
       required: true
 
@@ -45,7 +43,7 @@ body:
     id: vpilot-version
     attributes:
       label: vPilot version
-      placeholder: e.g. 3.0.5
+      placeholder: e.g. 3.12.1
     validations:
       required: true
 
@@ -53,7 +51,7 @@ body:
     id: plugin-version
     attributes:
       label: Handoff plugin version
-      description: Shown in the plugin's release zip filename, or check plugin/Handoff.Plugin.csproj if built from source.
+      description: Shown in the Android app's bottom drawer (next to "vPilot plugin"), the plugin's release zip filename, or plugin/Handoff.Plugin.csproj if built from source.
       placeholder: e.g. 0.1.0
     validations:
       required: true
@@ -62,7 +60,7 @@ body:
     id: android-app-version
     attributes:
       label: Handoff Android app version
-      description: Settings > About in the app, or the APK filename.
+      description: Shown top-right of the app's header row (next to the "Handoff" title), or check the APK filename.
       placeholder: e.g. 0.1.0
     validations:
       required: true

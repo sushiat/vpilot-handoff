@@ -156,16 +156,11 @@ jobs:
 
           $zipName = "Handoff-Plugin-$tag.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $zipName
-          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash.ToLower()
-          "$hash  $zipName" | Out-File -Encoding ascii -NoNewline "$zipName.sha256"
-          Add-Content -Encoding ascii -Value "" "$zipName.sha256"
 
       - uses: actions/upload-artifact@v7
         with:
           name: plugin-package
-          path: |
-            Handoff-Plugin-*.zip
-            Handoff-Plugin-*.zip.sha256
+          path: Handoff-Plugin-*.zip
 
   android:
     name: Build Android release APK
@@ -210,20 +205,16 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Rename and hash
+      - name: Rename APK
         run: |
           tag="${{ github.ref_name }}"
           apk="android/app/build/outputs/apk/release/app-release.apk"
-          renamed="Handoff-$tag.apk"
-          mv "$apk" "$renamed"
-          sha256sum "$renamed" > "$renamed.sha256"
+          mv "$apk" "Handoff-$tag.apk"
 
       - uses: actions/upload-artifact@v7
         with:
           name: android-package
-          path: |
-            Handoff-*.apk
-            Handoff-*.apk.sha256
+          path: Handoff-*.apk
 
   release:
     name: Publish GitHub release
@@ -248,9 +239,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: |
             Handoff-Plugin-*.zip
-            Handoff-Plugin-*.zip.sha256
             Handoff-*.apk
-            Handoff-*.apk.sha256
           body_path: release-notes.md
           prerelease: false
           fail_on_unmatched_files: true
