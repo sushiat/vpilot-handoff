@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin: COM1/2 transmit/receive and Mode C are now gated on
+  `CIRCUIT NAVCOM1 ON` (issue #55) — some aircraft's own systems don't
+  reset `COM TRANSMIT`/`COM RECEIVE`/`TRANSPONDER STATE` to off when
+  power is cut, so those are no longer trusted on their own; all of them
+  are forced off together whenever that circuit reads unpowered.
 - Android: the MSG button's unread badge is wired up (issue #32) — per-tab
   unread counts now increment on incoming radio/broadcast and private
   messages, cleared on switching to a tab or opening the chat panel to view
