@@ -5,6 +5,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// versionName is the single source of truth -- versionCode is derived from it (major*1_000_000 +
+// minor*1_000 + patch) so there's no separate counter to remember to bump every release. CI
+// additionally checks the derived code against the latest published release before tagging (see
+// .github/workflows/release.yml) as a safety net against a version number that was never meant
+// to be lower ending up lower anyway.
+val appVersionName = "0.1.0"
+
+fun versionCodeFor(versionName: String): Int {
+    val (major, minor, patch) = versionName.split(".").map { it.toInt() }
+    return major * 1_000_000 + minor * 1_000 + patch
+}
+
 android {
     namespace = "at.sushi.handoff"
     compileSdk = 35
@@ -13,13 +25,31 @@ android {
         applicationId = "at.sushi.handoff"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = versionCodeFor(appVersionName)
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        // Populated from RELEASE_KEYSTORE_PATH/RELEASE_KEYSTORE_PASSWORD/RELEASE_KEY_ALIAS/
+        // RELEASE_KEY_PASSWORD env vars in CI (see .github/workflows/release.yml). Falls back to
+        // an unsigned release build when unset, so `assembleRelease` still works for anyone
+        // without the release keystore -- Android just won't accept it as an update over a
+        // signed install.
+        val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+        if (releaseKeystorePath != null) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 

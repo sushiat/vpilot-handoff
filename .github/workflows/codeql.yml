@@ -1,0 +1,104 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: '19 4 * * 1'
+
+jobs:
+  csharp:
+    name: Analyze (csharp)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build vPilot plugin API stub
+        # Same stub-DLL approach as build.yml -- the real SDK DLL isn't redistributed (see
+        # plugin/README.md), so CI builds against a hand-reconstructed public-API-only stub.
+        run: |
+          dotnet build ci/plugin-stub-ref/StubRef.csproj -o ci/plugin-stub-ref/out
+          New-Item -ItemType Directory -Force -Path plugin/lib | Out-Null
+          Copy-Item ci/plugin-stub-ref/out/RossCarlson.Vatsim.Vpilot.Plugins.dll plugin/lib/
+        shell: pwsh
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          queries: security-and-quality
+
+      - name: Build
+        shell: pwsh
+        run: |
+          dotnet build plugin/Handoff.Plugin.csproj
+          dotnet build plugin/Handoff.RadioHost/Handoff.RadioHost.csproj
+          dotnet build plugin/Handoff.Plugin.Tests/Handoff.Plugin.Tests.csproj
+          dotnet build plugin/Handoff.ReplayTool/Handoff.ReplayTool.csproj
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp
+
+  java-kotlin:
+    name: Analyze (java-kotlin)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          queries: security-and-quality
+
+      - name: Build
+        # clean + --no-build-cache: a cache hit (from setup-gradle's own restore, or Gradle's
+        # build cache) would let assembleDebug finish without ever actually invoking the Kotlin
+        # compiler -- CodeQL only sees source code that a compiler it's tracing actually
+        # compiled, so a cached no-op build looks identical to "no code" to it.
+        working-directory: android
+        run: ./gradlew clean assembleDebug --no-daemon --no-build-cache
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:java-kotlin
+
+  actions:
+    name: Analyze (actions)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:actions

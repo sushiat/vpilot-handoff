@@ -5,6 +5,7 @@
     <RootNamespace>Handoff.Plugin</RootNamespace>
     <AssemblyName>Handoff.Plugin</AssemblyName>
     <LangVersion>latest</LangVersion>
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
