@@ -305,3 +305,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android: a spinning progress indicator driven by `operationProgress`, reusing the footer's
   flight-plan-warning icon slot when collapsed and moving to its own status line in the
   expanded drawer (e.g. "Updating VatGlasses file 12/24") when open.
+- Plugin: auto-updater (issue #34) — checks this repo's GitHub releases once at plugin startup
+  (own background thread, not tied to VATSIM connect, so a pilot setting up the sim notices
+  before committing to a session), downloads a newer `Handoff-Setup-*.exe` installer and
+  verifies it against GitHub's own per-asset sha256 digest, then asks the pilot to confirm via
+  a branded local Windows dialog (`HandoffUpdatePromptWindow`, sharing `HandoffPairingWindow`'s
+  logo/header chrome) before launching it silently. The same installer
+  (`plugin/installer/Handoff-Setup.iss`, built with Inno Setup) now also handles first-time
+  install — no admin rights either way, since it resolves the Plugins folder from
+  `HKCU\Software\vPilot\Install_Dir` and waits for vPilot to exit before copying files —
+  replacing the old manual zip-extract-into-Plugins-folder instructions entirely. Update
+  progress and a one-shot "updated to X.Y.Z" notice after an upgrade reuse the existing
+  `operationProgress` message, no new wire format needed.
+- Android: a startup check against the same GitHub release for a newer app version, shown as a
+  dismissible notice for manually sideloaded installs and suppressed entirely when Obtainium
+  (which already handles updates) is detected as the installing package
+  (`getInstallSourceInfo`/`getInstallerPackageName`).
+- `docs/protocol.md`: new Compatibility section documenting that the contract stays
+  additive/backward-compatible by design rather than version-gated now that the plugin and
+  Android app can update independently of each other, plus a Changelog section tracking future
+  message-shape changes.

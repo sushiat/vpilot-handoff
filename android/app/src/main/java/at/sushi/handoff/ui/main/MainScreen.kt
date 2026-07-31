@@ -28,14 +28,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.core.content.edit
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.LayoutMode
+import at.sushi.handoff.network.AppUpdateClient
+import at.sushi.handoff.network.AppUpdateDismissStore
 import at.sushi.handoff.network.IgnoredDeviceStore
+import at.sushi.handoff.network.isInstalledViaObtainium
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
 import at.sushi.handoff.protocol.ConfirmDiversionCommand
 import at.sushi.handoff.protocol.DismissDiversionCommand
@@ -60,6 +65,7 @@ import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.chat.RADIO_TAB
 import at.sushi.handoff.ui.chat.mentionsCallsign
+import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.DiversionConfirmDialog
@@ -178,6 +184,22 @@ private fun MainScreenContent() {
         }
     }
 
+    // One-shot startup check (issue #34) -- skipped entirely for Obtainium-managed installs,
+    // which already handle this on their own; a manually sideloaded install gets a "Not now"-
+    // dismissible notice instead, remembered per-version so it doesn't nag again for the same
+    // release once dismissed.
+    LaunchedEffect(Unit) {
+        if (isInstalledViaObtainium(context)) return@LaunchedEffect
+        val currentVersion = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: return@LaunchedEffect
+
+        val update = AppUpdateClient.checkForUpdate(currentVersion) ?: return@LaunchedEffect
+        if (AppUpdateDismissStore.loadDismissedVersion(prefs) != update.version) {
+            HandoffState.setUpdateAvailable(update)
+        }
+    }
+
     val controllers by HandoffState.controllers.collectAsState()
     val chat by HandoffState.chat.collectAsState()
     val radioState by HandoffState.radioState.collectAsState()
@@ -217,6 +239,7 @@ private fun MainScreenContent() {
     val operationProgress by HandoffState.operationProgress.collectAsState()
     val pendingPairing by HandoffState.pendingPairing.collectAsState()
     val diversionPending by HandoffState.diversionPending.collectAsState()
+    val updateAvailable by HandoffState.updateAvailable.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
     val operationIndicator = combineOperationIndicator(visibleOperations)
 
@@ -610,6 +633,23 @@ private fun MainScreenContent() {
             pending = pending,
             onSubmitCode = { code -> HandoffConnectionService.instance?.submitPairingCode(code) },
             onCancel = { permanent -> HandoffConnectionService.instance?.cancelPairing(permanent) }
+        )
+    }
+
+    // Driven by HandoffState.updateAvailable rather than a locally-owned open/closed flag, same
+    // reasoning as pendingPairing above -- the startup check (see LaunchedEffect(Unit) further
+    // up) decides when this needs showing, not a user-initiated button.
+    updateAvailable?.let { update ->
+        AppUpdateDialog(
+            version = update.version,
+            onOpenRelease = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)))
+                HandoffState.setUpdateAvailable(null)
+            },
+            onDismiss = {
+                AppUpdateDismissStore.saveDismissedVersion(prefs, update.version)
+                HandoffState.setUpdateAvailable(null)
+            }
         )
     }
 
