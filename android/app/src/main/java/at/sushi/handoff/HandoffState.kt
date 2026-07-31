@@ -1,5 +1,6 @@
 package at.sushi.handoff
 
+import at.sushi.handoff.network.AppUpdateInfo
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.DiversionPendingMessage
@@ -173,6 +174,9 @@ object HandoffState {
     private val _pendingPairing = MutableStateFlow<PendingPairing?>(null)
     val pendingPairing: StateFlow<PendingPairing?> = _pendingPairing.asStateFlow()
 
+    private val _updateAvailable = MutableStateFlow<AppUpdateInfo?>(null)
+    val updateAvailable: StateFlow<AppUpdateInfo?> = _updateAvailable.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -290,5 +294,9 @@ object HandoffState {
 
     fun setPendingPairing(pending: PendingPairing?) {
         _pendingPairing.value = pending
+    }
+
+    fun setUpdateAvailable(info: AppUpdateInfo?) {
+        _updateAvailable.value = info
     }
 }

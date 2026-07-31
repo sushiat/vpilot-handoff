@@ -39,6 +39,25 @@ jobs:
         run: dotnet build plugin/Handoff.RadioHost/Handoff.RadioHost.csproj
         shell: pwsh
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+        shell: pwsh
+
+      - name: Build plugin (Release, for installer sources)
+        run: dotnet build plugin/Handoff.Plugin.csproj -c Release -o plugin/publish/plugin
+        shell: pwsh
+
+      - name: Build RadioHost (Release, for installer sources)
+        run: dotnet build plugin/Handoff.RadioHost/Handoff.RadioHost.csproj -c Release -o plugin/publish/plugin/RadioHost
+        shell: pwsh
+
+      - name: Compile installer (sanity check, not published)
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $pwd "plugin\publish\plugin"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.0.0-ci /DSourceDir="$sourceDir" plugin/installer/Handoff-Setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC.exe failed with exit code $LASTEXITCODE" }
+
       - name: Test
         run: dotnet test plugin/Handoff.Plugin.Tests/Handoff.Plugin.Tests.csproj
         shell: pwsh
