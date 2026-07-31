@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <!-- WebSocket server for the Android client. Raw TCP sockets, no http.sys involved,
          unlike HttpListener, so binding to a LAN-reachable address needs no admin rights or
          netsh URL-ACL setup. -->
