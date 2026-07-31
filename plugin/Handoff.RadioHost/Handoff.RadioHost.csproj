@@ -19,7 +19,7 @@
          AircraftAssignments_MSFS24.xml profile), a real, previously unexamined version mismatch
          with the plugin's read/write behavior worth ruling out. -->
     <PackageReference Include="CTrue.FsConnect" Version="1.4.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
   <ItemGroup>
