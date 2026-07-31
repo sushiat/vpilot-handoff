@@ -72,7 +72,6 @@ in transit.
 From then on the plugin checks for updates itself on every vPilot startup, downloads and
 verifies a newer release automatically, and asks you to confirm (a small popup on the PC,
 not the tablet) before installing it - no need to repeat these steps for future releases.
-See `plugin/README.md` for the exact file layout if you're building from source instead.
 
 ## Status
 
