@@ -122,7 +122,7 @@ namespace Handoff.Plugin
             var words = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             for (var i = 0; i < words.Length; i++)
             {
-                foreach (var part in words[i].Split('/').Where(part => Array.Exists(BoilerplateKeywords, k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase))))
+                if (words[i].Split('/').Any(part => Array.Exists(BoilerplateKeywords, k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase))))
                 {
                     return string.Join(" ", words, 0, i);
                 }

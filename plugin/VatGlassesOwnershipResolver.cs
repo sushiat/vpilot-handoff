@@ -47,9 +47,10 @@ namespace Handoff.Plugin
                 var position = positions[positionId];
                 var expectedTier = ParsePositionTier(position.Type);
                 if (!expectedTier.HasValue) continue;
+                var tier = expectedTier.Value;
 
                 foreach (var c in onlineControllers.Where(c =>
-                    c.Callsign.ParseControllerTier() == expectedTier.Value &&
+                    c.Callsign.ParseControllerTier() == tier &&
                     position.Prefixes.Any(prefix => c.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))))
                 {
                     if (seen.Add(c.Callsign)) result.Add(c);

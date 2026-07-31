@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace Handoff.Plugin
@@ -23,10 +24,8 @@ namespace Handoff.Plugin
         public static string Combine(params string[] segments)
         {
             var builder = new StringBuilder();
-            foreach (var segment in segments)
+            foreach (var segment in segments.Where(s => !string.IsNullOrEmpty(s)))
             {
-                if (string.IsNullOrEmpty(segment)) continue;
-
                 if (builder.Length == 0)
                 {
                     builder.Append(segment);
