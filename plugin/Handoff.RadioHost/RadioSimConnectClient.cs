@@ -460,10 +460,12 @@ namespace Handoff.RadioHost
 
                             Logger.Log("SimConnect connected, data definitions registered, events mapped.");
                         }
-                        catch (Exception ex)
+                        catch (COMException ex)
                         {
-                            // SimConnect throws when the sim isn't running -- expected while
-                            // waiting for MSFS to start.
+                            // SimConnect throws E_FAIL when the sim isn't running -- expected
+                            // while waiting for MSFS to start. Anything else escapes to the
+                            // outer catch below, which forces a full reconnect instead of
+                            // silently retrying the same call.
                             Logger.Log("Error connecting to SimConnect: " + ex);
                         }
                     }

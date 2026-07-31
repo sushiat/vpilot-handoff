@@ -111,8 +111,10 @@ namespace Handoff.RadioHost
                     // out given the main process's identical connect call works fine.
                     fsConnect.Connect("Handoff", 0);
                 }
-                catch (Exception ex)
+                catch (COMException ex)
                 {
+                    // E_FAIL while the sim isn't running yet -- expected, keep retrying. Anything
+                    // else is a real bug and should surface directly rather than retry-spam for 20s.
                     Console.WriteLine("Connect attempt failed: " + ex.Message + " -- retrying...");
                     Thread.Sleep(2000);
                     continue;
