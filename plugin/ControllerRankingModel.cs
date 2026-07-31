@@ -1264,12 +1264,24 @@ namespace Handoff.Plugin
         {
             var byCallsign = block.Candidates.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
 
-            var next = block.NextCallsigns.Select(cs => byCallsign[cs]);
+            // NextCallsigns/LikelyNextCallsigns/HighlightedCallsigns aren't guaranteed to be a
+            // subset of Candidates -- bucket 7c/8's "entering"/"converging" owner matches
+            // (FindEnteringOwnerMatches/FindVatSpyEnteringOwnerMatches) resolve against every
+            // online controller of the right tier, not just this bucket's own already
+            // tier+exclusion-filtered Candidates list, so a controller already claimed by an
+            // earlier bucket can still surface here (confirmed live: crashed mid-flight on
+            // byCallsign[cs] for exactly such a callsign). Safe to just skip it in that case --
+            // it was necessarily already placed into finalOrder by whichever earlier bucket
+            // claimed it, and its IsHighlighted/IsNext/IsLikelyNext flags are set correctly
+            // regardless, from these same sets checked against the full controller list in
+            // Recompute(), independent of this function.
+            var next = block.NextCallsigns.Where(byCallsign.ContainsKey).Select(cs => byCallsign[cs]);
             var likelyNext = block.LikelyNextCallsigns
+                .Where(byCallsign.ContainsKey)
                 .Select(cs => byCallsign[cs])
                 .OrderBy(c => block.DistanceNm.TryGetValue(c.Callsign, out var d) ? d : double.MaxValue);
             var highlightedOnly = block.HighlightedCallsigns
-                .Where(cs => !block.NextCallsigns.Contains(cs) && !block.LikelyNextCallsigns.Contains(cs))
+                .Where(cs => byCallsign.ContainsKey(cs) && !block.NextCallsigns.Contains(cs) && !block.LikelyNextCallsigns.Contains(cs))
                 .Select(cs => byCallsign[cs])
                 .OrderBy(c => c.Callsign.ParseControllerTier())
                 .ThenBy(c => block.DistanceNm.TryGetValue(c.Callsign, out var d) ? d : double.MaxValue);
