@@ -106,6 +106,7 @@ namespace Handoff.RadioHost
             public int Com2Transmit;
             public int Com1Receive;
             public int Com2Receive;
+            public int CircuitNavCom1On;
         }
 
         // Raw ownship telemetry -- own data definition/request (see Requests.OwnshipTelemetrySimVars)
@@ -140,6 +141,12 @@ namespace Handoff.RadioHost
         private bool _loggedFirstState;
         private SimConnect _rawSimConnect;
         private int _msSinceLastTelemetryPoll;
+
+        // Tracks avionicsPowered across polls purely to log on transitions (see OnFsDataReceived)
+        // -- diagnosing issue #55, where two prior candidate simvars both turned out to be stuck
+        // true on a real aircraft with the power off. Nullable so the very first poll always logs
+        // (no prior state to compare against).
+        private bool? _lastAvionicsPowered;
 
         // Live raw readings, updated on every SimConnect poll -- used to verify a write
         // actually took effect.
@@ -357,23 +364,49 @@ namespace Handoff.RadioHost
                     _lastCom1ReceiveEnabled = radioSimVars.Com1Receive != 0;
                     _lastCom2ReceiveEnabled = radioSimVars.Com2Receive != 0;
 
+                    // Some aircraft (private jets especially, running the newer WASM/Input Event
+                    // electrical model) don't reliably reset COM TRANSMIT/RECEIVE or TRANSPONDER
+                    // STATE back to off when power is cut -- confirmed live: cycling the battery
+                    // left our transponder reading "Mode C on" while vPilot correctly showed it
+                    // off. ELECTRICAL MASTER BATTERY/AVIONICS MASTER SWITCH turned out to have the
+                    // same problem on that same aircraft (confirmed live: both read stuck true on
+                    // a cold-and-dark aircraft), despite being the legacy switch-position bools --
+                    // this aircraft's custom electrical model just doesn't drive them. CIRCUIT
+                    // NAVCOM1 ON instead reports actual circuit power (not switch position), is
+                    // inherited unchanged from the original FSX SDK baseline (no version-added tag
+                    // in Prepar3D's docs, unlike the master switches), and tested correctly live on
+                    // the same aircraft. Gates radios/Mode C together (not per-COM) off this one
+                    // circuit rather than modeling NAVCOM2's own circuit separately.
+                    var avionicsPowered = radioSimVars.CircuitNavCom1On != 0;
+
+                    if (_lastAvionicsPowered != avionicsPowered)
+                    {
+                        Logger.Log(
+                            "avionicsPowered changed: " + _lastAvionicsPowered + " -> " + avionicsPowered +
+                            " (CircuitNavCom1On=" + radioSimVars.CircuitNavCom1On +
+                            ", TransponderState=" + radioSimVars.TransponderState +
+                            ", Com1Tx=" + radioSimVars.Com1Transmit + ", Com2Tx=" + radioSimVars.Com2Transmit +
+                            ", Com1Rx=" + radioSimVars.Com1Receive + ", Com2Rx=" + radioSimVars.Com2Receive + ")");
+                        _lastAvionicsPowered = avionicsPowered;
+                    }
+
                     var next = new RadioState(
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com1FrequencyMhz),
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com2FrequencyMhz),
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com1StandbyFrequencyMhz),
                         RadioFrequency.ToVatsimCompressed(radioSimVars.Com2StandbyFrequencyMhz),
-                        radioSimVars.TransponderState == TransponderStateAlt,
+                        avionicsPowered && radioSimVars.TransponderState == TransponderStateAlt,
                         Handoff.Plugin.TransponderCode.FromBcd(radioSimVars.TransponderCodeBcd),
-                        radioSimVars.Com1Transmit != 0,
-                        radioSimVars.Com2Transmit != 0,
-                        _lastCom1ReceiveEnabled,
-                        _lastCom2ReceiveEnabled,
+                        avionicsPowered && radioSimVars.Com1Transmit != 0,
+                        avionicsPowered && radioSimVars.Com2Transmit != 0,
+                        avionicsPowered && _lastCom1ReceiveEnabled,
+                        avionicsPowered && _lastCom2ReceiveEnabled,
                         DateTimeOffset.Now);
 
                     if (!_loggedFirstState)
                     {
                         _loggedFirstState = true;
-                        Logger.Log($"First SimConnect radio data received: Com1={radioSimVars.Com1FrequencyMhz}, Com2={radioSimVars.Com2FrequencyMhz}, Com1Stby={radioSimVars.Com1StandbyFrequencyMhz}, Com2Stby={radioSimVars.Com2StandbyFrequencyMhz}, TransponderState={radioSimVars.TransponderState}, TransponderCodeBcd=0x{radioSimVars.TransponderCodeBcd:X4}, Com1Tx={radioSimVars.Com1Transmit}, Com2Tx={radioSimVars.Com2Transmit}, Com1Rx={radioSimVars.Com1Receive}, Com2Rx={radioSimVars.Com2Receive} -> Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Stby={next.Com1StandbyFrequency}, Com2Stby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}, Com1Tx={next.Com1TransmitEnabled}, Com2Tx={next.Com2TransmitEnabled}, Com1Rx={next.Com1ReceiveEnabled}, Com2Rx={next.Com2ReceiveEnabled}");
+                        Logger.Log($"First SimConnect radio data received: Com1={radioSimVars.Com1FrequencyMhz}, Com2={radioSimVars.Com2FrequencyMhz}, Com1Stby={radioSimVars.Com1StandbyFrequencyMhz}, Com2Stby={radioSimVars.Com2StandbyFrequencyMhz}, TransponderState={radioSimVars.TransponderState}, TransponderCodeBcd=0x{radioSimVars.TransponderCodeBcd:X4}, Com1Tx={radioSimVars.Com1Transmit}, Com2Tx={radioSimVars.Com2Transmit}, Com1Rx={radioSimVars.Com1Receive}, Com2Rx={radioSimVars.Com2Receive}, CircuitNavCom1On={radioSimVars.CircuitNavCom1On} -> Com1={next.Com1Frequency}, Com2={next.Com2Frequency}, Com1Stby={next.Com1StandbyFrequency}, Com2Stby={next.Com2StandbyFrequency}, ModeC={next.ModeCEnabled}, Xpdr={next.TransponderCode}, Com1Tx={next.Com1TransmitEnabled}, Com2Tx={next.Com2TransmitEnabled}, Com1Rx={next.Com1ReceiveEnabled}, Com2Rx={next.Com2ReceiveEnabled}");
                     }
 
                     _onStateChanged(next);
@@ -429,7 +462,8 @@ namespace Handoff.RadioHost
                                 new SimVar("COM TRANSMIT:1", "Bool", SIMCONNECT_DATATYPE.INT32),
                                 new SimVar("COM TRANSMIT:2", "Bool", SIMCONNECT_DATATYPE.INT32),
                                 new SimVar("COM RECEIVE:1", "Bool", SIMCONNECT_DATATYPE.INT32),
-                                new SimVar("COM RECEIVE:2", "Bool", SIMCONNECT_DATATYPE.INT32)
+                                new SimVar("COM RECEIVE:2", "Bool", SIMCONNECT_DATATYPE.INT32),
+                                new SimVar("CIRCUIT NAVCOM1 ON", "Bool", SIMCONNECT_DATATYPE.INT32)
                             });
 
                             _fsConnect.RegisterDataDefinition<OwnshipTelemetrySimVars>(Requests.OwnshipTelemetrySimVars, new List<SimVar>
