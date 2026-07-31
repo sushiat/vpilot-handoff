@@ -24,9 +24,13 @@ namespace Handoff.Plugin
         // Radio only; vPilot's compressed-integer format, e.g. 23725 == 123.725. Null otherwise.
         public int[] Frequencies { get; }
 
+        // Radio incoming only: the transmitting station's callsign (RadioMessageReceivedEventArgs.From).
+        // Null for every other channel/direction -- Peer already covers private/broadcast.
+        public string From { get; }
+
         public DateTimeOffset Timestamp { get; }
 
-        public ChatMessage(ChatChannel channel, ChatDirection direction, string peer, string text, int[] frequencies, DateTimeOffset timestamp)
+        public ChatMessage(ChatChannel channel, ChatDirection direction, string peer, string text, int[] frequencies, DateTimeOffset timestamp, string from = null)
         {
             Channel = channel;
             Direction = direction;
@@ -34,6 +38,7 @@ namespace Handoff.Plugin
             Text = text;
             Frequencies = frequencies;
             Timestamp = timestamp;
+            From = from;
         }
     }
 }

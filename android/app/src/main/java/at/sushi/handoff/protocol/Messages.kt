@@ -71,6 +71,7 @@ data class ChatEntry(
     val channel: String,
     val direction: String,
     val peer: String? = null,
+    val from: String? = null,
     val text: String,
     val frequencies: List<Int>? = null,
     val timestamp: String
