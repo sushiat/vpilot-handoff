@@ -21,7 +21,7 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class HandoffPairedClientStore
     {
-        private static readonly string Default_configPath = Path.Combine(
+        private static readonly string Default_configPath = PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "paired-clients.json");
 
         private readonly object _gate = new object();

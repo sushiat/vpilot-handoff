@@ -35,7 +35,7 @@ namespace Handoff.Plugin
         // password itself could leak.
         private const string PfxPassword = "handoff-local-cert";
 
-        private static readonly string Default_configPath = Path.Combine(
+        private static readonly string Default_configPath = PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "cert.pfx");
 
         private readonly Action<string> _logDebug;

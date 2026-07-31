@@ -263,7 +263,7 @@ namespace Handoff.Plugin
             }
 
             var pluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var radioHostPath = Path.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
+            var radioHostPath = PathJoin.Combine(pluginDirectory ?? ".", "RadioHost", "Handoff.RadioHost.exe");
 
             if (!File.Exists(radioHostPath))
             {

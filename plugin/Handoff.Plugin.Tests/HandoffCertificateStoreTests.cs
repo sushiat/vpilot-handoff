@@ -6,7 +6,7 @@ namespace Handoff.Plugin.Tests
 {
     public class HandoffCertificateStoreTests : IDisposable
     {
-        private readonly string _configPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pfx");
+        private readonly string _configPath = PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pfx");
 
         public void Dispose()
         {

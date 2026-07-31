@@ -80,11 +80,11 @@ namespace Handoff.Plugin
             var operationId = OperationIdPrefix + "-" + Guid.NewGuid().ToString("N");
             _operationProgress.Report(operationId, $"Downloading Handoff plugin update {release.Version}...");
 
-            var stagingDir = Path.Combine(Path.GetTempPath(), "Handoff-Update", release.Version.ToString());
+            var stagingDir = PathJoin.Combine(Path.GetTempPath(), "Handoff-Update", release.Version.ToString());
             try
             {
                 Directory.CreateDirectory(stagingDir);
-                var installerPath = Path.Combine(stagingDir, $"Handoff-Setup-v{release.Version}.exe");
+                var installerPath = PathJoin.Combine(stagingDir, $"Handoff-Setup-v{release.Version}.exe");
 
                 await DownloadFileAsync(release.InstallerUrl, installerPath).ConfigureAwait(false);
 
@@ -182,7 +182,7 @@ namespace Handoff.Plugin
                 var pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                 if (pluginDir == null) return;
 
-                var markerPath = Path.Combine(pluginDir, MarkerFileName);
+                var markerPath = PathJoin.Combine(pluginDir, MarkerFileName);
                 if (!File.Exists(markerPath)) return;
 
                 var marker = JObject.Parse(File.ReadAllText(markerPath));

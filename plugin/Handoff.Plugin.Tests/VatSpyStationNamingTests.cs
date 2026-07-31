@@ -36,7 +36,7 @@ LJLA|Ljubljana||LJLA
         {
             var model = new VatSpyDataModel(
                 new OperationProgressModel(),
-                cacheDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
+                cacheDirectory: PathJoin.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
                 fetchLatestSha: () => Task.FromResult("sha1"),
                 fetchBoundariesJson: () => Task.FromResult(BoundariesJson),
                 fetchVatSpyDat: () => Task.FromResult(VatSpyDat));

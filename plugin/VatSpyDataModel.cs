@@ -56,7 +56,7 @@ namespace Handoff.Plugin
             LoadFromDiskCache();
         }
 
-        private static string DefaultCacheDirectory() => Path.Combine(
+        private static string DefaultCacheDirectory() => PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "vatspy-cache");
 
         /// <summary>FIR/UIR boundary polygons -- one entry per outer ring, empty until at least one successful load.</summary>
@@ -137,8 +137,8 @@ namespace Handoff.Plugin
         {
             try
             {
-                var boundariesPath = Path.Combine(_cacheDirectory, BoundariesCacheFileName);
-                var vatSpyDatPath = Path.Combine(_cacheDirectory, VatSpyDatCacheFileName);
+                var boundariesPath = PathJoin.Combine(_cacheDirectory, BoundariesCacheFileName);
+                var vatSpyDatPath = PathJoin.Combine(_cacheDirectory, VatSpyDatCacheFileName);
                 if (!File.Exists(boundariesPath) || !File.Exists(vatSpyDatPath)) return;
 
                 if (!TryApply(File.ReadAllText(boundariesPath), File.ReadAllText(vatSpyDatPath), out var error))
@@ -206,7 +206,7 @@ namespace Handoff.Plugin
         {
             try
             {
-                var path = Path.Combine(_cacheDirectory, ShaFileName);
+                var path = PathJoin.Combine(_cacheDirectory, ShaFileName);
                 return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
             }
             catch (Exception ex)
@@ -221,7 +221,7 @@ namespace Handoff.Plugin
             try
             {
                 Directory.CreateDirectory(_cacheDirectory);
-                File.WriteAllText(Path.Combine(_cacheDirectory, fileName), content);
+                File.WriteAllText(PathJoin.Combine(_cacheDirectory, fileName), content);
             }
             catch (Exception ex)
             {
@@ -234,7 +234,7 @@ namespace Handoff.Plugin
             try
             {
                 Directory.CreateDirectory(_cacheDirectory);
-                File.WriteAllText(Path.Combine(_cacheDirectory, ShaFileName), sha);
+                File.WriteAllText(PathJoin.Combine(_cacheDirectory, ShaFileName), sha);
             }
             catch (Exception ex)
             {

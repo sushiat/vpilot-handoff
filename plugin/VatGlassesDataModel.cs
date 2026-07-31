@@ -55,7 +55,7 @@ namespace Handoff.Plugin
             LoadFromDiskCache();
         }
 
-        private static string DefaultCacheDirectory() => Path.Combine(
+        private static string DefaultCacheDirectory() => PathJoin.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Handoff", "vatglasses-cache");
 
         /// <summary>Parsed region data keyed by source file name -- empty until at least one successful load (disk cache or network).</summary>
@@ -232,7 +232,7 @@ namespace Handoff.Plugin
         {
             try
             {
-                var path = Path.Combine(_cacheDirectory, ShaFileName);
+                var path = PathJoin.Combine(_cacheDirectory, ShaFileName);
                 return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
             }
             catch (Exception ex)
@@ -253,7 +253,7 @@ namespace Handoff.Plugin
             try
             {
                 Directory.CreateDirectory(_cacheDirectory);
-                File.WriteAllText(Path.Combine(_cacheDirectory, fileName), json);
+                File.WriteAllText(PathJoin.Combine(_cacheDirectory, fileName), json);
             }
             catch (Exception ex)
             {
@@ -271,7 +271,7 @@ namespace Handoff.Plugin
             try
             {
                 Directory.CreateDirectory(_cacheDirectory);
-                File.WriteAllText(Path.Combine(_cacheDirectory, ShaFileName), sha);
+                File.WriteAllText(PathJoin.Combine(_cacheDirectory, ShaFileName), sha);
             }
             catch (Exception ex)
             {

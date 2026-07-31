@@ -76,7 +76,7 @@ namespace Handoff.ReplayTool
                         : Environment.TickCount;
                     var outDir = TryGetOptionValue(args, "--out", out var outDirValue)
                         ? outDirValue
-                        : Path.Combine("replay-results", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                        : PathJoin.Combine("replay-results", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 
                     await RunRandomTestAsync(http, count, seed, outDir);
                     return 0;
@@ -581,7 +581,7 @@ namespace Handoff.ReplayTool
                         continue;
                     }
 
-                    var detailPath = Path.Combine(outDir, $"{flight.FlightId}.txt");
+                    var detailPath = PathJoin.Combine(outDir, $"{flight.FlightId}.txt");
                     using (var writer = new StreamWriter(detailPath, false, System.Text.Encoding.UTF8))
                     {
                         writer.WriteLine($"Flight {flight.Callsign} ({flight.FlightId}), discovered via {flight.Icao}");
@@ -614,7 +614,7 @@ namespace Handoff.ReplayTool
             summaryLines.Add("");
             summaryLines.Add($"TOTAL: {overall.Describe()}");
 
-            var summaryPath = Path.Combine(outDir, "summary.txt");
+            var summaryPath = PathJoin.Combine(outDir, "summary.txt");
             File.WriteAllLines(summaryPath, summaryLines, System.Text.Encoding.UTF8);
 
             Console.WriteLine();
