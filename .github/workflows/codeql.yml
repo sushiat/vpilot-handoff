@@ -12,6 +12,7 @@ jobs:
     name: Analyze (csharp)
     runs-on: windows-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v7
@@ -51,6 +52,7 @@ jobs:
     name: Analyze (java-kotlin)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v7
@@ -73,8 +75,12 @@ jobs:
           queries: security-and-quality
 
       - name: Build
+        # clean + --no-build-cache: a cache hit (from setup-gradle's own restore, or Gradle's
+        # build cache) would let assembleDebug finish without ever actually invoking the Kotlin
+        # compiler -- CodeQL only sees source code that a compiler it's tracing actually
+        # compiled, so a cached no-op build looks identical to "no code" to it.
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew clean assembleDebug --no-daemon --no-build-cache
 
       - uses: github/codeql-action/analyze@v4
         with:
@@ -84,6 +90,7 @@ jobs:
     name: Analyze (actions)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v7
