@@ -3,6 +3,8 @@
 [![Build](https://github.com/sushiat/vpilot-handoff/actions/workflows/build.yml/badge.svg)](https://github.com/sushiat/vpilot-handoff/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/sushiat/vpilot-handoff)](https://github.com/sushiat/vpilot-handoff/releases)
 [![License: MIT](https://img.shields.io/github/license/sushiat/vpilot-handoff)](LICENSE)
+[![AI Assisted: Yes](https://img.shields.io/badge/AI%20Assisted-Yes-green)](https://github.com/mefengl/made-by-ai)
+[![Commit Messages by AI](https://img.shields.io/badge/Commit%20Messages%20by-AI-green)](https://github.com/mefengl/made-by-ai)
 
 A companion app for [vPilot](https://vpilot.rosscarlson.dev/) that puts the online
 VATSIM controller list and two-way chat on a second screen — built to run as an
@@ -98,7 +100,8 @@ Handoff's controller ranking and flight-plan awareness depend on data from:
 - [SimBrief](https://www.simbrief.com) by Navigraph (flight plan data)
 - [vPilot](https://vpilot.rosscarlson.dev) (the pilot client this plugin runs inside)
 
-Same list is shown in-app under Settings.
+Many aspects of the implementation in this repo were performed or assisted by
+[Claude Code](https://claude.com/claude-code).
 
 ## Contributing
 
