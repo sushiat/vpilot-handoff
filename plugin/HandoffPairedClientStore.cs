@@ -27,8 +27,9 @@ namespace Handoff.Plugin
         private readonly object _gate = new object();
         private readonly Action<string> _logDebug;
         private readonly string _configPath;
-        private List<PairedClient> _clients;
+        private readonly List<PairedClient> _clients;
 
+        /// <summary>Loads the on-disk list of previously paired Android clients.</summary>
         /// <param name="configPath">Overridable only for tests, same reasoning as
         /// FlightPlanModel's configPath.</param>
         public HandoffPairedClientStore(Action<string> logDebug = null, string configPath = null)

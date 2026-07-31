@@ -383,7 +383,7 @@ namespace Handoff.Plugin.Tests
                 new List<VatsimControllerInfo>(),
                 new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
             feed.Start();
             raised.Wait(TimeSpan.FromSeconds(5));
@@ -396,7 +396,7 @@ namespace Handoff.Plugin.Tests
                 new List<VatsimControllerInfo> { new VatsimControllerInfo(callsign, 1, "Test Controller", 4, 3, textAtis) },
                 new List<VatsimPilotInfo>());
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
-            var raised = new ManualResetEventSlim();
+            using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
             feed.Start();
             raised.Wait(TimeSpan.FromSeconds(5));

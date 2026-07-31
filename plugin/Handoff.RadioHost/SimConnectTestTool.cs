@@ -91,7 +91,7 @@ namespace Handoff.RadioHost
 
         public static void Run(string[] args)
         {
-            var fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
+            using var fsConnect = new FsConnect { SimConnectFileLocation = SimConnectFileLocation.Local };
 
             // The main RadioSimConnectClient retries its own Connect() every 5s in a loop and
             // silently swallows failures until one succeeds -- meaning occasional E_FAIL

@@ -597,7 +597,6 @@ private val contactMeCapableFacilities = listOf(
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ContactMeFlashDemo(palette: RowColorPalette) {
-    val colors = LocalHandoffColors.current
     var phaseA by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         while (true) {

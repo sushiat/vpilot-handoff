@@ -31,6 +31,8 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
+        /// <summary>Creates the model; call <see cref="SetSimbriefCredentials"/> and
+        /// <see cref="RefreshAsync"/> to start fetching a plan.</summary>
         /// <param name="configPath">
         /// Overridable only for tests, so they don't read/write the real
         /// %LOCALAPPDATA%\Handoff\simbrief.json on the dev machine.

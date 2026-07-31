@@ -229,8 +229,6 @@ namespace Handoff.Plugin
 
             var legStartX = 0.0;
             var legStartY = 0.0;
-            var legStartLat = lat;
-            var legStartLon = lon;
             var cumulativeNm = 0.0;
 
             foreach (var wp in remainingWaypoints)
@@ -249,8 +247,6 @@ namespace Handoff.Plugin
                 cumulativeNm += legLength;
                 legStartX = legEnd.X;
                 legStartY = legEnd.Y;
-                legStartLat = wp.Latitude;
-                legStartLon = wp.Longitude;
             }
 
             return null;

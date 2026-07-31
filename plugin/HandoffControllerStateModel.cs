@@ -123,14 +123,9 @@ namespace Handoff.Plugin
         {
             lock (_gate)
             {
-                if (_controllers.TryGetValue(e.Callsign, out var existing) && existing.IsHidden)
-                {
-                    _controllers[e.Callsign] = existing.Reconnected();
-                }
-                else
-                {
-                    _controllers[e.Callsign] = new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
-                }
+                _controllers[e.Callsign] = _controllers.TryGetValue(e.Callsign, out var existing) && existing.IsHidden
+                    ? existing.Reconnected()
+                    : new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
             }
             RaiseChanged();
         }

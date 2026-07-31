@@ -100,19 +100,21 @@ namespace Handoff.RadioHost
                     pipeServer.WaitForConnection();
                     Logger.Log("Plugin connected to command pipe.");
 
-                    var reader = new StreamReader(pipeServer);
-                    try
+                    using (var reader = new StreamReader(pipeServer))
                     {
-                        RadioIpcMessage message;
-                        while ((message = RadioIpcProtocol.ReadMessage(reader)) != null)
+                        try
                         {
-                            Logger.Log("Received command from plugin: type=" + message.Type + ", megahertz=" + message.Megahertz);
-                            CommandQueue.Add(message);
+                            RadioIpcMessage message;
+                            while ((message = RadioIpcProtocol.ReadMessage(reader)) != null)
+                            {
+                                Logger.Log("Received command from plugin: type=" + message.Type + ", megahertz=" + message.Megahertz);
+                                CommandQueue.Add(message);
+                            }
                         }
-                    }
-                    catch (IOException ex)
-                    {
-                        Logger.Log("Command pipe error: " + ex.Message);
+                        catch (IOException ex)
+                        {
+                            Logger.Log("Command pipe error: " + ex.Message);
+                        }
                     }
 
                     Logger.Log("Plugin disconnected from command pipe.");
