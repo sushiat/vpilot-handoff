@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -272,9 +273,9 @@ namespace Handoff.RadioHost
             ReadVars? result = null;
             void Handler(object sender, FsDataReceivedEventArgs e)
             {
-                foreach (var obj in e.Data)
+                foreach (var vars in e.Data.OfType<ReadVars>())
                 {
-                    if (obj is ReadVars vars) result = vars;
+                    result = vars;
                 }
             }
 

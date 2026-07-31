@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Handoff.Plugin
 {
@@ -127,9 +128,8 @@ namespace Handoff.Plugin
             {
                 foreach (var sector in kv.Value.Airspace)
                 {
-                    foreach (var level in sector.Levels)
+                    foreach (var level in sector.Levels.Where(level => BoundingBoxMayContain(lat, lon, level, 0)))
                     {
-                        if (!BoundingBoxMayContain(lat, lon, level, 0)) continue;
                         if (IsPointInPolygon(lat, lon, level))
                         {
                             matches.Add(new VatGlassesSectorMatch(kv.Key, sector, level));
@@ -231,9 +231,8 @@ namespace Handoff.Plugin
             var legStartY = 0.0;
             var cumulativeNm = 0.0;
 
-            foreach (var wp in remainingWaypoints)
+            foreach (var legEnd in remainingWaypoints.Select(wp => Project(lat, lon, wp.Latitude, wp.Longitude)))
             {
-                var legEnd = Project(lat, lon, wp.Latitude, wp.Longitude);
                 var dx = legEnd.X - legStartX;
                 var dy = legEnd.Y - legStartY;
                 var legLength = Math.Sqrt(dx * dx + dy * dy);
@@ -349,10 +348,8 @@ namespace Handoff.Plugin
             {
                 foreach (var sector in kv.Value.Airspace)
                 {
-                    foreach (var level in sector.Levels)
+                    foreach (var level in sector.Levels.Where(level => DistanceToBoundingBoxNm(lat, lon, level) <= maxNauticalMiles))
                     {
-                        if (DistanceToBoundingBoxNm(lat, lon, level) > maxNauticalMiles) continue;
-
                         var distance = DistanceToPolygonAlongHeadingNm(lat, lon, headingDegrees, level);
                         if (distance.HasValue && distance.Value <= maxNauticalMiles)
                         {
@@ -382,10 +379,8 @@ namespace Handoff.Plugin
             {
                 foreach (var sector in kv.Value.Airspace)
                 {
-                    foreach (var level in sector.Levels)
+                    foreach (var level in sector.Levels.Where(level => DistanceToBoundingBoxNm(lat, lon, level) <= maxNauticalMiles))
                     {
-                        if (DistanceToBoundingBoxNm(lat, lon, level) > maxNauticalMiles) continue;
-
                         var distance = DistanceToPolygonAlongRouteNm(lat, lon, remainingWaypoints, level);
                         if (distance.HasValue && distance.Value <= maxNauticalMiles)
                         {

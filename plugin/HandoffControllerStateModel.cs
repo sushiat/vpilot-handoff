@@ -184,13 +184,10 @@ namespace Handoff.Plugin
                 {
                     var newAlerts = alerts.Skip(_processedSelcalAlertCount).ToList();
                     _processedSelcalAlertCount = alerts.Count;
-                    foreach (var alert in newAlerts)
+                    foreach (var alert in newAlerts.Where(a => _controllers.ContainsKey(a.From)))
                     {
-                        if (_controllers.TryGetValue(alert.From, out var selcalTarget))
-                        {
-                            _controllers[alert.From] = selcalTarget.WithSelcalExpiry(_now() + SelcalExpiryWindow);
-                            changed = true;
-                        }
+                        _controllers[alert.From] = _controllers[alert.From].WithSelcalExpiry(_now() + SelcalExpiryWindow);
+                        changed = true;
                     }
                 }
             }

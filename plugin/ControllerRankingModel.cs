@@ -494,9 +494,10 @@ namespace Handoff.Plugin
 
         private static VatGlassesRegionData FindRegionForAirport(IReadOnlyDictionary<string, VatGlassesRegionData> regions, string icao, out VatGlassesAirport airport)
         {
-            foreach (var region in regions.Values)
+            foreach (var region in regions.Values.Where(r => r.Airports.ContainsKey(icao)))
             {
-                if (region.Airports.TryGetValue(icao, out airport)) return region;
+                airport = region.Airports[icao];
+                return region;
             }
             airport = null;
             return null;
@@ -643,9 +644,9 @@ namespace Handoff.Plugin
             IReadOnlyCollection<HandoffController> onlineControllers)
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var match in matches)
+            foreach (var match in matches.Where(m => regions.ContainsKey(m.RegionFileName)))
             {
-                if (!regions.TryGetValue(match.RegionFileName, out var region)) continue;
+                var region = regions[match.RegionFileName];
                 foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(match.Sector.Owner, region.Positions, onlineControllers))
                 {
                     result.Add(owner.Callsign);
@@ -699,18 +700,10 @@ namespace Handoff.Plugin
         }
 
         /// <summary>Issue #11: vatspy equivalent of FindAnySectorLevelForController -- the first vatspy boundary whose callsign prefixes resolve to this specific controller.</summary>
-        private static VatSpyFirBoundary FindAnyVatSpyBoundaryForController(HandoffController controller, IReadOnlyList<VatSpyFirBoundary> boundaries)
-        {
-            foreach (var boundary in boundaries)
-            {
-                if (boundary.CallsignPrefixes.Any(prefix => controller.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    && controller.Callsign.ParseControllerTier() == ControllerTier.Center)
-                {
-                    return boundary;
-                }
-            }
-            return null;
-        }
+        private static VatSpyFirBoundary FindAnyVatSpyBoundaryForController(HandoffController controller, IReadOnlyList<VatSpyFirBoundary> boundaries) =>
+            controller.Callsign.ParseControllerTier() != ControllerTier.Center
+                ? null
+                : boundaries.FirstOrDefault(boundary => boundary.CallsignPrefixes.Any(prefix => controller.Callsign.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
 
         /// <summary>Issue #11, bucket 9's CTR polygon-preference ordering: every candidate (restricted to the given set) whose FIR polygon -- VATGlasses or vatspy -- contains (lat, lon) right now.</summary>
         private static HashSet<string> ContainedCtrCallsigns(
@@ -760,10 +753,9 @@ namespace Handoff.Plugin
             // 6a.
             if (!string.IsNullOrEmpty(routeAirport))
             {
-                foreach (var c in candidates)
+                foreach (var c in candidates.Where(c => c.Callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (c.Callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase))
-                        result.HighlightedCallsigns.Add(c.Callsign);
+                    result.HighlightedCallsigns.Add(c.Callsign);
                 }
             }
 
@@ -802,10 +794,8 @@ namespace Handoff.Plugin
             }
 
             // 6b/6c/6d.
-            foreach (var c in candidates)
+            foreach (var c in candidates.Where(c => !result.HighlightedCallsigns.Contains(c.Callsign))) // skips anything already via 6a
             {
-                if (result.HighlightedCallsigns.Contains(c.Callsign)) continue; // already via 6a
-
                 switch (c.Callsign.ParseControllerTier())
                 {
                     case ControllerTier.Delivery:
@@ -1032,12 +1022,12 @@ namespace Handoff.Plugin
                 return result;
             }
 
-            foreach (var approach in approachMatches)
+            foreach (var approach in approachMatches.Where(a => regions.ContainsKey(a.Match.RegionFileName)))
             {
-                if (!regions.TryGetValue(approach.Match.RegionFileName, out var region)) continue;
-                foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(approach.Match.Sector.Owner, region.Positions, allOnlineControllers))
+                var region = regions[approach.Match.RegionFileName];
+                foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(approach.Match.Sector.Owner, region.Positions, allOnlineControllers)
+                    .Where(owner => owner.Callsign.ParseControllerTier() == tierFilter))
                 {
-                    if (owner.Callsign.ParseControllerTier() != tierFilter) continue;
                     result.Add((owner, approach));
                 }
             }
@@ -1128,9 +1118,8 @@ namespace Handoff.Plugin
 
             // "Satisfied" -- already inside the band, regardless of level/climbing/descending.
             var containedCallsigns = ResolveContainedCallsigns(containingMatches, regions, allOnlineControllers);
-            foreach (var callsign in containedCallsigns)
+            foreach (var callsign in containedCallsigns.Where(cs => !currentCallsigns.Contains(cs)))
             {
-                if (currentCallsigns.Contains(callsign)) continue;
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
                 _ctrSatisfiedCommitted.Add(owner.Callsign);
@@ -1157,9 +1146,8 @@ namespace Handoff.Plugin
             // 6d's CTR containment).
             var vatSpyContainingMatches = VatSpyBoundaryLookup.FindContainingBoundaries(vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value);
             var vatSpyContainedCallsigns = ResolveVatSpyContainedCallsigns(vatSpyContainingMatches, allOnlineControllers);
-            foreach (var callsign in vatSpyContainedCallsigns)
+            foreach (var callsign in vatSpyContainedCallsigns.Where(cs => !currentCallsigns.Contains(cs) && !containedCallsigns.Contains(cs)))
             {
-                if (currentCallsigns.Contains(callsign) || containedCallsigns.Contains(callsign)) continue;
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;

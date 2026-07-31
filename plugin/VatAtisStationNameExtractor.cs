@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Handoff.Plugin
 {
@@ -107,9 +108,8 @@ namespace Handoff.Plugin
         private static string SplitAtSeparator(string line)
         {
             var cut = -1;
-            foreach (var separator in new[] { " - ", " | ", " / ", "." })
+            foreach (var index in new[] { " - ", " | ", " / ", "." }.Select(separator => line.IndexOf(separator, StringComparison.Ordinal)))
             {
-                var index = line.IndexOf(separator, StringComparison.Ordinal);
                 if (index >= 0 && (cut < 0 || index < cut)) cut = index;
             }
             return cut >= 0 ? line.Substring(0, cut) : line;
@@ -122,12 +122,9 @@ namespace Handoff.Plugin
             var words = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             for (var i = 0; i < words.Length; i++)
             {
-                foreach (var part in words[i].Split('/'))
+                foreach (var part in words[i].Split('/').Where(part => Array.Exists(BoilerplateKeywords, k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase))))
                 {
-                    if (Array.Exists(BoilerplateKeywords, k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        return string.Join(" ", words, 0, i);
-                    }
+                    return string.Join(" ", words, 0, i);
                 }
             }
             return line;
@@ -142,26 +139,11 @@ namespace Handoff.Plugin
         // without meaning it, so this only costs false negatives, not false positives. Safe to
         // scan the whole candidate rather than just the last word specifically because it's
         // already capped at MaxNameWords by the caller.
-        private static bool ContainsRoleWord(string[] words)
-        {
-            foreach (var word in words)
-            {
-                foreach (var roleWord in RoleWords)
-                {
-                    if (word.EndsWith(roleWord, StringComparison.OrdinalIgnoreCase)) return true;
-                }
-            }
-            return false;
-        }
+        private static bool ContainsRoleWord(string[] words) =>
+            words.Any(word => RoleWords.Any(roleWord => word.EndsWith(roleWord, StringComparison.OrdinalIgnoreCase)));
 
         /// <summary>ALL-CAPS lines get title-cased for display consistency with vatspy's composed names; anything already mixed-case is left untouched.</summary>
-        private static string NormalizeCase(string candidate)
-        {
-            foreach (var c in candidate)
-            {
-                if (char.IsLower(c)) return candidate;
-            }
-            return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(candidate.ToLowerInvariant());
-        }
+        private static string NormalizeCase(string candidate) =>
+            candidate.Any(char.IsLower) ? candidate : CultureInfo.InvariantCulture.TextInfo.ToTitleCase(candidate.ToLowerInvariant());
     }
 }

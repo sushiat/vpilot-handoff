@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 
 namespace Handoff.Plugin
 {
@@ -39,13 +40,6 @@ namespace Handoff.Plugin
             return negative ? -decimalDegrees : decimalDegrees;
         }
 
-        private static bool IsAllDigits(string s)
-        {
-            foreach (var c in s)
-            {
-                if (c < '0' || c > '9') return false;
-            }
-            return true;
-        }
+        private static bool IsAllDigits(string s) => s.All(c => c >= '0' && c <= '9');
     }
 }

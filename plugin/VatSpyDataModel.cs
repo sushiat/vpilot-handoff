@@ -188,10 +188,10 @@ namespace Handoff.Plugin
             VatSpyDatFile dat, IReadOnlyDictionary<string, List<IReadOnlyList<VatSpyPoint>>> boundaryRings)
         {
             var result = new List<VatSpyFirBoundary>();
-            foreach (var group in dat.FirRows.GroupBy(r => r.BoundaryId, StringComparer.OrdinalIgnoreCase))
+            foreach (var group in dat.FirRows.GroupBy(r => r.BoundaryId, StringComparer.OrdinalIgnoreCase)
+                .Where(g => boundaryRings.ContainsKey(g.Key)))
             {
-                if (!boundaryRings.TryGetValue(group.Key, out var rings)) continue;
-
+                var rings = boundaryRings[group.Key];
                 var name = group.First().Name;
                 var prefixes = group.Select(r => r.CallsignPrefix).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 foreach (var ring in rings)
