@@ -52,7 +52,49 @@ data class Controller(
     val isStandbyTuned: Boolean = false,
     // Active SELCAL alert -- unlike isContactMe, tuning the alerting frequency does NOT clear
     // this, only an explicit dismissSelcal command or the alert's own expiry does.
-    val isSelcalActive: Boolean = false
+    val isSelcalActive: Boolean = false,
+    // Issue #65 -- null unless debug mode is currently on (SetDebugModeCommand). Plain-language
+    // explain data, not the ranking internals -- see docs/controller-ranking.md's "Debug explain
+    // view" section.
+    val debug: ControllerDebug? = null
+)
+
+/** Per-controller debug explain (issue #65, docs/protocol.md) -- only non-null while debug mode
+ *  is on. Deliberately a plain-language summary, not the raw ranking internals (route anchor
+ *  coordinates, VATGlasses/vatspy sector ids, tie-band math) -- those live only in the debug
+ *  snapshot file, not on the wire. */
+@Serializable
+data class ControllerDebug(
+    val bucket: Int,
+    val bucketName: String,
+    val reason: String,
+    val distanceNm: Double? = null,
+    val vatGlassesSectorMatch: Boolean = false,
+    val vatSpyPolygonMatch: Boolean = false,
+    val routeMatch: Boolean = false,
+    val hysteresisState: String,
+    val hysteresisPendingBucket: Int? = null,
+    val hysteresisPendingSince: String? = null,
+    val candidateRank: Int? = null
+)
+
+/** Plugin-wide debug context (issue #65, docs/protocol.md) -- the state per-controller [ControllerDebug] reasons are evaluated against. Null unless debug mode is on. */
+@Serializable
+data class RankingDebug(
+    val phaseOfFlight: String,
+    val hasTakenOffThisSession: Boolean,
+    val ownshipLatitude: Double? = null,
+    val ownshipLongitude: Double? = null,
+    val ownshipAltitudeTrue: Double? = null,
+    val ownshipAltitudeAgl: Double? = null,
+    val ownshipGroundspeedKt: Double? = null,
+    val ownshipHeadingTrue: Double? = null,
+    val ownshipTrackTrue: Double? = null,
+    val com1TunedCallsign: String? = null,
+    val com2TunedCallsign: String? = null,
+    val activeRouteWaypoint: String? = null,
+    val lastPassedWaypoint: String? = null,
+    val etaCalculationDetail: String? = null
 )
 
 @Serializable
@@ -63,7 +105,9 @@ data class ControllersMessage(
     val controllers: List<Controller>,
     // Ownship-level (not per-controller): minutes to the closest bucket-8-qualifying CTR sector,
     // available during level flight or climbing/descending above FL150 -- null otherwise.
-    val etaMinutes: Double? = null
+    val etaMinutes: Double? = null,
+    // Issue #65 -- null unless debug mode is currently on.
+    val debug: RankingDebug? = null
 ) : ServerMessage
 
 @Serializable
@@ -164,8 +208,28 @@ data class SubsystemStatusMessage(
     val simulatorConnected: Boolean = false,
     val vatsimDataFeedConnected: Boolean = false,
     val simbriefFetched: Boolean = false,
-    val pluginVersion: String? = null
+    val pluginVersion: String? = null,
+    // Issue #65 -- null unless debug mode is currently on. Lean, plain-language per-subsystem
+    // health lines for the debug overlay's "Systems" section -- the exhaustive per-subsystem
+    // detail lives only in the debug snapshot file, not here.
+    val systemsDebug: SystemsDebug? = null
 ) : ServerMessage
+
+@Serializable
+data class SystemsDebug(
+    val radioHostConnected: Boolean = false,
+    val simulatorConnected: Boolean = false,
+    val lastTelemetryAt: String? = null,
+    val vatsimFeedConnected: Boolean = false,
+    val vatsimFeedLastPollAt: String? = null,
+    val simbriefFetchedSuccessfully: Boolean = false,
+    val simbriefLastError: String? = null,
+    val vatGlassesLoadedRegionCount: Int = 0,
+    val vatSpyBoundaryCount: Int = 0,
+    val pairedClientCount: Int = 0,
+    val authenticatedSocketCount: Int = 0,
+    val activeOperationCount: Int = 0
+)
 
 /** One step of an in-progress background plugin operation (docs/protocol.md) -- unlike every
  *  other ServerMessage here, this is NOT resendable full state, it's an event stream (closer to
@@ -196,6 +260,17 @@ data class PongMessage(
  *  persist. [reason] is only meaningful when [success] is false: "pairingRequired" means the
  *  plugin doesn't recognize the presented token (or none was sent) and is now showing a pairing
  *  code on its own screen; "invalidCode" means the submitted pairingCode didn't match. */
+/** Reply to a SaveDebugSnapshotCommand (issue #65), sent once the plugin's file write completes.
+ *  [path] is the local path on the plugin's machine, informational only (the Android app can't
+ *  read it directly). Also the client's cue to now send AttachDebugSnapshotScreenshotCommand for
+ *  the same [snapshotId], rather than racing to capture one the instant the button was tapped. */
+@Serializable
+data class DebugSnapshotSavedMessage(
+    val type: String = "debugSnapshotSaved",
+    val snapshotId: String,
+    val path: String
+) : ServerMessage
+
 @Serializable
 data class AuthResultMessage(
     val type: String = "authResult",
@@ -225,6 +300,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "operationProgress" -> json.decodeFromJsonElement<OperationProgressMessage>(element)
         "pong" -> json.decodeFromJsonElement<PongMessage>(element)
         "authResult" -> json.decodeFromJsonElement<AuthResultMessage>(element)
+        "debugSnapshotSaved" -> json.decodeFromJsonElement<DebugSnapshotSavedMessage>(element)
         else -> null
     }
 }
@@ -451,4 +527,43 @@ data class AuthenticateCommand(
     val deviceId: String? = null
 ) : ClientCommand {
     override fun encode() = json.encodeToString(AuthenticateCommand.serializer(), this)
+}
+
+/** Toggles the plugin's session-only debug mode (issue #65) -- not persisted plugin-side across
+ *  a restart, global to the plugin (not per-client) if multiple clients are paired. While on,
+ *  [ControllersMessage.debug]/[Controller.debug]/[SubsystemStatusMessage.systemsDebug] populate. */
+@Serializable
+data class SetDebugModeCommand(
+    val type: String = "setDebugMode",
+    val enabled: Boolean
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetDebugModeCommand.serializer(), this)
+}
+
+/** Triggers a full point-in-time dump of every plugin subsystem to a local JSON file
+ *  (docs/debug-snapshot.md). [snapshotId] is a client-generated GUID correlating this request
+ *  with the [DebugSnapshotSavedMessage] reply and any later [AttachDebugSnapshotScreenshotCommand].
+ *  [appVersion] is this app's own versionName -- the plugin doesn't otherwise know it. */
+@Serializable
+data class SaveDebugSnapshotCommand(
+    val type: String = "saveDebugSnapshot",
+    val snapshotId: String,
+    val appVersion: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SaveDebugSnapshotCommand.serializer(), this)
+}
+
+/** Sent only after a [DebugSnapshotSavedMessage] for the same [snapshotId] -- a separate, later
+ *  round trip, not bundled into [SaveDebugSnapshotCommand] itself. [screenshotPngBase64] must be
+ *  a view-scoped capture of this app's own window only (PixelCopy/View.draw against the Handoff
+ *  activity's root view), never a full-display capture -- the tablet normally runs split-screen
+ *  next to another EFB app, and a full-display capture would pull in unrelated content. Optional
+ *  -- a dismissed/backgrounded capture attempt still leaves a fully valid JSON-only snapshot. */
+@Serializable
+data class AttachDebugSnapshotScreenshotCommand(
+    val type: String = "attachDebugSnapshotScreenshot",
+    val snapshotId: String,
+    val screenshotPngBase64: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(AttachDebugSnapshotScreenshotCommand.serializer(), this)
 }

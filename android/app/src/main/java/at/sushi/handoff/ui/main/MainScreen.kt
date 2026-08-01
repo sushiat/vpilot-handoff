@@ -395,6 +395,9 @@ private fun MainScreenContent() {
     if (layoutMode == LayoutMode.SPLIT) {
         ChatOverlayHost(visible = chatOpen, splitSide = splitSide, themeMode = theme, content = chatContent)
     }
+    // Issue #65 -- unlike chat, the debug window is a floating overlay in both fullscreen and
+    // split layouts (it has no "docked inline" equivalent), so this isn't gated on layoutMode.
+    at.sushi.handoff.ui.debug.DebugOverlayHost(themeMode = theme)
 
     val colors = at.sushi.handoff.ui.theme.LocalHandoffColors.current
     Row(
