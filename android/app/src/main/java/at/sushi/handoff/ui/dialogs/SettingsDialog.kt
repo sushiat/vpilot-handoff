@@ -3,6 +3,7 @@ package at.sushi.handoff.ui.dialogs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -187,7 +188,14 @@ fun SettingsDialog(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.text,
-                        modifier = Modifier.clickable(onClick = onSettingsTitleTap)
+                        // No ripple/indication -- any visible feedback before the 7th tap would
+                        // give away that this is tappable at all, defeating the point of a
+                        // not-randomly-discoverable toggle (issue #65).
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onSettingsTitleTap
+                        )
                     )
                     Text(
                         "✕",

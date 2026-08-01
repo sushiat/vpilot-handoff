@@ -60,6 +60,13 @@ namespace Handoff.Plugin
         public string Com2TunedCallsign { get; }
         public string ActiveRouteWaypoint { get; }
         public string LastPassedWaypoint { get; }
+        // Bearing (true, 0-360)/distance from ownship's current position to each named waypoint
+        // above -- a cheap "does this look right" sanity check, null whenever ownship's position
+        // isn't known yet. See ControllerRankingModel.Recompute's debug-explain block.
+        public double? ActiveRouteWaypointBearingTrue { get; }
+        public double? ActiveRouteWaypointDistanceNm { get; }
+        public double? LastPassedWaypointBearingTrue { get; }
+        public double? LastPassedWaypointDistanceNm { get; }
         public string EtaCalculationDetail { get; }
 
         public RankingDebugExplain(
@@ -67,7 +74,10 @@ namespace Handoff.Plugin
             double? ownshipLatitude, double? ownshipLongitude, double? ownshipAltitudeTrue, double? ownshipAltitudeAgl,
             double? ownshipGroundspeedKt, double? ownshipHeadingTrue, double? ownshipTrackTrue,
             string com1TunedCallsign, string com2TunedCallsign,
-            string activeRouteWaypoint, string lastPassedWaypoint, string etaCalculationDetail)
+            string activeRouteWaypoint, string lastPassedWaypoint,
+            double? activeRouteWaypointBearingTrue, double? activeRouteWaypointDistanceNm,
+            double? lastPassedWaypointBearingTrue, double? lastPassedWaypointDistanceNm,
+            string etaCalculationDetail)
         {
             PhaseOfFlight = phaseOfFlight;
             HasTakenOffThisSession = hasTakenOffThisSession;
@@ -82,6 +92,10 @@ namespace Handoff.Plugin
             Com2TunedCallsign = com2TunedCallsign;
             ActiveRouteWaypoint = activeRouteWaypoint;
             LastPassedWaypoint = lastPassedWaypoint;
+            ActiveRouteWaypointBearingTrue = activeRouteWaypointBearingTrue;
+            ActiveRouteWaypointDistanceNm = activeRouteWaypointDistanceNm;
+            LastPassedWaypointBearingTrue = lastPassedWaypointBearingTrue;
+            LastPassedWaypointDistanceNm = lastPassedWaypointDistanceNm;
             EtaCalculationDetail = etaCalculationDetail;
         }
     }

@@ -44,6 +44,10 @@ namespace Handoff.Plugin
                     com2TunedCallsign = debug.Com2TunedCallsign,
                     activeRouteWaypoint = debug.ActiveRouteWaypoint,
                     lastPassedWaypoint = debug.LastPassedWaypoint,
+                    activeRouteWaypointBearingTrue = debug.ActiveRouteWaypointBearingTrue,
+                    activeRouteWaypointDistanceNm = debug.ActiveRouteWaypointDistanceNm,
+                    lastPassedWaypointBearingTrue = debug.LastPassedWaypointBearingTrue,
+                    lastPassedWaypointDistanceNm = debug.LastPassedWaypointDistanceNm,
                     etaCalculationDetail = debug.EtaCalculationDetail
                 },
                 controllers = controllers.Select(c => new

@@ -80,6 +80,13 @@ class DebugOverlayWindow(private val context: Context) {
             setViewTreeLifecycleOwner(owner)
             setViewTreeSavedStateRegistryOwner(owner)
             setViewTreeViewModelStoreOwner(owner)
+            // PixelFormat.TRANSLUCENT below only tells WindowManager the *window* supports an
+            // alpha channel -- the ComposeView itself still paints its own default (opaque, dark
+            // in this app's theme) background first, which showed through as a rectangular dark
+            // layer behind the rounded debug panel's corners. Explicitly transparent so only the
+            // rounded panel content (DebugOverlayContent's own background/shadow/border) is ever
+            // visible, not the raw View bounds underneath it.
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             setContent(content)
         }
 

@@ -94,6 +94,12 @@ data class RankingDebug(
     val com2TunedCallsign: String? = null,
     val activeRouteWaypoint: String? = null,
     val lastPassedWaypoint: String? = null,
+    // Bearing (true, 0-360)/distance from ownship's current position to each named waypoint
+    // above -- null whenever ownship's position isn't known yet.
+    val activeRouteWaypointBearingTrue: Double? = null,
+    val activeRouteWaypointDistanceNm: Double? = null,
+    val lastPassedWaypointBearingTrue: Double? = null,
+    val lastPassedWaypointDistanceNm: Double? = null,
     val etaCalculationDetail: String? = null
 )
 

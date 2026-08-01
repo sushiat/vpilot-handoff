@@ -163,12 +163,17 @@ namespace Handoff.Plugin.Tests
                 ownshipLatitude: 51.0, ownshipLongitude: 1.0, ownshipAltitudeTrue: 45000, ownshipAltitudeAgl: 44700,
                 ownshipGroundspeedKt: 461, ownshipHeadingTrue: 68, ownshipTrackTrue: 68,
                 com1TunedCallsign: null, com2TunedCallsign: null,
-                activeRouteWaypoint: "KONAN", lastPassedWaypoint: "GASBA", etaCalculationDetail: "test detail");
+                activeRouteWaypoint: "KONAN", lastPassedWaypoint: "GASBA",
+                activeRouteWaypointBearingTrue: 68.0, activeRouteWaypointDistanceNm: 55.3,
+                lastPassedWaypointBearingTrue: 178.0, lastPassedWaypointDistanceNm: 12.3,
+                etaCalculationDetail: "test detail");
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers, debug: planWide));
 
             Assert.Equal("cruise", (string)json["debug"]["phaseOfFlight"]);
             Assert.Equal("KONAN", (string)json["debug"]["activeRouteWaypoint"]);
+            Assert.Equal(55.3, (double)json["debug"]["activeRouteWaypointDistanceNm"]);
+            Assert.Equal(178.0, (double)json["debug"]["lastPassedWaypointBearingTrue"]);
             var controllerDebug = json["controllers"][0]["debug"];
             Assert.Equal(8, (int)controllerDebug["bucket"]);
             Assert.Equal("Airborne CTR relevance", (string)controllerDebug["bucketName"]);

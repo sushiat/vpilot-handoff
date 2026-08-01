@@ -514,12 +514,12 @@ namespace Handoff.Plugin
 
                 var com1Callsign = radio.Com1Frequency.HasValue ? controllers.FirstOrDefault(c => c.Frequency == radio.Com1Frequency.Value)?.Callsign : null;
                 var com2Callsign = radio.Com2Frequency.HasValue ? controllers.FirstOrDefault(c => c.Frequency == radio.Com2Frequency.Value)?.Callsign : null;
-                var activeWaypoint = remainingWaypoints.Count > 0 ? remainingWaypoints[0].Ident : null;
-                string lastPassedWaypoint;
+                var activeWaypoint = remainingWaypoints.Count > 0 ? remainingWaypoints[0] : null;
+                FlightPlanWaypoint lastPassedWaypoint;
                 lock (_gate)
                 {
                     lastPassedWaypoint = _lastWaypointsSeen != null && _committedWaypointIndex > 0 && _committedWaypointIndex <= _lastWaypointsSeen.Count
-                        ? _lastWaypointsSeen[_committedWaypointIndex - 1].Ident
+                        ? _lastWaypointsSeen[_committedWaypointIndex - 1]
                         : null;
                 }
                 var etaDetail = _etaMinutes.HasValue
@@ -528,6 +528,27 @@ namespace Handoff.Plugin
                         ? "Not applicable -- bucket 8c only applies airborne."
                         : "No bucket-8 candidate currently qualifies, or below the eligibility floor (level flight or > FL150 while climbing/descending, groundspeed > 1kt).";
 
+                // Bearing/distance from ownship's current position to each named waypoint --
+                // a quick "does this look right" sanity check (e.g. the last-passed waypoint
+                // showing a bearing/distance that's clearly still ahead of you, not behind, is
+                // exactly the kind of thing a stale route-anchor bug would surface as). Null
+                // whenever ownship's position isn't known yet.
+                double? activeWaypointBearing = null, activeWaypointDistanceNm = null;
+                double? lastPassedWaypointBearing = null, lastPassedWaypointDistanceNm = null;
+                if (telemetry.Latitude.HasValue && telemetry.Longitude.HasValue)
+                {
+                    if (activeWaypoint != null)
+                    {
+                        activeWaypointBearing = GeoDistance.InitialBearingDegrees(telemetry.Latitude.Value, telemetry.Longitude.Value, activeWaypoint.Latitude, activeWaypoint.Longitude);
+                        activeWaypointDistanceNm = GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, activeWaypoint.Latitude, activeWaypoint.Longitude);
+                    }
+                    if (lastPassedWaypoint != null)
+                    {
+                        lastPassedWaypointBearing = GeoDistance.InitialBearingDegrees(telemetry.Latitude.Value, telemetry.Longitude.Value, lastPassedWaypoint.Latitude, lastPassedWaypoint.Longitude);
+                        lastPassedWaypointDistanceNm = GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, lastPassedWaypoint.Latitude, lastPassedWaypoint.Longitude);
+                    }
+                }
+
                 _lastRankingExplain = new RankingDebugExplain(
                     phaseOfFlight: isOnGround ? (_hasTakenOffThisSession ? "landing-taxi-in/parked" : "parked/taxi-out") : "airborne",
                     hasTakenOffThisSession: _hasTakenOffThisSession,
@@ -535,7 +556,9 @@ namespace Handoff.Plugin
                     ownshipAltitudeTrue: telemetry.PressureAltitudeFeet, ownshipAltitudeAgl: telemetry.AltitudeAboveGroundFeet,
                     ownshipGroundspeedKt: telemetry.GroundSpeedKnots, ownshipHeadingTrue: telemetry.HeadingDegrees, ownshipTrackTrue: telemetry.HeadingDegrees,
                     com1TunedCallsign: com1Callsign, com2TunedCallsign: com2Callsign,
-                    activeRouteWaypoint: activeWaypoint, lastPassedWaypoint: lastPassedWaypoint,
+                    activeRouteWaypoint: activeWaypoint?.Ident, lastPassedWaypoint: lastPassedWaypoint?.Ident,
+                    activeRouteWaypointBearingTrue: activeWaypointBearing, activeRouteWaypointDistanceNm: activeWaypointDistanceNm,
+                    lastPassedWaypointBearingTrue: lastPassedWaypointBearing, lastPassedWaypointDistanceNm: lastPassedWaypointDistanceNm,
                     etaCalculationDetail: etaDetail);
             }
             else

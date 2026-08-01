@@ -26,8 +26,8 @@ import at.sushi.handoff.ui.theme.HandoffTheme
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 
-private val DefaultDebugWindowWidth = 340.dp
-private val DefaultDebugWindowHeight = 480.dp
+private val DefaultDebugWindowWidth = 680.dp
+private val DefaultDebugWindowHeight = 560.dp
 
 /** Shows/hides [DebugOverlayWindow] as a side effect of [HandoffState.debugWindowOpen], and owns
  *  the whole snapshot button flow (issue #65 sections 3-5): generate a snapshotId, send

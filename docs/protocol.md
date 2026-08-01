@@ -302,6 +302,10 @@ only in the debug snapshot file (`saveDebugSnapshot` below), not on the wire.
     "com2TunedCallsign": null,
     "activeRouteWaypoint": "KONAN",
     "lastPassedWaypoint": "GASBA",
+    "activeRouteWaypointBearingTrue": 355,
+    "activeRouteWaypointDistanceNm": 55.3,
+    "lastPassedWaypointBearingTrue": 178,
+    "lastPassedWaypointDistanceNm": 12.3,
     "etaCalculationDetail": "No bucket-8 candidate currently qualifies."
   }
 }
