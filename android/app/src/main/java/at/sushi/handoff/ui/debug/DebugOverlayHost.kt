@@ -98,6 +98,10 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
         if (checked) {
             MediaProjectionRequester.requestConsent(context) { resultCode, data ->
                 if (resultCode == Activity.RESULT_OK && data != null) {
+                    // Must happen before getMediaProjection() below -- see
+                    // HandoffConnectionService.promoteToMediaProjectionForeground's own doc
+                    // comment for why the order matters (Android 14+ crashes otherwise).
+                    HandoffConnectionService.instance?.promoteToMediaProjectionForeground()
                     val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     val projection = manager.getMediaProjection(resultCode, data)
                     if (projection == null) {
