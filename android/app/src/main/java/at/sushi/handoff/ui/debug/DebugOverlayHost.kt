@@ -23,8 +23,11 @@ import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.protocol.AttachDebugSnapshotScreenshotCommand
 import at.sushi.handoff.protocol.SaveDebugSnapshotCommand
 import at.sushi.handoff.ui.theme.HandoffTheme
+import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
 import java.util.UUID
+
+private const val SnapshotStatusLingerMillis = 10_000L
 
 private val DefaultDebugWindowWidth = 680.dp
 private val DefaultDebugWindowHeight = 560.dp
@@ -55,6 +58,18 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
 
     val appVersion = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+    }
+
+    // Clears itself ~20s after the most recent status text -- re-keyed on snapshotStatus itself,
+    // so each new status (Saving... -> Snapshot saved... -> Snapshot + screenshot saved.)
+    // restarts the timer and only the final one actually lingers for the full window. Without
+    // this the message just sits there forever, taking up space and leaving no way to tell
+    // whether a *second* snapshot attempt actually saved or silently reused the old text.
+    LaunchedEffect(snapshotStatus) {
+        if (snapshotStatus != null) {
+            delay(SnapshotStatusLingerMillis)
+            snapshotStatus = null
+        }
     }
 
     val onSaveSnapshot: () -> Unit = onSaveSnapshot@{
