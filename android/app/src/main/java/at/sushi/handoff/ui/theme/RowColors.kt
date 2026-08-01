@@ -115,7 +115,7 @@ private fun isContactMeActive(controller: Controller, com1Active: Int?, com2Acti
 // NEXT_LIKELY (rendered "NEXT?") replaces the old APPROACHING badge -- issue #18's isLikelyNext
 // is a confidence-capped variant of isNext (a genuine tie, or unconfirmed route-relevance), not
 // an unrelated concept, so it gets the same badge slot with a softer label instead of its own.
-enum class ControllerBadge { TUNED, STBY, CONTACT_ME, NEXT, NEXT_LIKELY, PINNED, SELCAL }
+enum class ControllerBadge { TUNED, STBY, CONTACT_ME, NEXT, NEXT_LIKELY, ETA, PINNED, SELCAL }
 
 /** Badges in the doc's fixed display priority order (TUNED, STBY, CONTACT ME, NEXT/NEXT?,
  *  PINNED, SELCAL). Every flag here except the contact-me-resolved check is read straight off
@@ -133,6 +133,16 @@ fun controllerBadges(
     if (controller.isLikelyNext) add(ControllerBadge.NEXT_LIKELY)
     if (controller.isPinned) add(ControllerBadge.PINNED)
     if (controller.isSelcalActive) add(ControllerBadge.SELCAL)
+}
+
+/** Which controller (if any) the ETA badge belongs to -- issue #71: etaMinutes is an
+ *  ownship-level field, not per-controller, but always anchors on whichever bucket-8 CTR
+ *  currently carries isNext (or isLikelyNext, if no isNext exists). Returns null if neither
+ *  flag is set on any controller (no row to attach to) or if there's no ETA to show. */
+fun etaBadgeCallsign(controllers: List<Controller>, etaMinutes: Double?): String? {
+    if (etaMinutes == null) return null
+    return controllers.firstOrNull { it.isNext }?.callsign
+        ?: controllers.firstOrNull { it.isLikelyNext }?.callsign
 }
 
 /** COM1 gets [FacilityColors.TUNED_HUE] (teal), COM2 gets [FacilityColors.COM2_TUNED_HUE]

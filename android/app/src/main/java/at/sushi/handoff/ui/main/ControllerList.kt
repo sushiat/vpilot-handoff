@@ -62,9 +62,11 @@ import at.sushi.handoff.ui.theme.LocalRowColorPalette
 import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.controllerRowGroup
+import at.sushi.handoff.ui.theme.etaBadgeCallsign
 import at.sushi.handoff.ui.theme.facilitySuffixName
 import at.sushi.handoff.ui.theme.oklch
 import at.sushi.handoff.ui.theme.rememberFlashPhaseA
+import kotlin.math.roundToInt
 
 /** The reference's fixed "phase B" text color for a flashing row/badge (`--flash-text-b:#111`),
  *  distinct from the near-black `rgba(0,0,0,.82)` used elsewhere. */
@@ -90,6 +92,7 @@ private val badgeLabels = mapOf(
 @Composable
 fun ControllerList(
     controllers: List<Controller>,
+    etaMinutes: Double?,
     com1Active: Int?,
     com2Active: Int?,
     com1Standby: Int?,
@@ -125,6 +128,10 @@ fun ControllerList(
     } else {
         controllers
     }
+    // Computed against the full (unfiltered) list -- the NEXT/NEXT? row this attaches to could be
+    // hidden by "hide tuned" in principle, though isNext/isLikelyNext and isCurrent/isStandbyTuned
+    // shouldn't coincide in practice.
+    val etaBadgeCallsign = remember(controllers, etaMinutes) { etaBadgeCallsign(controllers, etaMinutes) }
 
     Column(modifier.fillMaxWidth().background(colors.panel)) {
         Row(
@@ -239,6 +246,7 @@ fun ControllerList(
                 }
                 ControllerRow(
                     controller = controller,
+                    etaMinutes = if (controller.callsign == etaBadgeCallsign) etaMinutes else null,
                     callsignColWidth = callsignColWidth,
                     frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
@@ -275,6 +283,7 @@ private val InfoColumnEstimatedWidth = 90.dp
 @Composable
 private fun ControllerRow(
     controller: Controller,
+    etaMinutes: Double?,
     callsignColWidth: Dp,
     frequencyTextWidth: Dp,
     com1Active: Int?,
@@ -292,7 +301,9 @@ private fun ControllerRow(
     val colors = LocalHandoffColors.current
     val palette = LocalRowColorPalette.current
     val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby, palette)
-    val badges = controllerBadges(controller, com1Active, com2Active)
+    val badges = controllerBadges(controller, com1Active, com2Active).let { base ->
+        if (etaMinutes != null) base + ControllerBadge.ETA else base
+    }
     var menuOpen by remember { mutableStateOf(false) }
 
     val rowPhaseA = rememberFlashPhaseA(rowColors.isFlashing)
@@ -383,6 +394,8 @@ private fun ControllerRow(
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 badges.forEach { badge ->
                                     when {
+                                        badge == ControllerBadge.ETA && etaMinutes != null ->
+                                            BadgePill("ETA ${etaMinutes.roundToInt()}m", text, badgeBackground)
                                         badge == ControllerBadge.SELCAL ->
                                             BadgePill(badgeLabels.getValue(badge), flashPhaseBText, selcalBackground)
                                         // TUNED/STBY reuse the row's dedicated COM1/COM2 border

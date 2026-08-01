@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android: bucket 8c's CTR ETA readout (issue #71) is now shown to the pilot
+  as an "ETA {n}m" badge on the controller list, attached to whichever row
+  already carries NEXT/NEXT? — `ControllersMessage.etaMinutes` was already
+  decoded and unit-tested but had no pilot-facing home until now.
 - Plugin: an on-ground, pre-takeoff sanity gate (issue #68) — if ownship's
   position is more than ~8nm from the filed origin's own coordinates
   (newly parsed from SimBrief's `origin.pos_lat`/`pos_long`), the loaded
