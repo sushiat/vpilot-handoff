@@ -386,7 +386,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   save round trip completes, the save button swaps for an inline name field; submitting sends
   a new `nameDebugSnapshot` command (`debugSnapshotNamed` reply) that stores the name in the
   JSON and renames both the `.json`/`.png` files, reusing the existing 10-minute
-  `ScreenshotCorrelationWindow`. (c) The debug window's Route line now shows which mechanism
-  (`ControllerRankingModel.SequenceRemainingWaypoints`) last advanced the committed waypoint
-  index — the normal along-track sweep or issue #66's proximity catch-up fallback — and when,
-  surfaced in both the live view and the snapshot file.
+  `ScreenshotCorrelationWindow`; a "Skip" button next to "Save name" dismisses the field without
+  naming it, leaving the snapshot exactly as saved. (c) The debug window's Route line now shows
+  which mechanism (`ControllerRankingModel.SequenceRemainingWaypoints`) last advanced the
+  committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
+  fallback — and when, surfaced in both the live view and the snapshot file.
