@@ -16,6 +16,11 @@ namespace Handoff.Plugin
         public DateTimeOffset TimestampUtc { get; }
         public string PluginVersion { get; }
         public string AppVersion { get; }
+        // Issue #73b -- pilot-chosen label attached after the fact via nameDebugSnapshot; null for
+        // never-named snapshots (the normal case at write time -- SaveSnapshot always passes null
+        // here, DebugSnapshotService.RenameSnapshot patches it into the already-written JSON
+        // in-place rather than reconstructing this object).
+        public string Name { get; }
 
         public string VatsimCallsign { get; }
         public string VatsimCid { get; }
@@ -35,7 +40,7 @@ namespace Handoff.Plugin
         public IReadOnlyDictionary<string, string> ActiveOperations { get; }
 
         public FullDebugSnapshot(
-            string snapshotId, DateTimeOffset timestampUtc, string pluginVersion, string appVersion,
+            string snapshotId, DateTimeOffset timestampUtc, string pluginVersion, string appVersion, string name,
             string vatsimCallsign, string vatsimCid,
             IReadOnlyList<RankedController> computedControllers, RankingDebugExplain rankingContext, RankingSnapshot ranking,
             ControllerStateDebugSnapshot controllerState, RadioDebugSnapshot radio, VatsimFeedDebugSnapshot vatsimFeed,
@@ -46,6 +51,7 @@ namespace Handoff.Plugin
             TimestampUtc = timestampUtc;
             PluginVersion = pluginVersion;
             AppVersion = appVersion;
+            Name = name;
             VatsimCallsign = vatsimCallsign;
             VatsimCid = vatsimCid;
             ComputedControllers = computedControllers;

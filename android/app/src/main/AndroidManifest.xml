@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Issue #73a: the opt in full-device debug snapshot screenshot. Android 14+ requires a
+         foreground service to declare the mediaProjection type before MediaProjectionManager's
+         getMediaProjection() can be called at all; HandoffConnectionService already runs in the
+         foreground for its whole lifetime, so this is declared alongside its existing dataSync
+         type rather than standing up a second service just for this. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Lets the chat panel paint as a floating overlay while split-screened next to another
          EFB app, rather than being clipped to this app's own half of the screen. -->
@@ -29,7 +35,7 @@
 
         <service
             android:name=".HandoffConnectionService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="dataSync|mediaProjection"
             android:exported="false" />
 
     </application>

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,10 +17,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +37,7 @@ import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import kotlin.math.roundToInt
+import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 private val DebugWindowShape = RoundedCornerShape(12.dp)
@@ -48,7 +57,16 @@ fun DebugOverlayContent(
     onDragTitleBar: (dxPx: Float, dyPx: Float) -> Unit,
     onClose: () -> Unit,
     onSaveSnapshot: () -> Unit,
-    snapshotStatus: String?
+    snapshotStatus: String?,
+    // Issue #73b -- true once a save round trip just completed, swapping the save button for an
+    // inline name field (in the same spot, not a new dialog) until a name is submitted or a new
+    // save starts.
+    awaitingName: Boolean,
+    onNameSnapshot: (String) -> Unit,
+    // Issue #73a -- opt-in full-device snapshot screenshot (MediaProjection), off by default; the
+    // consent prompt this triggers happens once per check, not per snapshot (DebugOverlayHost).
+    fullDeviceCapture: Boolean,
+    onFullDeviceCaptureChange: (Boolean) -> Unit
 ) {
     val colors = LocalHandoffColors.current
 
@@ -81,7 +99,26 @@ fun DebugOverlayContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Debug", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.text)
-            Text("✕", fontSize = 18.sp, color = colors.text.copy(alpha = 0.6f), modifier = Modifier.clickable(onClick = onClose))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Issue #73a -- placed here, left of the close button, per the issue's own
+                // "saves vertical space for the controller list" reasoning. onCheckedChange = null
+                // on the Checkbox itself since the whole Row is the click target, same pattern as
+                // ControllerList's "Hide tuned" checkbox.
+                Row(
+                    Modifier.clickable { onFullDeviceCaptureChange(!fullDeviceCapture) },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Full-device", fontSize = 12.sp, color = colors.textMuted)
+                    Checkbox(
+                        checked = fullDeviceCapture,
+                        onCheckedChange = null,
+                        modifier = Modifier.scale(0.75f),
+                        colors = CheckboxDefaults.colors(checkedColor = colors.accent, uncheckedColor = colors.textMuted)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Text("✕", fontSize = 18.sp, color = colors.text.copy(alpha = 0.6f), modifier = Modifier.clickable(onClick = onClose))
+            }
         }
 
         Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -99,6 +136,11 @@ fun DebugOverlayContent(
                         fontSize = 15.sp, color = colors.textMuted
                     )
                     Text("ETA: ${debug.etaCalculationDetail ?: "-"}", fontSize = 15.sp, color = colors.textMuted)
+                    Text(
+                        "Last advance: ${debug.lastWaypointAdvanceMechanism ?: "-"}" +
+                            (debug.lastWaypointAdvanceAt?.let { " (${formatRelativeTime(it)})" } ?: ""),
+                        fontSize = 15.sp, color = colors.textMuted
+                    )
                 }
 
                 Text(
@@ -146,16 +188,39 @@ fun DebugOverlayContent(
             if (snapshotStatus != null) {
                 Text(snapshotStatus, fontSize = 14.sp, color = colors.textMuted, modifier = Modifier.padding(bottom = 8.dp))
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(colors.panelAlt, RoundedCornerShape(8.dp))
-                    .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                    .clickable(onClick = onSaveSnapshot)
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Save debug snapshot", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = colors.text)
+            if (awaitingName) {
+                var name by remember(awaitingName) { mutableStateOf("") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HandoffTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        placeholder = "Name this snapshot (optional)",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        Modifier
+                            .padding(start = 8.dp)
+                            .background(colors.panelAlt, RoundedCornerShape(8.dp))
+                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                            .clickable(enabled = name.isNotBlank()) { onNameSnapshot(name) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Save name", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
+                    }
+                }
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.panelAlt, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                        .clickable(onClick = onSaveSnapshot)
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Save debug snapshot", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = colors.text)
+                }
             }
         }
     }

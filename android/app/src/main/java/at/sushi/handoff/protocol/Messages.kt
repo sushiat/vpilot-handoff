@@ -105,7 +105,12 @@ data class RankingDebug(
     val activeRouteWaypointDistanceNm: Double? = null,
     val lastPassedWaypointBearingTrue: Double? = null,
     val lastPassedWaypointDistanceNm: Double? = null,
-    val etaCalculationDetail: String? = null
+    val etaCalculationDetail: String? = null,
+    // Issue #73c -- which mechanism last advanced the committed waypoint index: "alongTrackSweep"
+    // (normal anchor-relative sweep) or "proximityCatchUp" (issue #66's fallback that recovers
+    // sequencing after a direct-to desyncs the route anchor). Both null until the first advance.
+    val lastWaypointAdvanceMechanism: String? = null,
+    val lastWaypointAdvanceAt: String? = null
 )
 
 @Serializable
@@ -292,6 +297,18 @@ data class DebugSnapshotSavedMessage(
     val path: String
 ) : ServerMessage
 
+/** Reply to a NameDebugSnapshotCommand (issue #73b). [error] is only present when [success] is
+ *  false -- either the snapshotId's correlation window expired (10 min, same as the
+ *  attachDebugSnapshotScreenshot window) or the rename itself hit an I/O error; either way the
+ *  original files are left exactly as they were. */
+@Serializable
+data class DebugSnapshotNamedMessage(
+    val type: String = "debugSnapshotNamed",
+    val snapshotId: String,
+    val success: Boolean,
+    val error: String? = null
+) : ServerMessage
+
 @Serializable
 data class AuthResultMessage(
     val type: String = "authResult",
@@ -322,6 +339,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
         "pong" -> json.decodeFromJsonElement<PongMessage>(element)
         "authResult" -> json.decodeFromJsonElement<AuthResultMessage>(element)
         "debugSnapshotSaved" -> json.decodeFromJsonElement<DebugSnapshotSavedMessage>(element)
+        "debugSnapshotNamed" -> json.decodeFromJsonElement<DebugSnapshotNamedMessage>(element)
         else -> null
     }
 }
@@ -587,4 +605,18 @@ data class AttachDebugSnapshotScreenshotCommand(
     val screenshotPngBase64: String
 ) : ClientCommand {
     override fun encode() = json.encodeToString(AttachDebugSnapshotScreenshotCommand.serializer(), this)
+}
+
+/** Attaches a pilot-chosen [name] to an already-saved snapshot, strictly after the fact (issue
+ *  #73b) -- sent only once the pilot has typed a name into the inline field that appears after
+ *  [DebugSnapshotSavedMessage] comes back, never blocking or delaying the save itself. Reuses the
+ *  same [snapshotId] correlation [SaveDebugSnapshotCommand]/[AttachDebugSnapshotScreenshotCommand]
+ *  already use. See [DebugSnapshotNamedMessage] for the reply. */
+@Serializable
+data class NameDebugSnapshotCommand(
+    val type: String = "nameDebugSnapshot",
+    val snapshotId: String,
+    val name: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(NameDebugSnapshotCommand.serializer(), this)
 }

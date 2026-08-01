@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Handoff.Plugin
@@ -28,6 +29,11 @@ namespace Handoff.Plugin
         // screenshot, doesn't need that to still work; capping this avoids an unbounded dictionary
         // over a long flight session with many snapshots taken.
         private static readonly TimeSpan ScreenshotCorrelationWindow = TimeSpan.FromMinutes(10);
+
+        // Issue #73b -- caps how much of a pilot-typed snapshot name gets appended to the
+        // filename itself (the full name is still stored untruncated inside the JSON's `name`
+        // field) -- keeps filenames from growing unboundedly long on a verbose name.
+        private const int MaxNameSuffixLength = 40;
 
         private static readonly JsonSerializerSettings SerializerSettings = new JsonSerializerSettings
         {
@@ -90,7 +96,7 @@ namespace Handoff.Plugin
         {
             var now = DateTimeOffset.UtcNow;
             var snapshot = new FullDebugSnapshot(
-                snapshotId, now, _pluginVersion, appVersion,
+                snapshotId, now, _pluginVersion, appVersion, null,
                 _pilotSession.Callsign, _pilotSession.Cid,
                 _controllerRanking.Current, _controllerRanking.PlanWideDebugExplain, _controllerRanking.BuildDebugSnapshot(),
                 _controllerState.BuildDebugSnapshot(), _radioState.BuildDebugSnapshot(), _vatsimDataFeed.BuildDebugSnapshot(),
@@ -144,6 +150,62 @@ namespace Handoff.Plugin
             }
         }
 
+        /// <summary>
+        /// Issue #73b -- attaches a pilot-chosen name to an already-saved snapshot, strictly after
+        /// the fact (never touches the original save/capture timing). Reuses the same
+        /// _recentSnapshots correlation SaveSnapshot/TrySaveScreenshot already maintain. Renames
+        /// the file(s) first (a pure filesystem move, either both succeed or neither file's name
+        /// changes) and only then patches the `name` field into the renamed JSON -- so a failure
+        /// partway through never leaves the pair split between old/new names, and any failure at
+        /// all leaves the original files exactly as they were, per the issue's framing.
+        /// </summary>
+        public (bool Success, string Error) RenameSnapshot(string snapshotId, string name)
+        {
+            string basePath;
+            lock (_gate)
+            {
+                if (!_recentSnapshots.TryGetValue(snapshotId, out var entry)) return (false, "Unknown or expired snapshotId.");
+                basePath = entry.BasePath;
+            }
+
+            var jsonPath = basePath + ".json";
+            if (!File.Exists(jsonPath)) return (false, "Snapshot file no longer exists.");
+
+            var directory = Path.GetDirectoryName(basePath);
+            var newStem = Path.GetFileName(basePath) + "-" + SanitizeForFileName(name, MaxNameSuffixLength);
+            var newBasePath = PathJoin.Combine(directory, newStem);
+            var newJsonPath = newBasePath + ".json";
+            var pngPath = basePath + ".png";
+            var newPngPath = newBasePath + ".png";
+            var hasPng = File.Exists(pngPath);
+
+            try
+            {
+                File.Move(jsonPath, newJsonPath);
+                if (hasPng) File.Move(pngPath, newPngPath);
+
+                var json = JObject.Parse(File.ReadAllText(newJsonPath));
+                json["name"] = name;
+                File.WriteAllText(newJsonPath, json.ToString(Formatting.Indented));
+
+                lock (_gate)
+                {
+                    if (_recentSnapshots.TryGetValue(snapshotId, out var entry))
+                    {
+                        _recentSnapshots[snapshotId] = (newBasePath, entry.SavedAt);
+                    }
+                }
+
+                Log("Renamed debug snapshot " + snapshotId + " to " + newStem);
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to name debug snapshot " + snapshotId + ": " + ex.Message);
+                return (false, "Failed to rename snapshot file(s): " + ex.Message);
+            }
+        }
+
         private void PruneStaleCorrelations(DateTimeOffset now)
         {
             var stale = _recentSnapshots
@@ -153,10 +215,11 @@ namespace Handoff.Plugin
             foreach (var key in stale) _recentSnapshots.Remove(key);
         }
 
-        private static string SanitizeForFileName(string value)
+        private static string SanitizeForFileName(string value, int? maxLength = null)
         {
             if (string.IsNullOrEmpty(value)) return "snapshot";
-            var chars = value.ToCharArray();
+            var truncated = maxLength.HasValue && value.Length > maxLength.Value ? value.Substring(0, maxLength.Value) : value;
+            var chars = truncated.ToCharArray();
             for (var i = 0; i < chars.Length; i++)
             {
                 if (Array.IndexOf(Path.GetInvalidFileNameChars(), chars[i]) >= 0) chars[i] = '_';

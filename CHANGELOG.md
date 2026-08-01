@@ -376,3 +376,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full-display capture) saved alongside it. New nullable `controllers[].debug`,
   `controllers.debug`, and `subsystemStatus.systemsDebug` wire fields, all `null` unless debug
   mode is on. See `docs/debug-snapshot.md` for the snapshot file's full shape.
+- Debug window refinements (issue #73), found while using the above to chase down a
+  waypoint-sequencing lag: (a) an opt-in "Full-device" checkbox in the debug window's title
+  bar requests `MediaProjection` consent once per check (not per snapshot) and captures the
+  whole display instead of just Handoff's own window — useful for seeing a neighboring
+  split-screen EFB app alongside Handoff's state. Requires Android 14+'s foreground-service
+  mediaProjection type, added to `HandoffConnectionService`'s existing `dataSync` type rather
+  than standing up a second service. (b) Snapshots can now be named after the fact — once a
+  save round trip completes, the save button swaps for an inline name field; submitting sends
+  a new `nameDebugSnapshot` command (`debugSnapshotNamed` reply) that stores the name in the
+  JSON and renames both the `.json`/`.png` files, reusing the existing 10-minute
+  `ScreenshotCorrelationWindow`. (c) The debug window's Route line now shows which mechanism
+  (`ControllerRankingModel.SequenceRemainingWaypoints`) last advanced the committed waypoint
+  index — the normal along-track sweep or issue #66's proximity catch-up fallback — and when,
+  surfaced in both the live view and the snapshot file.

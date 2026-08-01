@@ -42,6 +42,8 @@ namespace Handoff.Plugin
         public const string TypeSetDebugMode = "setDebugMode";
         public const string TypeSaveDebugSnapshot = "saveDebugSnapshot";
         public const string TypeAttachDebugSnapshotScreenshot = "attachDebugSnapshotScreenshot";
+        // Issue #73b -- attaches a pilot-chosen name to an already-saved snapshot, after the fact.
+        public const string TypeNameDebugSnapshot = "nameDebugSnapshot";
 
         public string Type { get; set; }
 
@@ -102,8 +104,10 @@ namespace Handoff.Plugin
         // the later attachDebugSnapshotScreenshot; AppVersion is the Android versionName (the
         // plugin doesn't otherwise know it -- see docs/protocol.md).
         // attachDebugSnapshotScreenshot -- same SnapshotId, ScreenshotPngBase64 is the PNG bytes.
+        // nameDebugSnapshot -- same SnapshotId, Name (below) is the pilot-typed label.
         public string SnapshotId { get; set; }
         public string AppVersion { get; set; }
         public string ScreenshotPngBase64 { get; set; }
+        public string Name { get; set; }
     }
 }
