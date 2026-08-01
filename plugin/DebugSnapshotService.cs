@@ -161,15 +161,25 @@ namespace Handoff.Plugin
         /// </summary>
         public (bool Success, string Error) RenameSnapshot(string snapshotId, string name)
         {
+            Log("RenameSnapshot: entered for " + snapshotId);
             string basePath;
             lock (_gate)
             {
-                if (!_recentSnapshots.TryGetValue(snapshotId, out var entry)) return (false, "Unknown or expired snapshotId.");
+                if (!_recentSnapshots.TryGetValue(snapshotId, out var entry))
+                {
+                    Log("RenameSnapshot: snapshotId not found in _recentSnapshots (unknown/expired): " + snapshotId);
+                    return (false, "Unknown or expired snapshotId.");
+                }
                 basePath = entry.BasePath;
             }
+            Log("RenameSnapshot: resolved basePath=" + basePath);
 
             var jsonPath = basePath + ".json";
-            if (!File.Exists(jsonPath)) return (false, "Snapshot file no longer exists.");
+            if (!File.Exists(jsonPath))
+            {
+                Log("RenameSnapshot: jsonPath does not exist: " + jsonPath);
+                return (false, "Snapshot file no longer exists.");
+            }
 
             var directory = Path.GetDirectoryName(basePath);
             var newStem = Path.GetFileName(basePath) + "-" + SanitizeForFileName(name, MaxNameSuffixLength);
@@ -178,15 +188,30 @@ namespace Handoff.Plugin
             var pngPath = basePath + ".png";
             var newPngPath = newBasePath + ".png";
             var hasPng = File.Exists(pngPath);
+            Log("RenameSnapshot: about to move " + jsonPath + " -> " + newJsonPath + " (hasPng=" + hasPng + ")");
 
             try
             {
                 File.Move(jsonPath, newJsonPath);
-                if (hasPng) File.Move(pngPath, newPngPath);
+                Log("RenameSnapshot: moved json file");
+                if (hasPng)
+                {
+                    File.Move(pngPath, newPngPath);
+                    Log("RenameSnapshot: moved png file");
+                }
 
                 var json = JObject.Parse(File.ReadAllText(newJsonPath));
+                Log("RenameSnapshot: parsed json for patching");
                 json["name"] = name;
-                File.WriteAllText(newJsonPath, json.ToString(Formatting.Indented));
+                // JsonConvert.SerializeObject, not JToken.ToString(Formatting) -- the latter threw
+                // MissingMethodException on a real device: vPilot's process has a different
+                // Newtonsoft.Json assembly actually loaded than this plugin was compiled against,
+                // and that instance-method overload didn't resolve. SerializeObject is the same
+                // static entry point already used successfully everywhere else in this file
+                // (SaveSnapshot) and across the plugin, so it's proven to work against whatever
+                // version is actually loaded at runtime.
+                File.WriteAllText(newJsonPath, JsonConvert.SerializeObject(json, SerializerSettings));
+                Log("RenameSnapshot: wrote patched json");
 
                 lock (_gate)
                 {
@@ -201,7 +226,7 @@ namespace Handoff.Plugin
             }
             catch (Exception ex)
             {
-                Log("Failed to name debug snapshot " + snapshotId + ": " + ex.Message);
+                Log("Failed to name debug snapshot " + snapshotId + ": " + ex);
                 return (false, "Failed to rename snapshot file(s): " + ex.Message);
             }
         }

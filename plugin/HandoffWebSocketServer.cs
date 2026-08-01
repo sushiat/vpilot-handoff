@@ -408,14 +408,24 @@ namespace Handoff.Plugin
         /// the client can show the pilot a clear result either way.</summary>
         private void HandleNameDebugSnapshot(ClientCommand command, IWebSocketConnection socket)
         {
+            Log("HandleNameDebugSnapshot: received for snapshotId=" + command.SnapshotId + " name=" + command.Name);
             if (string.IsNullOrEmpty(command.SnapshotId) || string.IsNullOrEmpty(command.Name))
             {
                 Log("Ignoring nameDebugSnapshot with no snapshotId/name.");
                 return;
             }
 
-            var (success, error) = _debugSnapshotService.RenameSnapshot(command.SnapshotId, command.Name);
-            socket.Send(ProtocolMessages.BuildDebugSnapshotNamedMessage(command.SnapshotId, success, error));
+            try
+            {
+                var (success, error) = _debugSnapshotService.RenameSnapshot(command.SnapshotId, command.Name);
+                Log("HandleNameDebugSnapshot: RenameSnapshot returned success=" + success + " error=" + error);
+                socket.Send(ProtocolMessages.BuildDebugSnapshotNamedMessage(command.SnapshotId, success, error));
+                Log("HandleNameDebugSnapshot: reply sent");
+            }
+            catch (Exception ex)
+            {
+                Log("HandleNameDebugSnapshot: unhandled exception: " + ex);
+            }
         }
 
         private void Broadcast(string message)

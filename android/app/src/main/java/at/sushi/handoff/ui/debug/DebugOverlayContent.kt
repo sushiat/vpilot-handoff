@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -42,6 +43,9 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 private val DebugWindowShape = RoundedCornerShape(12.dp)
 private val SystemsColumnWidth = 260.dp
+// Issue #73b -- shared fixed height for the naming row's text field and its two buttons, so all
+// three line up exactly regardless of their differing default padding/font size.
+private val NamingRowHeight = 44.dp
 
 /** The debug overlay window's actual content -- see [DebugOverlayWindow]'s own doc comment for
  *  why this is a real floating window rather than an in-app dialog. Two sections side by side
@@ -63,6 +67,7 @@ fun DebugOverlayContent(
     // save starts.
     awaitingName: Boolean,
     onNameSnapshot: (String) -> Unit,
+    onSkipName: () -> Unit,
     // Issue #73a -- opt-in full-device snapshot screenshot (MediaProjection), off by default; the
     // consent prompt this triggers happens once per check, not per snapshot (DebugOverlayHost).
     fullDeviceCapture: Boolean,
@@ -108,7 +113,7 @@ fun DebugOverlayContent(
                     Modifier.clickable { onFullDeviceCaptureChange(!fullDeviceCapture) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Full-device", fontSize = 12.sp, color = colors.textMuted)
+                    Text("Full-device screenshot", fontSize = 12.sp, color = colors.textMuted)
                     Checkbox(
                         checked = fullDeviceCapture,
                         onCheckedChange = null,
@@ -195,18 +200,31 @@ fun DebugOverlayContent(
                         value = name,
                         onValueChange = { name = it },
                         placeholder = "Name this snapshot (optional)",
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).height(NamingRowHeight)
                     )
                     Box(
                         Modifier
                             .padding(start = 8.dp)
+                            .height(NamingRowHeight)
                             .background(colors.panelAlt, RoundedCornerShape(8.dp))
                             .border(1.dp, colors.border, RoundedCornerShape(8.dp))
                             .clickable(enabled = name.isNotBlank()) { onNameSnapshot(name) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("Save name", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
+                    }
+                    Box(
+                        Modifier
+                            .padding(start = 8.dp)
+                            .height(NamingRowHeight)
+                            .background(colors.panelAlt, RoundedCornerShape(8.dp))
+                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                            .clickable(onClick = onSkipName)
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Skip", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.textMuted)
                     }
                 }
             } else {

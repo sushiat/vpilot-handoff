@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -75,12 +76,22 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     // onFullDeviceCaptureChange), and flips back false on decline/unchecking/window close.
     var fullDeviceCapture by remember { mutableStateOf(false) }
     var mediaProjection by remember { mutableStateOf<MediaProjection?>(null) }
+    // Issue #73a follow-up -- the VirtualDisplay/ImageReader pair is created once, right after
+    // consent is granted, and kept alive for as long as the checkbox stays checked, rather than
+    // being created/torn down per snapshot. Confirmed on-device: recreating a VirtualDisplay from
+    // the same MediaProjection for a second capture silently fails and ends the whole projection
+    // session -- most MediaProjection implementations only support a single VirtualDisplay across
+    // the token's lifetime. Each capture instead just reads the latest already-mirrored frame off
+    // this same persistent surface.
+    var captureSurface by remember { mutableStateOf<FullDeviceCaptureSurface?>(null) }
     val mediaProjectionCallback = remember {
         object : MediaProjection.Callback() {
             // The system can end a projection on its own (e.g. the pilot revokes it from the
             // status bar's screen-capture indicator) -- react the same way as an explicit
             // uncheck, rather than holding a stale/dead MediaProjection reference around.
             override fun onStop() {
+                captureSurface?.close()
+                captureSurface = null
                 mediaProjection = null
                 fullDeviceCapture = false
             }
@@ -88,6 +99,8 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     }
 
     fun stopFullDeviceCapture() {
+        captureSurface?.close()
+        captureSurface = null
         mediaProjection?.unregisterCallback(mediaProjectionCallback)
         mediaProjection?.stop()
         mediaProjection = null
@@ -108,11 +121,19 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
                         fullDeviceCapture = false
                     } else {
                         // Must be registered before any createVirtualDisplay call (Android 14+
-                        // throws IllegalStateException otherwise) -- see this file's capture
-                        // function.
+                        // throws IllegalStateException otherwise) -- see
+                        // createFullDeviceCaptureSurface, called right after.
                         projection.registerCallback(mediaProjectionCallback, Handler(Looper.getMainLooper()))
-                        mediaProjection = projection
-                        fullDeviceCapture = true
+                        val surface = createFullDeviceCaptureSurface(context, projection)
+                        if (surface == null) {
+                            projection.unregisterCallback(mediaProjectionCallback)
+                            projection.stop()
+                            fullDeviceCapture = false
+                        } else {
+                            mediaProjection = projection
+                            captureSurface = surface
+                            fullDeviceCapture = true
+                        }
                     }
                 } else {
                     fullDeviceCapture = false
@@ -181,9 +202,9 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
 
         // Issue #73a -- the pilot's opt-in choice, made once when the checkbox was checked; the
         // plugin can't tell which kind it received either way, both arrive on the same field.
-        val projection = mediaProjection
-        if (fullDeviceCapture && projection != null) {
-            captureFullDeviceScreenshot(context, projection, onCaptureResult)
+        val surface = captureSurface
+        if (fullDeviceCapture && surface != null) {
+            captureFullDeviceScreenshot(surface, onCaptureResult)
         } else {
             captureWindowScreenshot(activity, onCaptureResult)
         }
@@ -206,6 +227,11 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
         lastSavedSnapshotId = null
         HandoffState.clearDebugSnapshotNamed()
     }
+
+    // Issue #73b -- lets the pilot dismiss the inline name field without typing anything, same
+    // "the files are simply left exactly as they already are" outcome as never getting around to
+    // naming it at all -- no command sent, nothing for the plugin to do.
+    val onSkipName: () -> Unit = { lastSavedSnapshotId = null }
 
     DisposableEffect(visible, debugModeEnabled) {
         if (visible && debugModeEnabled) {
@@ -233,6 +259,7 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
                         snapshotStatus = snapshotStatus,
                         awaitingName = lastSavedSnapshotId != null,
                         onNameSnapshot = onNameSnapshot,
+                        onSkipName = onSkipName,
                         fullDeviceCapture = fullDeviceCapture,
                         onFullDeviceCaptureChange = onFullDeviceCaptureChange
                     )
@@ -240,11 +267,21 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
             }
         } else {
             overlay.hide()
-            stopFullDeviceCapture()
+            // Issue #73b -- otherwise closing the window without naming a just-saved snapshot
+            // leaves lastSavedSnapshotId set forever (this composable stays alive across the
+            // window's own show/hide, so nothing else would ever clear it), permanently stuck
+            // showing the inline name field instead of the save button on next open.
+            lastSavedSnapshotId = null
+            // Deliberately NOT calling stopFullDeviceCapture() here -- per the pilot's own
+            // request, the granted MediaProjection consent should survive the window closing
+            // (re-approving the system consent dialog every time is exactly what "prompt once"
+            // was meant to avoid), not just survive across snapshots taken while the window
+            // stays open. Only an explicit uncheck (onFullDeviceCaptureChange) or the system
+            // itself revoking it (mediaProjectionCallback.onStop) ever stops it now.
         }
         onDispose {
             overlay.hide()
-            stopFullDeviceCapture()
+            lastSavedSnapshotId = null
         }
     }
 }
@@ -278,13 +315,33 @@ private fun captureWindowScreenshot(activity: Activity, onResult: (String?) -> U
     }.onFailure { onResult(null) }
 }
 
-/** Opt-in full-device capture (issue #73a) via [MediaProjection], for cases where seeing the
- *  neighboring split-screen EFB app alongside Handoff's own state actually helps diagnosis --
- *  the pilot must explicitly check the title bar's checkbox first (see [DebugOverlayHost]'s
- *  onFullDeviceCaptureChange), unlike [captureWindowScreenshot]'s always-on app-only default.
- *  One-shot: grabs a single frame via [ImageReader] + [MediaProjection.createVirtualDisplay],
- *  then tears both down immediately -- this isn't a continuous screen recording. */
-private fun captureFullDeviceScreenshot(context: Context, mediaProjection: MediaProjection, onResult: (String?) -> Unit) {
+/** Holds the [ImageReader]/[VirtualDisplay] pair backing an opt-in full-device capture session
+ *  (issue #73a) -- created once via [createFullDeviceCaptureSurface] right after the pilot grants
+ *  MediaProjection consent, and kept alive for the whole "checked" session rather than recreated
+ *  per snapshot (see [DebugOverlayHost]'s own doc comment on why: recreating the VirtualDisplay
+ *  per capture silently ends the whole MediaProjection session on most devices). [width]/[height]
+ *  are needed alongside the reader/display to correctly interpret each captured frame's row
+ *  stride/padding. */
+private class FullDeviceCaptureSurface(
+    val imageReader: ImageReader,
+    val virtualDisplay: VirtualDisplay,
+    val width: Int,
+    val height: Int,
+    val handler: Handler
+) {
+    fun close() {
+        imageReader.setOnImageAvailableListener(null, null)
+        virtualDisplay.release()
+        imageReader.close()
+    }
+}
+
+/** Sets up the persistent mirrored surface a full-device capture session reads frames from --
+ *  see [FullDeviceCaptureSurface]'s own doc comment for why this is created once and reused
+ *  rather than per snapshot. Returns null (caller's responsibility to also stop the
+ *  [MediaProjection] it was given) if the display size can't be read or the VirtualDisplay fails
+ *  to create. */
+private fun createFullDeviceCaptureSurface(context: Context, mediaProjection: MediaProjection): FullDeviceCaptureSurface? {
     @Suppress("DEPRECATION")
     val metrics = DisplayMetrics().also {
         val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
@@ -292,38 +349,49 @@ private fun captureFullDeviceScreenshot(context: Context, mediaProjection: Media
     }
     val width = metrics.widthPixels
     val height = metrics.heightPixels
-    if (width <= 0 || height <= 0) {
-        onResult(null)
-        return
-    }
+    if (width <= 0 || height <= 0) return null
 
     val handler = Handler(Looper.getMainLooper())
     val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-    var virtualDisplay: android.hardware.display.VirtualDisplay? = null
+    val virtualDisplay = runCatching {
+        mediaProjection.createVirtualDisplay(
+            "HandoffDebugFullDeviceCapture", width, height, metrics.densityDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.surface, null, handler
+        )
+    }.getOrNull()
+
+    if (virtualDisplay == null) {
+        imageReader.close()
+        return null
+    }
+    return FullDeviceCaptureSurface(imageReader, virtualDisplay, width, height, handler)
+}
+
+/** Grabs the most recent frame off an already-live [FullDeviceCaptureSurface] -- never creates or
+ *  tears down the underlying [ImageReader]/[VirtualDisplay] itself (see that class's doc comment).
+ *  The surface should already have a recent frame buffered from ongoing mirroring; falls back to
+ *  waiting for the next one via a one-shot listener if [ImageReader.acquireLatestImage] comes back
+ *  empty (e.g. this is the very first capture right after the surface was created). */
+private fun captureFullDeviceScreenshot(surface: FullDeviceCaptureSurface, onResult: (String?) -> Unit) {
     var resolved = false
 
     fun finish(result: String?) {
         if (resolved) return
         resolved = true
+        surface.imageReader.setOnImageAvailableListener(null, null)
         onResult(result)
-        virtualDisplay?.release()
-        imageReader.close()
     }
 
-    imageReader.setOnImageAvailableListener({ reader ->
-        val image = reader.acquireLatestImage()
-        if (image == null) {
-            finish(null)
-            return@setOnImageAvailableListener
-        }
+    fun processImage(image: android.media.Image) {
         runCatching {
             val plane = image.planes[0]
             val pixelStride = plane.pixelStride
             val rowStride = plane.rowStride
-            val rowPaddingPx = (rowStride - pixelStride * width) / pixelStride
-            val bitmap = Bitmap.createBitmap(width + rowPaddingPx, height, Bitmap.Config.ARGB_8888)
+            val rowPaddingPx = (rowStride - pixelStride * surface.width) / pixelStride
+            val bitmap = Bitmap.createBitmap(surface.width + rowPaddingPx, surface.height, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(plane.buffer)
-            val cropped = if (rowPaddingPx == 0) bitmap else Bitmap.createBitmap(bitmap, 0, 0, width, height)
+            val cropped = if (rowPaddingPx == 0) bitmap else Bitmap.createBitmap(bitmap, 0, 0, surface.width, surface.height)
             val bytes = ByteArrayOutputStream().use { stream ->
                 cropped.compress(Bitmap.CompressFormat.PNG, 100, stream)
                 stream.toByteArray()
@@ -336,18 +404,21 @@ private fun captureFullDeviceScreenshot(context: Context, mediaProjection: Media
             image.close()
             finish(null)
         }
-    }, handler)
+    }
 
-    runCatching {
-        virtualDisplay = mediaProjection.createVirtualDisplay(
-            "HandoffDebugFullDeviceCapture", width, height, metrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface, null, handler
-        )
-    }.onFailure { finish(null) }
+    val immediateImage = runCatching { surface.imageReader.acquireLatestImage() }.getOrNull()
+    if (immediateImage != null) {
+        processImage(immediateImage)
+        return
+    }
+
+    surface.imageReader.setOnImageAvailableListener({ reader ->
+        val image = reader.acquireLatestImage()
+        if (image == null) finish(null) else processImage(image)
+    }, surface.handler)
 
     // Backstop in case no frame ever arrives (e.g. the display genuinely never produces one) --
     // same reasoning as PixelCopy's SUCCESS/failure callback always firing, just without an
     // equivalent guarantee from this API.
-    handler.postDelayed({ finish(null) }, 5_000L)
+    surface.handler.postDelayed({ finish(null) }, 5_000L)
 }
