@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using RossCarlson.Vatsim.Vpilot.Plugins;
 using RossCarlson.Vatsim.Vpilot.Plugins.Events;
 
@@ -35,6 +37,14 @@ namespace Handoff.Plugin
         private static readonly TimeSpan ContactMeExpiryWindow = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan SelcalExpiryWindow = TimeSpan.FromMinutes(5);
         private const string ContactMePhrase = "contact me";
+
+        // Pulls a VHF airband frequency out of a free-text "contact me" (e.g. "please contact me on
+        // 128.950") so an off-list synthetic entry can show it. Integer part 100-136, 1-3 decimals;
+        // the caller range-checks 118-137 to reject stray matches like a time or a squawk. Free
+        // text, not a fixed template -- widen this once real messages are sampled (see the plugin's
+        // own note in OnChatChanged).
+        private static readonly Regex ContactMeFrequencyRegex =
+            new Regex(@"\b1(?:[0-2]\d|3[0-6])\.\d{1,3}\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private readonly object _gate = new object();
         private readonly Dictionary<string, HandoffController> _controllers =
@@ -138,9 +148,15 @@ namespace Handoff.Plugin
         {
             lock (_gate)
             {
-                _controllers[e.Callsign] = _controllers.TryGetValue(e.Callsign, out var existing) && existing.IsHidden
-                    ? existing.Reconnected()
-                    : new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
+                _controllers.TryGetValue(e.Callsign, out var existing);
+                if (existing != null && existing.IsOffList)
+                    // A real station finally appeared for a callsign we'd only seen as an off-list
+                    // contact-me: adopt its real telemetry, keep the outstanding contact-me/pin.
+                    _controllers[e.Callsign] = existing.Promoted(e.Frequency, e.Latitude, e.Longitude);
+                else if (existing != null && existing.IsHidden)
+                    _controllers[e.Callsign] = existing.Reconnected();
+                else
+                    _controllers[e.Callsign] = new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
             }
             RaiseChanged();
         }
@@ -187,10 +203,22 @@ namespace Handoff.Plugin
                 var lastMessage = chatModel.Messages.LastOrDefault();
                 if (lastMessage != null && lastMessage.Channel == ChatChannel.Private && lastMessage.Direction == ChatDirection.Incoming
                     && lastMessage.Peer != null && lastMessage.Text != null
-                    && lastMessage.Text.IndexOf(ContactMePhrase, StringComparison.OrdinalIgnoreCase) >= 0
-                    && _controllers.TryGetValue(lastMessage.Peer, out var contactMeTarget))
+                    && lastMessage.Text.IndexOf(ContactMePhrase, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    _controllers[lastMessage.Peer] = contactMeTarget.WithContactMeExpiry(_now() + ContactMeExpiryWindow);
+                    if (_controllers.TryGetValue(lastMessage.Peer, out var contactMeTarget))
+                    {
+                        _controllers[lastMessage.Peer] = contactMeTarget.WithContactMeExpiry(_now() + ContactMeExpiryWindow);
+                    }
+                    else
+                    {
+                        // Off-list sender -- a "contact me" from a callsign that never came in via
+                        // ControllerAdded (a station on a frequency none of our data sources expose).
+                        // The old TryGetValue guard dropped these silently; instead synthesize a
+                        // placeholder so the contact-me still reaches the pilot as a normal row. See
+                        // HandoffController.IsOffList for why this lives entirely plugin-side.
+                        _controllers[lastMessage.Peer] = HandoffController.OffList(
+                            lastMessage.Peer, ParseContactMeFrequency(lastMessage.Text), _now() + ContactMeExpiryWindow);
+                    }
                     changed = true;
                 }
 
@@ -230,6 +258,27 @@ namespace Handoff.Plugin
                     updated = updated.WithSelcalExpiry(null);
                 if (!ReferenceEquals(updated, c)) _controllers[key] = updated;
             }
+
+            // Off-list synthetic entries never get a ControllerDeleted (nothing on the IBroker side
+            // knows they exist), so the hidden-expiry prune above never touches them. Once the
+            // contact-me that spawned one has lapsed -- cleared just above -- there's nothing left
+            // for it to represent, so drop it outright rather than leave an inert frequency-only
+            // row behind. A pin keeps it (the pilot explicitly bookmarked it); it goes on unpin.
+            var syntheticExpired = _controllers
+                .Where(kv => kv.Value.IsOffList && !kv.Value.ContactMeExpiresAtUtc.HasValue && !kv.Value.IsPinned)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var callsign in syntheticExpired) _controllers.Remove(callsign);
+        }
+
+        /// <summary>Compressed-integer frequency (e.g. 28950 for 128.950) pulled from a free-text "contact me", or 0 when none is found -- the pilot then reads the original chat message for the frequency.</summary>
+        private static int ParseContactMeFrequency(string text)
+        {
+            var match = ContactMeFrequencyRegex.Match(text);
+            if (!match.Success) return 0;
+            if (!double.TryParse(match.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var megahertz)) return 0;
+            if (megahertz < 118.0 || megahertz >= 137.0) return 0;
+            return (int)Math.Round((megahertz - 100.0) * 1000.0);
         }
 
         private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
