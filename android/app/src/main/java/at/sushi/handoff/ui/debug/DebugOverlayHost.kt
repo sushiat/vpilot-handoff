@@ -14,6 +14,7 @@ import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Display
 import android.view.PixelCopy
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -342,20 +343,14 @@ private class FullDeviceCaptureSurface(
  *  [MediaProjection] it was given) if the display size can't be read or the VirtualDisplay fails
  *  to create. */
 private fun createFullDeviceCaptureSurface(context: Context, mediaProjection: MediaProjection): FullDeviceCaptureSurface? {
-    @Suppress("DEPRECATION")
-    val metrics = DisplayMetrics().also {
-        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.getRealMetrics(it)
-    }
-    val width = metrics.widthPixels
-    val height = metrics.heightPixels
-    if (width <= 0 || height <= 0) return null
+    val (width, height) = fullDisplaySizePx(context) ?: return null
+    val densityDpi = context.resources.displayMetrics.densityDpi
 
     val handler = Handler(Looper.getMainLooper())
     val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
     val virtualDisplay = runCatching {
         mediaProjection.createVirtualDisplay(
-            "HandoffDebugFullDeviceCapture", width, height, metrics.densityDpi,
+            "HandoffDebugFullDeviceCapture", width, height, densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader.surface, null, handler
         )
@@ -366,6 +361,26 @@ private fun createFullDeviceCaptureSurface(context: Context, mediaProjection: Me
         return null
     }
     return FullDeviceCaptureSurface(imageReader, virtualDisplay, width, height, handler)
+}
+
+/** Full physical display size in pixels, independent of this app's own current window/split-screen
+ *  bounds -- what [MediaProjection.createVirtualDisplay] should mirror into. `WindowMetrics`
+ *  (API 30+) is the non-deprecated way to get this; [Display.getRealMetrics] (this app's minSdk
+ *  26 target) is deprecated but still the only option below API 30, so it's confined to that
+ *  fallback branch rather than used unconditionally. */
+private fun fullDisplaySizePx(context: Context): Pair<Int, Int>? {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val windowManager = context.getSystemService(WindowManager::class.java)
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        return if (bounds.width() > 0 && bounds.height() > 0) bounds.width() to bounds.height() else null
+    }
+
+    @Suppress("DEPRECATION")
+    val metrics = DisplayMetrics().also {
+        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.getRealMetrics(it)
+    }
+    return if (metrics.widthPixels > 0 && metrics.heightPixels > 0) metrics.widthPixels to metrics.heightPixels else null
 }
 
 /** Grabs the most recent frame off an already-live [FullDeviceCaptureSurface] -- never creates or
