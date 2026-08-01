@@ -314,4 +314,30 @@ class RowColorsTest {
         val badges = controllerBadges(controller(), com1Active = null, com2Active = null)
         assertTrue(badges.isEmpty())
     }
+
+    @Test
+    fun etaBadgeCallsign_attachesToTheIsNextController() {
+        val next = controller(callsign = "LON_CTR", isNext = true)
+        val other = controller(callsign = "EGLL_TWR")
+        assertEquals("LON_CTR", etaBadgeCallsign(listOf(other, next), etaMinutes = 12.0))
+    }
+
+    @Test
+    fun etaBadgeCallsign_fallsBackToIsLikelyNextWhenNoIsNextExists() {
+        val likelyNext = controller(callsign = "LON_CTR", isLikelyNext = true)
+        val other = controller(callsign = "EGLL_TWR")
+        assertEquals("LON_CTR", etaBadgeCallsign(listOf(other, likelyNext), etaMinutes = 12.0))
+    }
+
+    @Test
+    fun etaBadgeCallsign_nullWhenNeitherFlagIsSetAnywhere() {
+        val c = controller(callsign = "EGLL_TWR")
+        assertEquals(null, etaBadgeCallsign(listOf(c), etaMinutes = 12.0))
+    }
+
+    @Test
+    fun etaBadgeCallsign_nullWhenEtaMinutesIsNullEvenIfIsNextIsSet() {
+        val next = controller(callsign = "LON_CTR", isNext = true)
+        assertEquals(null, etaBadgeCallsign(listOf(next), etaMinutes = null))
+    }
 }
