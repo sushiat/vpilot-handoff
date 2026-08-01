@@ -224,8 +224,38 @@ here, just an edge. `ResolveAppDistanceNm`'s bounding-box approximation elsewher
 predates this primitive and is unrelated (a different distance need -- highlight-radius
 proximity, not boundary-edge dead-banding).
 
-8a's sustained-vertical-trend requirement (5s) already serves the same debouncing purpose for the
-converging/entering prediction independent of the above -- no separate dead-band needed there.
+8a's sustained-vertical-trend requirement (5s) serves this purpose for the *vertical* half of the
+converging/entering prediction. The *lateral* half needed its own dead-band (issue #72): the
+route-projected "entering" match itself (`FindEnteringOwnerMatches`/`FindVatSpyEnteringOwnerMatches`,
+feeding both 7c's APP/DEP entering check and 8a's CTR converging check) is recomputed from scratch
+every tick from the remaining-waypoints leg geometry. The moment the abeam-point sequencer (issue
+#22) advances `_committedWaypointIndex`, the leg vector fed into
+`VatGlassesSectorLookup.DistanceToPolygonAlongRouteNm` jumps discontinuously from the old leg's
+bearing to the new leg's bearing in a single tick -- if a sector's polygon edge sits close to that
+boundary, the match flips in/out on that one tick even for a small, ordinary course change at a
+waypoint.
+
+Fixed via `PassesEnteringDeadband`/`PassesVatSpyEnteringDeadband`, structurally mirroring
+`PassesContainmentDeadband`/`PassesVatSpyContainmentDeadband` (commit-then-lazy-recheck), but with
+a deliberately different fallback check. A plain distance-to-ownship margin (like
+`PolygonContainmentDeadbandMarginNm`) doesn't work here: it can't tell "the polygon is still ahead
+but this tick's ray missed it by a hair" from "the polygon is nearby but now behind, genuinely
+bypassed" -- and a *route/heading-search-radius*-scale margin is even worse, since it's wide enough
+to keep a bypassed waypoint's sector committed indefinitely merely because ownship stays in the
+area (see `AbeamSequencing_DirectToPastAWaypoint_ExcludesItOnlyAfterSustainedCrossing` in
+`ControllerRankingModelTests.cs`, which needs a bypassed waypoint's sector to actually drop even
+while ownship stays close to it). Instead, once committed, a candidate stays included only if the
+*same path* (remaining-waypoint route if any, else current heading) still passes within
+`EnteringNearMissMarginNm` (3nm) of the polygon --
+`VatGlassesSectorLookup.NearestApproachAlongRouteNm`/`AlongHeadingNm` (and their vatspy-boundary
+siblings), new direction-aware primitives that measure the smallest perpendicular ("cross-track")
+distance from the path to the polygon, considering only polygon points that project *ahead* of
+ownship along that specific path -- the same directional gate real crossings already get from
+`SegmentIntersectionT`. That distinction is what makes a genuinely-bypassed waypoint's sector drop
+immediately (its polygon projects behind the new leg, so nothing qualifies) while a boundary-
+adjacent near-miss stays committed (the polygon is still ahead, just missed by a few nm). Separate
+committed-callsign sets per call site (`_appDepEnteringCommitted`, `_ctrEnteringCommitted`,
+`_ctrVatSpyEnteringCommitted`), pruned each tick the same way as the other dead-bands in this file.
 
 ## vatspy station names and FIR-polygon fallback (issue #11)
 
