@@ -46,6 +46,12 @@ namespace Handoff.Plugin
             lock (_gate) { return _clients.Any(c => c.TokenHash == hash); }
         }
 
+        /// <summary>Issue #65 -- paired-device count only, never token hashes/plaintext, for the debug snapshot file.</summary>
+        public PairingDebugSnapshot BuildDebugSnapshot(bool pairingCodeCurrentlyActive)
+        {
+            lock (_gate) { return new PairingDebugSnapshot(_clients.Count, pairingCodeCurrentlyActive); }
+        }
+
         /// <summary>Generates and persists a new paired-client entry, returning the plaintext
         /// token to send to the client -- this is the only time the plaintext exists anywhere
         /// but the client itself.

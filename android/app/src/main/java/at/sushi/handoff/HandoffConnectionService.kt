@@ -30,6 +30,7 @@ import at.sushi.handoff.protocol.AuthenticateCommand
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DebugSnapshotSavedMessage
 import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
@@ -38,6 +39,7 @@ import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.ServerMessage
+import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import kotlinx.coroutines.CoroutineScope
@@ -442,6 +444,11 @@ class HandoffConnectionService : Service() {
         queued.forEach(::handleServerMessage)
         HandoffState.setConnectionStatus(ConnectionStatus.CONNECTED)
         startPingLoop()
+        // Debug mode is session-only on the plugin side too (issue #65) -- a reconnect against a
+        // freshly (re)started plugin process would otherwise silently drop back to debug-off even
+        // though the pilot never turned it off client-side. Re-syncs the plugin to whatever this
+        // client still believes the state is.
+        if (HandoffState.debugModeEnabled.value) client.send(SetDebugModeCommand(enabled = true))
     }
 
     /** Entry point for every frame from HandoffWebSocketClient. authResult is handled inline
@@ -469,6 +476,7 @@ class HandoffConnectionService : Service() {
             is NearbyAircraftMessage -> HandoffState.update(message)
             is SubsystemStatusMessage -> HandoffState.update(message)
             is OperationProgressMessage -> HandoffState.update(message)
+            is DebugSnapshotSavedMessage -> HandoffState.update(message)
             is PongMessage -> HandoffState.setLatencyMs(System.currentTimeMillis() - message.clientTimestamp)
             // Always intercepted by onServerMessage before reaching here -- kept only for
             // ServerMessage's sealed-interface exhaustiveness.

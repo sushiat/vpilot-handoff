@@ -20,12 +20,36 @@ namespace Handoff.Plugin
             Converters = { new StringEnumConverter(new CamelCaseNamingStrategy()) }
         };
 
-        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers, double? etaMinutes = null)
+        /// <summary>`debug` (issue #65) is null whenever debug mode is off -- both the top-level
+        /// plugin-wide context and every per-controller entry's own debug object, matching the
+        /// rest of this protocol's additive/nullable compatibility rule.</summary>
+        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers, double? etaMinutes = null, RankingDebugExplain debug = null)
         {
             var payload = new
             {
                 type = "controllers",
                 etaMinutes,
+                debug = debug == null ? null : new
+                {
+                    phaseOfFlight = debug.PhaseOfFlight,
+                    hasTakenOffThisSession = debug.HasTakenOffThisSession,
+                    ownshipLatitude = debug.OwnshipLatitude,
+                    ownshipLongitude = debug.OwnshipLongitude,
+                    ownshipAltitudeTrue = debug.OwnshipAltitudeTrue,
+                    ownshipAltitudeAgl = debug.OwnshipAltitudeAgl,
+                    ownshipGroundspeedKt = debug.OwnshipGroundspeedKt,
+                    ownshipHeadingTrue = debug.OwnshipHeadingTrue,
+                    ownshipTrackTrue = debug.OwnshipTrackTrue,
+                    com1TunedCallsign = debug.Com1TunedCallsign,
+                    com2TunedCallsign = debug.Com2TunedCallsign,
+                    activeRouteWaypoint = debug.ActiveRouteWaypoint,
+                    lastPassedWaypoint = debug.LastPassedWaypoint,
+                    activeRouteWaypointBearingTrue = debug.ActiveRouteWaypointBearingTrue,
+                    activeRouteWaypointDistanceNm = debug.ActiveRouteWaypointDistanceNm,
+                    lastPassedWaypointBearingTrue = debug.LastPassedWaypointBearingTrue,
+                    lastPassedWaypointDistanceNm = debug.LastPassedWaypointDistanceNm,
+                    etaCalculationDetail = debug.EtaCalculationDetail
+                },
                 controllers = controllers.Select(c => new
                 {
                     callsign = c.Callsign,
@@ -46,7 +70,21 @@ namespace Handoff.Plugin
                     isLikelyNext = c.IsLikelyNext,
                     isPinned = c.IsPinned,
                     isStandbyTuned = c.IsStandbyTuned,
-                    isSelcalActive = c.IsSelcalActive
+                    isSelcalActive = c.IsSelcalActive,
+                    debug = c.DebugExplain == null ? null : new
+                    {
+                        bucket = c.DebugExplain.Bucket,
+                        bucketName = c.DebugExplain.BucketName,
+                        reason = c.DebugExplain.Reason,
+                        distanceNm = c.DebugExplain.DistanceNm,
+                        vatGlassesSectorMatch = c.DebugExplain.VatGlassesSectorMatch,
+                        vatSpyPolygonMatch = c.DebugExplain.VatSpyPolygonMatch,
+                        routeMatch = c.DebugExplain.RouteMatch,
+                        hysteresisState = c.DebugExplain.HysteresisState,
+                        hysteresisPendingBucket = c.DebugExplain.HysteresisPendingBucket,
+                        hysteresisPendingSince = c.DebugExplain.HysteresisPendingSince,
+                        candidateRank = c.DebugExplain.CandidateRank
+                    }
                 })
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
@@ -151,7 +189,8 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
-        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion)
+        /// <summary>`systemsDebug` (issue #65) is null whenever debug mode is off -- see SystemsDebugInfo's own doc comment.</summary>
+        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion, SystemsDebugInfo systemsDebug = null)
         {
             var payload = new
             {
@@ -160,7 +199,34 @@ namespace Handoff.Plugin
                 simulatorConnected,
                 vatsimDataFeedConnected,
                 simbriefFetched,
-                pluginVersion
+                pluginVersion,
+                systemsDebug = systemsDebug == null ? null : new
+                {
+                    radioHostConnected = systemsDebug.RadioHostConnected,
+                    simulatorConnected = systemsDebug.SimulatorConnected,
+                    lastTelemetryAt = systemsDebug.LastTelemetryAt,
+                    vatsimFeedConnected = systemsDebug.VatsimFeedConnected,
+                    vatsimFeedLastPollAt = systemsDebug.VatsimFeedLastPollAt,
+                    simbriefFetchedSuccessfully = systemsDebug.SimbriefFetchedSuccessfully,
+                    simbriefLastError = systemsDebug.SimbriefLastError,
+                    vatGlassesLoadedRegionCount = systemsDebug.VatGlassesLoadedRegionCount,
+                    vatSpyBoundaryCount = systemsDebug.VatSpyBoundaryCount,
+                    pairedClientCount = systemsDebug.PairedClientCount,
+                    authenticatedSocketCount = systemsDebug.AuthenticatedSocketCount,
+                    activeOperationCount = systemsDebug.ActiveOperationCount
+                }
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        /// <summary>Reply to saveDebugSnapshot once the file write completes (issue #65) -- also the client's cue to now send the optional follow-up screenshot.</summary>
+        public static string BuildDebugSnapshotSavedMessage(string snapshotId, string path)
+        {
+            var payload = new
+            {
+                type = "debugSnapshotSaved",
+                snapshotId,
+                path
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

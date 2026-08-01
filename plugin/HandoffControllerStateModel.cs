@@ -107,6 +107,21 @@ namespace Handoff.Plugin
             if (changed) RaiseChanged();
         }
 
+        /// <summary>Issue #65 -- full raw pre-ranking state for the debug snapshot file, including currently-hidden (grace-window) stations so "why is X missing entirely" is distinguishable from "why is X ranked wrong."</summary>
+        public ControllerStateDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                PruneExpired();
+                var all = _controllers.Values.ToList();
+                return new ControllerStateDebugSnapshot(
+                    all,
+                    all.Count(c => c.IsPinned),
+                    all.Count(c => c.ContactMeExpiresAtUtc.HasValue),
+                    all.Count(c => c.SelcalExpiresAtUtc.HasValue));
+            }
+        }
+
         /// <summary>Clears an active SELCAL alert -- called by HandoffWebSocketServer on an incoming dismissSelcal command.</summary>
         public void ClearSelcal(string callsign)
         {

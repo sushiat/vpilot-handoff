@@ -75,13 +75,19 @@ namespace Handoff.Plugin
         // NOT clear this -- only an explicit dismissSelcal command or the alert's own expiry does.
         public bool IsSelcalActive { get; }
 
+        // Issue #65 -- null unless ControllerRankingModel.DebugModeEnabled is on. See
+        // ControllerDebugExplain's own doc comment for why this stays a plain-language summary
+        // rather than exposing ranking internals.
+        public ControllerDebugExplain DebugExplain { get; }
+
         public RankedController(
             string callsign, int frequency, double latitude, double longitude,
             int? cid, string name, int? facility, int? rating,
             bool requestsContactMe, bool isCurrent, bool isContactMe,
             bool isHighlighted, bool isNext, bool isLikelyNext,
             bool isPinned, bool isStandbyTuned, bool isSelcalActive,
-            string stationName = null, IReadOnlyList<string> textAtis = null)
+            string stationName = null, IReadOnlyList<string> textAtis = null,
+            ControllerDebugExplain debugExplain = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -102,6 +108,7 @@ namespace Handoff.Plugin
             IsSelcalActive = isSelcalActive;
             StationName = stationName;
             TextAtis = textAtis != null && textAtis.Count > 0 ? textAtis : null;
+            DebugExplain = debugExplain;
         }
     }
 }

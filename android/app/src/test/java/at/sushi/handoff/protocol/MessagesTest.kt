@@ -85,6 +85,110 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesControllersMessage_NoDebugField_DebugStaysNull() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614}
+            ]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ControllersMessage
+        assertNull(message.debug)
+        assertNull(message.controllers.single().debug)
+    }
+
+    @Test
+    fun decodesControllersMessage_WithDebug_ParsesTopLevelAndPerControllerFields() {
+        val json = """
+            {"type":"controllers","debug":{
+              "phaseOfFlight":"cruise","hasTakenOffThisSession":true,
+              "ownshipLatitude":51.02,"ownshipLongitude":1.87,
+              "ownshipAltitudeTrue":45000,"ownshipAltitudeAgl":44700,
+              "ownshipGroundspeedKt":461,"ownshipHeadingTrue":68,"ownshipTrackTrue":68,
+              "com1TunedCallsign":null,"com2TunedCallsign":null,
+              "activeRouteWaypoint":"KONAN","lastPassedWaypoint":"GASBA",
+              "etaCalculationDetail":"No bucket-8 candidate currently qualifies."
+            },"controllers":[
+              {"callsign":"EGKK_APP","frequency":12345,"latitude":51.1,"longitude":-0.2,
+               "debug":{
+                 "bucket":8,"bucketName":"Airborne CTR relevance",
+                 "reason":"test reason","distanceNm":47.2,
+                 "vatGlassesSectorMatch":false,"vatSpyPolygonMatch":false,"routeMatch":false,
+                 "hysteresisState":"stable","hysteresisPendingBucket":null,"hysteresisPendingSince":null,
+                 "candidateRank":null
+               }}
+            ]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ControllersMessage
+        val debug = message.debug!!
+        assertEquals("cruise", debug.phaseOfFlight)
+        assertEquals(true, debug.hasTakenOffThisSession)
+        assertEquals("KONAN", debug.activeRouteWaypoint)
+        assertEquals("GASBA", debug.lastPassedWaypoint)
+
+        val controllerDebug = message.controllers.single().debug!!
+        assertEquals(8, controllerDebug.bucket)
+        assertEquals("Airborne CTR relevance", controllerDebug.bucketName)
+        assertEquals(47.2, controllerDebug.distanceNm)
+        assertEquals("stable", controllerDebug.hysteresisState)
+        assertNull(controllerDebug.candidateRank)
+    }
+
+    @Test
+    fun decodesSubsystemStatusMessage_NoSystemsDebugField_StaysNull() {
+        val json = """{"type":"subsystemStatus","radioHostConnected":true,"simulatorConnected":true,"vatsimDataFeedConnected":true,"simbriefFetched":false,"pluginVersion":"0.1.0"}"""
+
+        val message = decodeServerMessage(json) as SubsystemStatusMessage
+        assertNull(message.systemsDebug)
+    }
+
+    @Test
+    fun decodesSubsystemStatusMessage_WithSystemsDebug() {
+        val json = """{"type":"subsystemStatus","radioHostConnected":true,"simulatorConnected":true,"vatsimDataFeedConnected":true,"simbriefFetched":true,"pluginVersion":"0.1.0",
+            "systemsDebug":{
+              "radioHostConnected":true,"simulatorConnected":true,"lastTelemetryAt":null,
+              "vatsimFeedConnected":true,"vatsimFeedLastPollAt":null,
+              "simbriefFetchedSuccessfully":true,"simbriefLastError":null,
+              "vatGlassesLoadedRegionCount":42,"vatSpyBoundaryCount":380,
+              "pairedClientCount":1,"authenticatedSocketCount":1,"activeOperationCount":0
+            }}"""
+
+        val message = decodeServerMessage(json) as SubsystemStatusMessage
+        val systemsDebug = message.systemsDebug!!
+        assertEquals(42, systemsDebug.vatGlassesLoadedRegionCount)
+        assertEquals(380, systemsDebug.vatSpyBoundaryCount)
+        assertEquals(1, systemsDebug.pairedClientCount)
+    }
+
+    @Test
+    fun decodesDebugSnapshotSavedMessage() {
+        val json = """{"type":"debugSnapshotSaved","snapshotId":"abc123","path":"C:\\path\\to\\snapshot.json"}"""
+
+        val message = decodeServerMessage(json) as DebugSnapshotSavedMessage
+        assertEquals("abc123", message.snapshotId)
+        assertEquals("C:\\path\\to\\snapshot.json", message.path)
+    }
+
+    @Test
+    fun encodesSetDebugModeCommand() {
+        val json = SetDebugModeCommand(enabled = true).encode()
+        assertEquals("""{"type":"setDebugMode","enabled":true}""", json)
+    }
+
+    @Test
+    fun encodesSaveDebugSnapshotCommand() {
+        val json = SaveDebugSnapshotCommand(snapshotId = "abc123", appVersion = "1.4.0").encode()
+        assertEquals("""{"type":"saveDebugSnapshot","snapshotId":"abc123","appVersion":"1.4.0"}""", json)
+    }
+
+    @Test
+    fun encodesAttachDebugSnapshotScreenshotCommand() {
+        val json = AttachDebugSnapshotScreenshotCommand(snapshotId = "abc123", screenshotPngBase64 = "iVBORw0KG").encode()
+        assertEquals("""{"type":"attachDebugSnapshotScreenshot","snapshotId":"abc123","screenshotPngBase64":"iVBORw0KG"}""", json)
+    }
+
+    @Test
     fun decodesChatMessageWithPrivateAndRadioEntries() {
         val json = """
             {"type":"chat","messages":[

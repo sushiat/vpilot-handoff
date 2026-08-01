@@ -3,6 +3,7 @@ package at.sushi.handoff
 import at.sushi.handoff.network.AppUpdateInfo
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DebugSnapshotSavedMessage
 import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
 import at.sushi.handoff.protocol.NearbyAircraftMessage
@@ -177,6 +178,27 @@ object HandoffState {
     private val _updateAvailable = MutableStateFlow<AppUpdateInfo?>(null)
     val updateAvailable: StateFlow<AppUpdateInfo?> = _updateAvailable.asStateFlow()
 
+    // Issue #65 -- session-only debug mode (7-tap on the Settings dialog's title). Not persisted
+    // across an app restart, matching the plugin's own session-only debug flag: this is a
+    // diagnostic mode turned on while actively chasing something, not a standing setting. Since
+    // it's client-local state gating a plugin-side command, the caller (SettingsDialog's 7-tap
+    // handler) is responsible for both flipping this AND sending SetDebugModeCommand -- see
+    // MainScreen.kt's send() helper for the existing "dispatch a command directly, mirror local
+    // UI state separately" pattern the rest of this app already uses.
+    private val _debugModeEnabled = MutableStateFlow(false)
+    val debugModeEnabled: StateFlow<Boolean> = _debugModeEnabled.asStateFlow()
+
+    // Whether the debug overlay window (DebugOverlayWindow) is currently shown -- toggled by
+    // tapping the version string in TopBar, only actionable once debugModeEnabled is true.
+    private val _debugWindowOpen = MutableStateFlow(false)
+    val debugWindowOpen: StateFlow<Boolean> = _debugWindowOpen.asStateFlow()
+
+    // Latest debugSnapshotSaved reply, consumed once by the debug window to trigger the follow-up
+    // screenshot capture -- see clearDebugSnapshotSaved's own doc comment for why this needs
+    // explicit consumption rather than just being another resendable snapshot field.
+    private val _debugSnapshotSaved = MutableStateFlow<DebugSnapshotSavedMessage?>(null)
+    val debugSnapshotSaved: StateFlow<DebugSnapshotSavedMessage?> = _debugSnapshotSaved.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -294,6 +316,30 @@ object HandoffState {
 
     fun setPendingPairing(pending: PendingPairing?) {
         _pendingPairing.value = pending
+    }
+
+    fun setDebugModeEnabled(enabled: Boolean) {
+        _debugModeEnabled.value = enabled
+        // Debug mode is the gate for the window itself (TopBar's version-string tap no-ops
+        // without it) -- closing the window along with the mode being turned off keeps the two
+        // consistent instead of leaving a now-inert window hanging around on screen.
+        if (!enabled) _debugWindowOpen.value = false
+    }
+
+    fun setDebugWindowOpen(open: Boolean) {
+        _debugWindowOpen.value = open && _debugModeEnabled.value
+    }
+
+    fun update(message: DebugSnapshotSavedMessage) {
+        _debugSnapshotSaved.value = message
+    }
+
+    /** Called once the debug window has kicked off (or given up on) the follow-up screenshot
+     *  capture for a given snapshot -- clears the single-shot signal so the same
+     *  DebugSnapshotSavedMessage doesn't re-trigger a second capture attempt on the next
+     *  recomposition/observer re-collection. */
+    fun clearDebugSnapshotSaved() {
+        _debugSnapshotSaved.value = null
     }
 
     fun setUpdateAvailable(info: AppUpdateInfo?) {

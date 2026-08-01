@@ -24,7 +24,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import at.sushi.handoff.HandoffState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -237,6 +240,12 @@ private fun AppHeaderRow() {
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
     }
+    // Issue #65 -- the version string doubles as the hidden debug-window toggle, but only once
+    // debug mode has been turned on via Settings' own 7-tap first (two-step gate: someone would
+    // need to be told both halves exist, not stumble into either alone). Before that, this tap
+    // behaves exactly as it always has: a no-op.
+    val debugModeEnabled by HandoffState.debugModeEnabled.collectAsState()
+    val debugWindowOpen by HandoffState.debugWindowOpen.collectAsState()
     Row(
         Modifier
             .fillMaxWidth()
@@ -258,7 +267,10 @@ private fun AppHeaderRow() {
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = RobotoMono,
-            color = colors.textMuted.copy(alpha = 0.6f)
+            color = colors.textMuted.copy(alpha = 0.6f),
+            modifier = Modifier.clickable(enabled = debugModeEnabled) {
+                HandoffState.setDebugWindowOpen(!debugWindowOpen)
+            }
         )
     }
 }

@@ -1255,6 +1255,95 @@ namespace Handoff.Plugin.Tests
             vatsimFeed.Stop();
         }
 
+        // ---- Issue #65: debug mode ------------------------------------------------------------
+
+        [Fact]
+        public void DebugModeOff_DebugExplainStaysNull()
+        {
+            AddController("EGLL_TWR", 23725);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            var ranked = model.Current;
+            Assert.All(ranked, c => Assert.Null(c.DebugExplain));
+            Assert.Null(model.PlanWideDebugExplain);
+            Assert.False(model.DebugModeEnabled);
+        }
+
+        [Fact]
+        public void DebugModeOn_PopulatesPerControllerAndPlanWideExplain()
+        {
+            AddController("EGLL_TWR", 23725);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            model.SetDebugMode(true);
+
+            Assert.True(model.DebugModeEnabled);
+            var current = model.Current.Single(c => c.Callsign == "EGLL_TWR");
+            Assert.NotNull(current.DebugExplain);
+            Assert.Equal(1, current.DebugExplain.Bucket);
+            Assert.Equal("Currently tuned", current.DebugExplain.BucketName);
+            Assert.False(string.IsNullOrEmpty(current.DebugExplain.Reason));
+            Assert.NotNull(model.PlanWideDebugExplain);
+        }
+
+        [Fact]
+        public void DebugModeToggledOff_ClearsPlanWideExplainAndPerControllerExplain()
+        {
+            AddController("EGLL_TWR", 23725);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            var model = CreateModel();
+            model.SetDebugMode(true);
+
+            model.SetDebugMode(false);
+
+            Assert.Null(model.PlanWideDebugExplain);
+            Assert.All(model.Current, c => Assert.Null(c.DebugExplain));
+        }
+
+        [Fact]
+        public async Task DebugModeOn_BucketNineFallback_ExplainsChainTierFallback()
+        {
+            // Far from ownship, not on the filed route, and no VATGlasses/vatspy coverage loaded
+            // -- fails 6a's route match and 6b/6c's radius fallback, so it falls all the way to
+            // bucket 9's plain chain-tier-then-distance case.
+            AddController("LFPG_GND", 21800, 50, 50);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var flightPlan = await CreateFlightPlanAsync("EGLL", "EDDF");
+            var model = CreateModel(flightPlan);
+
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "LFPG_GND").DebugExplain;
+            Assert.NotNull(explain);
+            Assert.Equal(9, explain.Bucket);
+            Assert.Contains("chain-tier", explain.Reason, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task BuildDebugSnapshot_ReflectsRouteAnchorAndWaypointProjection()
+        {
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("AAAAA", 1.0, 1.0),
+                new FlightPlanWaypoint("BBBBB", 2.0, 2.0)
+            };
+            var flightPlan = await CreateFlightPlanAsync("EGLL", "EDDF", waypoints);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 5000, 0, 0, 0.5, 0.5, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+            _radio.RaiseChanged();
+
+            var snapshot = model.BuildDebugSnapshot();
+
+            Assert.Equal(0.5, snapshot.RouteAnchorLatitude);
+            Assert.Equal(0.5, snapshot.RouteAnchorLongitude);
+            Assert.Equal(0, snapshot.CommittedWaypointIndex);
+            Assert.Equal(2, snapshot.RemainingWaypointProjection.Count);
+            Assert.Equal("AAAAA", snapshot.RemainingWaypointProjection[0].Ident);
+            Assert.False(snapshot.RouteInvalidatedByDiversion);
+        }
+
         // ---- VatSpy fixture helpers -----------------------------------------------------------
 
         /// <summary>A square FIR boundary feature (GeoJSON MultiPolygon, plain decimal [lon, lat] pairs) of the given half-width (degrees) centered on (centerLat, centerLon).</summary>

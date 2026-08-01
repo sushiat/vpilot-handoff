@@ -3,6 +3,7 @@ package at.sushi.handoff.ui.dialogs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,10 +37,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import at.sushi.handoff.ChannelSpacing
 import at.sushi.handoff.ConnectionStatus
+import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.KeypadBlockMode
 import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.network.HandoffDiscoveryClient
+import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.ui.theme.verticalScrollbar
@@ -113,6 +116,30 @@ fun SettingsDialog(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
+    // Issue #65 -- hidden debug-mode toggle, same 7-tap pattern as Android's own build-number
+    // developer options. Deliberately not discoverable: no visual affordance hints this is
+    // tappable, and there's no separate "enabled" toast/dialog -- the title's own " - debug
+    // active" suffix (below) is the only in-the-moment confirmation, and only for the rest of
+    // this dialog session. Resets the tap count on any gap over 2s so idle taps elsewhere in the
+    // dialog session can't slowly accumulate toward it.
+    var debugTapCount by remember { mutableStateOf(0) }
+    var lastDebugTapAt by remember { mutableStateOf(0L) }
+    var debugActivatedThisDialogSession by remember { mutableStateOf(false) }
+    val onSettingsTitleTap = {
+        val now = System.currentTimeMillis()
+        if (now - lastDebugTapAt > 2000L) debugTapCount = 0
+        lastDebugTapAt = now
+        debugTapCount++
+        if (debugTapCount >= 7) {
+            debugTapCount = 0
+            if (!HandoffState.debugModeEnabled.value) {
+                HandoffState.setDebugModeEnabled(true)
+                HandoffConnectionService.instance?.sendCommand(SetDebugModeCommand(enabled = true))
+            }
+            debugActivatedThisDialogSession = true
+        }
+    }
+
     // No explicit Save button -- every close path (✕, back gesture, tap-outside, which
     // onDismissRequest already covers uniformly) saves once on the way out instead. No
     // debouncing needed since this only ever fires a single time, right at close.
@@ -156,7 +183,20 @@ fun SettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Settings", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.text)
+                    Text(
+                        "Settings" + if (debugActivatedThisDialogSession) " - debug active" else "",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.text,
+                        // No ripple/indication -- any visible feedback before the 7th tap would
+                        // give away that this is tappable at all, defeating the point of a
+                        // not-randomly-discoverable toggle (issue #65).
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onSettingsTitleTap
+                        )
+                    )
                     Text(
                         "✕",
                         fontSize = 16.sp,

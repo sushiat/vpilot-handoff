@@ -74,6 +74,15 @@ namespace Handoff.Plugin
 
         public bool IsSimulatorConnected => _simulatorConnected;
 
+        /// <summary>Issue #65 -- full internal radio/telemetry state for the debug snapshot file. Current/Telemetry are already public; this just bundles them with the connection flags in one call.</summary>
+        public RadioDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                return new RadioDebugSnapshot(_radioHostConnected, _simulatorConnected, _current, _telemetry);
+            }
+        }
+
         public void Start()
         {
             lock (_lifecycleGate)
