@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-31
+## [0.1.0] - 2026-08-31
 
 ### Added
 
@@ -330,3 +330,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   additive/backward-compatible by design rather than version-gated now that the plugin and
   Android app can update independently of each other, plus a Changelog section tracking future
   message-shape changes.
+- Plugin/Android: session-only debug mode (issue #65) — a hidden 7-tap toggle on the Settings
+  dialog's title (no visible affordance until it fires, so it isn't randomly discoverable)
+  sends `setDebugMode`, after which the version string in the top bar opens a draggable
+  `SYSTEM_ALERT_WINDOW` overlay showing live per-controller ranking explain data (bucket,
+  reason, distance, VATGlasses/vatspy match, hysteresis state) plus plugin-wide context
+  (phase of flight, ownship telemetry, route waypoints with bearing/distance from ownship,
+  ETA detail) and a lean always-visible "Systems" column (radio/SimConnect, VATSIM feed,
+  SimBrief, VATGlasses/vatspy load state, pairing/connection health). A "Save debug snapshot"
+  button (`saveDebugSnapshot`/`debugSnapshotSaved`) dumps a full point-in-time JSON of every
+  plugin subsystem — including the abeam-point route sequencer's raw anchor/waypoint-projection
+  state and VATGlasses/vatspy containment detail that never rides the wire — to
+  `%LOCALAPPDATA%\Handoff\debug-snapshots\`, with an optional view-scoped screenshot
+  (`attachDebugSnapshotScreenshot`, `PixelCopy` against this app's own window only, never a
+  full-display capture) saved alongside it. New nullable `controllers[].debug`,
+  `controllers.debug`, and `subsystemStatus.systemsDebug` wire fields, all `null` unless debug
+  mode is on. See `docs/debug-snapshot.md` for the snapshot file's full shape.
