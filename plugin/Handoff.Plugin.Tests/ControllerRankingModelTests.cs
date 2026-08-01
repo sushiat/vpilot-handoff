@@ -48,9 +48,9 @@ namespace Handoff.Plugin.Tests
         private FlightPlanModel NoOpFlightPlan() =>
             new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(Plugin.FlightPlan.Empty), configPath: _configPath);
 
-        private async Task<FlightPlanModel> CreateFlightPlanAsync(string origin, string destination, IReadOnlyList<FlightPlanWaypoint> waypoints = null)
+        private async Task<FlightPlanModel> CreateFlightPlanAsync(string origin, string destination, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null)
         {
-            var plan = new Plugin.FlightPlan("BAW123", origin, destination, null, waypoints);
+            var plan = new Plugin.FlightPlan("BAW123", origin, destination, null, waypoints, originLatitude, originLongitude);
             var model = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(plan), configPath: _configPath);
             model.SetSimbriefCredentials("1", null);
             await model.RefreshAsync();
@@ -377,11 +377,11 @@ namespace Handoff.Plugin.Tests
             vatsimFeed.Stop();
         }
 
-        private VatsimDataFeedModel CreateVatsimFeedWithPilot(string callsign, string departure, string arrival)
+        private VatsimDataFeedModel CreateVatsimFeedWithPilot(string callsign, string departure, string arrival, string cid = null)
         {
             var snapshot = new VatsimDataFeedSnapshot(
                 new List<VatsimControllerInfo>(),
-                new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
+                new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival, cid) });
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
             using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
@@ -1318,7 +1318,100 @@ namespace Handoff.Plugin.Tests
             var explain = model.Current.Single(c => c.Callsign == "LFPG_GND").DebugExplain;
             Assert.NotNull(explain);
             Assert.Equal(9, explain.Bucket);
+            Assert.Null(explain.SubBucket); // bucket 9 isn't lettered in the docs table
             Assert.Contains("chain-tier", explain.Reason, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task DebugModeOn_SubBucket_6a_FlightPlanMatchUnconditional()
+        {
+            var flightPlan = await CreateFlightPlanAsync("TEST", "YYYY");
+            AddController("TEST_CTR", 12345, 50, 50); // far away -- only reachable via the 6a route match, no polygon/radius coverage loaded
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_CTR").DebugExplain;
+            // The sole online candidate here also wins bucket 6's 6e chain-walk (nothing to tie
+            // with), so this asserts the highlight row is present rather than an exact match --
+            // the dedicated 6e test below covers the combined "6x, 6e" shape specifically.
+            Assert.Contains("6a", explain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_6b_GndRadiusFallback()
+        {
+            AddController("TEST_GND", 21800, 0.01, 0.01); // within the 5nm 6b radius, not on any filed route
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_GND").DebugExplain;
+            Assert.Contains("6b", explain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_6c_AppRadiusFallback()
+        {
+            AddController("TEST_APP", 12345, 0.1, 0.1); // within the 20nm 6c radius, not on any filed route
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_APP").DebugExplain;
+            Assert.Contains("6c", explain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_6d_CtrPolygonContainment()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 12345, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_CTR").DebugExplain;
+            Assert.Contains("6d", explain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_6e_AppendedWhenAlsoNext()
+        {
+            AddController("TEST_GND", 21800, 0.01, 0.01);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel();
+            model.SetDebugMode(true);
+
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_GND");
+            Assert.True(ranked.IsNext);
+            Assert.Equal("6b, 6e", ranked.DebugExplain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_7b_AppDepAirborne()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.2, DateTimeOffset.Now, pressureAltitudeFeet: 10000); // FL100, within the box/ceiling
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_APP").DebugExplain;
+            Assert.StartsWith("7b", explain.SubBucket);
+        }
+
+        [Fact]
+        public void DebugModeOn_SubBucket_8a_CtrAirborne()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 12345, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            model.SetDebugMode(true);
+
+            var explain = model.Current.Single(c => c.Callsign == "TEST_CTR").DebugExplain;
+            Assert.StartsWith("8a", explain.SubBucket);
         }
 
         [Fact]
@@ -1342,6 +1435,188 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(2, snapshot.RemainingWaypointProjection.Count);
             Assert.Equal("AAAAA", snapshot.RemainingWaypointProjection[0].Ident);
             Assert.False(snapshot.RouteInvalidatedByDiversion);
+        }
+
+        // ---- Issue #68: origin sanity gate for stale/mismatched flight plans on the ground ----
+
+        [Fact]
+        public async Task OriginSanityGate_OnGroundFarFromFiledOrigin_FlagsMismatchAndSkipsAnchoring()
+        {
+            var waypoints = new List<FlightPlanWaypoint> { new FlightPlanWaypoint("WPT1", 5, 5) };
+            // Filed origin sits at (0,0); ownship is actually ~84nm away at (1,1) -- a stale plan
+            // left over from a previous flight, or the wrong airport picked.
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "BBBB", waypoints, originLatitude: 0, originLongitude: 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 1, 1, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            Assert.True(model.IsOriginMismatched);
+            // SequenceRemainingWaypoints (which would anchor the route to this bogus position)
+            // never runs while origin-mismatched -- RouteAnchor stays unset.
+            Assert.Null(model.BuildDebugSnapshot().RouteAnchorLatitude);
+        }
+
+        [Fact]
+        public async Task OriginSanityGate_OnGroundNearFiledOrigin_NoMismatch()
+        {
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "BBBB", originLatitude: 0, originLongitude: 0);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0.01, 0.01, DateTimeOffset.Now); // <1nm away
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.IsOriginMismatched);
+        }
+
+        [Fact]
+        public async Task OriginSanityGate_Airborne_DoesNotFlagRegardlessOfOriginDistance()
+        {
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "BBBB", originLatitude: 0, originLongitude: 0);
+            // Airborne, but AGL below the takeoff latch threshold -- isOnGround is still what the
+            // gate keys off, not the latch, so this exercises the "airborne" (isOnGround false)
+            // branch specifically.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 100, 0, 0, 1, 1, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.IsOriginMismatched);
+        }
+
+        [Fact]
+        public async Task OriginSanityGate_MissingOriginCoordinates_NoMismatch()
+        {
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "BBBB"); // no origin lat/lon fetched
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 1, 1, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            Assert.False(model.IsOriginMismatched);
+        }
+
+        [Fact]
+        public async Task HasTakenOffThisSession_ResetsOnNewSimbriefPlan_WhileOnGround()
+        {
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "LOWW", "LOWI", null);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            // Both stations sit well outside the 6b/6c radius fallback (GroundDelGndTwrRadiusNm),
+            // so only the 6a flight-plan-match (prefix against routeAirport) can highlight either
+            // one -- isolates the assertions below to the origin/destination distinction being
+            // tested, not proximity.
+            AddController("LOWI_GND", 21800, 10, 10);
+            AddController("LOWS_GND", 21850, 10, 10);
+
+            // Airborne, above TakeoffAglThresholdFeet -- latches _hasTakenOffThisSession, flipping
+            // routeAirport to the destination (LOWI).
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 500, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            // Landed again, still the same leg -- latch stays set, routeAirport still LOWI.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWI_GND").IsHighlighted);
+            Assert.False(model.Current.Single(c => c.Callsign == "LOWS_GND").IsHighlighted);
+
+            // A fresh SimBrief plan for the next leg (LOWI -> LOWS) loaded while still on the
+            // ground -- "a new flight plan means a new flight": the latch resets, flipping
+            // routeAirport back to origin (LOWI, the new leg's departure), not the new
+            // destination (LOWS).
+            currentPlan = new Plugin.FlightPlan("BAW123", "LOWI", "LOWS", null);
+            await flightPlan.RefreshAsync();
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWI_GND").IsHighlighted);
+            Assert.False(model.Current.Single(c => c.Callsign == "LOWS_GND").IsHighlighted);
+        }
+
+        [Fact]
+        public async Task NewSimbriefPlan_WhileOnGroundPreDeparture_DoesNotArmDiversionPrompt()
+        {
+            // Flight-test regression (2026-08-01): a brand new SimBrief plan for a different
+            // flight entirely (EDDF->EIDW replacing a stale EGKK->EDDH) loaded while sitting on
+            // the ground at EDDF, engines off, never having flown this leg. The destination
+            // string does change (EDDH -> EIDW), but this must never be treated as an in-flight
+            // diversion -- there's no flight in progress to divert from yet.
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "EGKK", "EDDH", null);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now); // on the ground, engines off
+            var model = CreateModel(flightPlan);
+            Assert.Null(model.PendingDiversionDestination);
+
+            currentPlan = new Plugin.FlightPlan("BAW123", "EDDF", "EIDW", null);
+            await flightPlan.RefreshAsync();
+
+            Assert.Null(model.PendingDiversionDestination);
+        }
+
+        [Fact]
+        public async Task DestinationOnlyChange_WhileOnGroundPreDeparture_DoesNotArmDiversionPrompt()
+        {
+            // Narrower than the test above -- same origin, only the destination is amended (e.g.
+            // a typo fix or a route change agreed with Delivery before ever pushing back). Still
+            // pre-departure, so still not a diversion.
+            Plugin.FlightPlan currentPlan = new Plugin.FlightPlan("BAW123", "EDDF", "EDDH", null);
+            var flightPlan = new FlightPlanModel(new OperationProgressModel(), fetch: (u, n) => Task.FromResult(currentPlan), configPath: _configPath);
+            flightPlan.SetSimbriefCredentials("1", null);
+            await flightPlan.RefreshAsync();
+
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, 0, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            currentPlan = new Plugin.FlightPlan("BAW123", "EDDF", "EIDW", null);
+            await flightPlan.RefreshAsync();
+
+            Assert.Null(model.PendingDiversionDestination);
+        }
+
+        // ---- Cid mismatch: the VATSIM feed entry found for our callsign may not be us ---------
+
+        [Fact]
+        public void VatsimCidMismatch_DetectedWhenFeedEntryCidDiffersFromOurOwn()
+        {
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: "9999999");
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.True(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenCidsMatch()
+        {
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: "1234567");
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.False(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenFeedEntryHasNoCid()
+        {
+            // Defensive: an older/degraded feed response missing cid shouldn't false-positive.
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: null);
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.False(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenNoVatsimPilotMatched()
+        {
+            // Not connected at all -- nothing to look up, nothing to mismatch.
+            var model = CreateModel();
+
+            Assert.False(model.IsVatsimCidMismatched);
         }
 
         // ---- VatSpy fixture helpers -----------------------------------------------------------

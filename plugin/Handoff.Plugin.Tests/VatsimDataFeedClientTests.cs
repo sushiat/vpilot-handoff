@@ -94,7 +94,7 @@ namespace Handoff.Plugin.Tests
         {
             var json = @"{
                 ""pilots"": [
-                    {""callsign"": ""BAW123"", ""flight_plan"": {""departure"": ""EGLL"", ""arrival"": ""KJFK""}}
+                    {""callsign"": ""BAW123"", ""cid"": 1234567, ""flight_plan"": {""departure"": ""EGLL"", ""arrival"": ""KJFK""}}
                 ]
             }";
 
@@ -103,6 +103,21 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("BAW123", pilot.Callsign);
             Assert.Equal("EGLL", pilot.Departure);
             Assert.Equal("KJFK", pilot.Arrival);
+            Assert.Equal("1234567", pilot.Cid);
+        }
+
+        [Fact]
+        public void ParsePilots_MissingCid_StaysNull()
+        {
+            var json = @"{
+                ""pilots"": [
+                    {""callsign"": ""BAW123"", ""flight_plan"": {""departure"": ""EGLL"", ""arrival"": ""KJFK""}}
+                ]
+            }";
+
+            var pilot = VatsimDataFeedClient.ParsePilots(json).Single();
+
+            Assert.Null(pilot.Cid);
         }
 
         [Fact]

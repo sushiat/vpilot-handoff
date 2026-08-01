@@ -49,5 +49,38 @@ namespace Handoff.Plugin.Tests
             Assert.Single(waypoints);
             Assert.Equal("WPT1", waypoints[0].Ident);
         }
+
+        [Fact]
+        public void ParseOriginCoordinates_ParsesLatLon()
+        {
+            var json = @"{""origin"": {""pos_lat"": ""50.0379"", ""pos_long"": ""8.5622""}}";
+
+            var (lat, lon) = SimBriefClient.ParseOriginCoordinates(json);
+
+            Assert.NotNull(lat);
+            Assert.NotNull(lon);
+            Assert.Equal(50.0379, lat.Value, 3);
+            Assert.Equal(8.5622, lon.Value, 3);
+        }
+
+        [Fact]
+        public void ParseOriginCoordinates_MissingOrigin_ReturnsNulls()
+        {
+            var (lat, lon) = SimBriefClient.ParseOriginCoordinates("{}");
+
+            Assert.Null(lat);
+            Assert.Null(lon);
+        }
+
+        [Fact]
+        public void ParseOriginCoordinates_MalformedValue_ReturnsNullsWithoutThrowing()
+        {
+            var json = @"{""origin"": {""pos_lat"": ""not-a-number"", ""pos_long"": ""8.5622""}}";
+
+            var (lat, lon) = SimBriefClient.ParseOriginCoordinates(json);
+
+            Assert.Null(lat);
+            Assert.Null(lon);
+        }
     }
 }

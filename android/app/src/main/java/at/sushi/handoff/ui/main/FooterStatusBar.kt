@@ -62,6 +62,16 @@ fun FooterStatusBar(
     // disagreement (not "nothing filed yet"), since that's the only flight-plan condition this
     // dot's summary treats as "not good" (see this function's overallStatus comment).
     flightPlanMismatch: Boolean,
+    // Issue #68 -- the plugin's own on-ground sanity gate: true when ownship's position doesn't
+    // match the filed origin's coordinates, even if SimBrief and VATSIM fully agree with each
+    // other. Drives its own "WRONG ORIGIN" row in the expanded drawer below, distinct from the
+    // SimBrief/VATSIM MISSING/mismatch rows.
+    originMismatch: Boolean,
+    // True when the VATSIM feed entry matched to our own callsign carries a different cid than
+    // our own connection -- a callsign lookup alone can't rule out the feed briefly returning a
+    // stale/wrong entry for that callsign string. Drives its own drawer row, distinct from the
+    // other flight-plan warnings above -- informational only, doesn't change which plan is used.
+    vatsimCidMismatch: Boolean,
     // The live vPilot connection callsign, and both independent flight-plan views -- shown as
     // their own always-visible rows in the expanded drawer regardless of whether they agree, so
     // the pilot can see exactly what each source says instead of just being told "mismatch".
@@ -282,6 +292,17 @@ fun FooterStatusBar(
                     if (vatsimMissing) "MISSING" else "${vatsimOrigin ?: "----"} → ${vatsimDestination ?: "----"}",
                     flightPlanWarning
                 )
+                // Issue #68 -- only shown when the plugin's on-ground sanity gate actually fires;
+                // unlike the two rows above (always visible), this is purely a "something's wrong"
+                // flag with no not-wrong state worth displaying.
+                if (originMismatch) {
+                    FlightPlanDetailRow("Route tracking", "WRONG ORIGIN", warning = true)
+                }
+                // Same "only shown when it fires" treatment as the row above -- the VATSIM feed
+                // entry matched to our own callsign belongs to a different cid than ours.
+                if (vatsimCidMismatch) {
+                    FlightPlanDetailRow("VATSIM lookup", "CID MISMATCH", warning = true)
+                }
             }
             // Pulled out of the padded Column above and placed as a direct child here instead --
             // it was nested inside that Column's own 14dp horizontal padding, so it rendered

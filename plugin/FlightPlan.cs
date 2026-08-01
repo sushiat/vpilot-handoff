@@ -30,14 +30,22 @@ namespace Handoff.Plugin
         public string Origin { get; }
         public string Destination { get; }
         public string Alternate { get; }
+        // Issue #68 -- the origin's own coordinates (destination's are explicitly out of scope),
+        // used by ControllerRankingModel's on-ground sanity gate to catch a stale/wrong plan
+        // still loaded from a previous flight. Null whenever SimBrief's pos_lat/pos_long are
+        // missing or malformed -- never fails the whole fetch, see SimBriefClient.
+        public double? OriginLatitude { get; }
+        public double? OriginLongitude { get; }
         public IReadOnlyList<FlightPlanWaypoint> Waypoints { get; }
 
-        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null)
+        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null)
         {
             Callsign = callsign;
             Origin = origin;
             Destination = destination;
             Alternate = alternate;
+            OriginLatitude = originLatitude;
+            OriginLongitude = originLongitude;
             Waypoints = waypoints ?? new List<FlightPlanWaypoint>();
         }
 

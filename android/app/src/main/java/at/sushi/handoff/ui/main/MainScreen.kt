@@ -224,7 +224,17 @@ private fun MainScreenContent() {
     // just as much as forgetting to file at all, since it's the same "wrong info on frequency" risk.
     val flightPlanMismatch = flightPlan.vatsimOrigin != null && flightPlan.simbriefOrigin != null &&
         (flightPlan.vatsimOrigin != flightPlan.simbriefOrigin || flightPlan.vatsimDestination != flightPlan.simbriefDestination)
-    val flightPlanWarning = flightPlanMismatch || vatsimMissing
+    // Issue #68: the plugin's own on-ground sanity gate -- can be true even when simbrief*/vatsim*
+    // fully agree with each other, so it's folded into the collapsed row's warning triangle
+    // independent of flightPlanMismatch above. No rememberSustained needed: unlike
+    // vatsimMissing/simbriefMissing this isn't a poll-lag/startup transient, the plugin only sets
+    // it once ownship position and origin coordinates are both known.
+    val originMismatch = flightPlan.originMismatch
+    // The feed entry the plugin matched to our own callsign carries a different cid than our own
+    // live connection -- a callsign lookup alone can't rule out "this isn't actually us" (a
+    // lagged feed snapshot, a collision window). Purely informational like the others above.
+    val vatsimCidMismatch = flightPlan.vatsimCidMismatch
+    val flightPlanWarning = flightPlanMismatch || vatsimMissing || originMismatch || vatsimCidMismatch
     val hideTunedControllers by HandoffState.hideTunedControllers.collectAsState()
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
@@ -560,6 +570,8 @@ private fun MainScreenContent() {
                 destination = displayDestination,
                 flightPlanWarning = flightPlanWarning,
                 flightPlanMismatch = flightPlanMismatch,
+                originMismatch = originMismatch,
+                vatsimCidMismatch = vatsimCidMismatch,
                 activeCallsign = flightPlan.vatsimCallsign,
                 simbriefOrigin = flightPlan.simbriefOrigin,
                 simbriefDestination = flightPlan.simbriefDestination,

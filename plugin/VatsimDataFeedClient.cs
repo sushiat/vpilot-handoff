@@ -106,10 +106,14 @@ namespace Handoff.Plugin
                 var flightPlan = entry["flight_plan"];
                 if (flightPlan == null || flightPlan.Type == JTokenType.Null) continue;
 
+                var cidToken = entry["cid"];
+                var cid = cidToken == null || cidToken.Type == JTokenType.Null ? null : cidToken.ToString();
+
                 result.Add(new VatsimPilotInfo(
                     callsign: callsign,
                     departure: (string)flightPlan["departure"],
-                    arrival: (string)flightPlan["arrival"]));
+                    arrival: (string)flightPlan["arrival"],
+                    cid: cid));
             }
 
             return result;

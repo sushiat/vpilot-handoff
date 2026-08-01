@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin: an on-ground, pre-takeoff sanity gate (issue #68) — if ownship's
+  position is more than ~8nm from the filed origin's own coordinates
+  (newly parsed from SimBrief's `origin.pos_lat`/`pos_long`), the loaded
+  plan is flagged as not matching where the aircraft is physically sitting
+  (a stale plan left over from a previous flight, wrong airport picked,
+  etc) and dropped from route-projected approach/CTR prediction until it's
+  refreshed or the aircraft is repositioned. Surfaced to the Android app as
+  a "WRONG ORIGIN" row in the bottom drawer, alongside the existing
+  MISSING/mismatch warnings. `TakeoffAglThresholdFeet` lowered from 3000 to
+  200 so this (and the existing origin->destination route-airport flip)
+  actually fires for GA flights that may never climb past ~1000ft AGL, and
+  `_hasTakenOffThisSession` now resets on a genuine SimBrief plan change
+  (different origin/destination) while still on the ground, so a GA
+  flight's next leg in the same session starts back at origin-route logic.
+- Plugin: `ControllerDebugExplain` now includes a `subBucket` field (e.g.
+  `"6c"`, or `"6a, 6e"` when a controller is both highlighted via one row
+  and flagged `IsNext`/`IsLikelyNext` via another) mapping buckets 6/7/8
+  back onto `docs/controller-ranking.md`'s lettered sub-rows (6a-6e, 7a-7c,
+  8a-8b), shown in the Android debug window and saved debug snapshots.
+- Plugin: the VATSIM data feed's `cid` is now parsed for filed flight plans
+  (`pilots[]`, same field already read for controllers) and compared
+  against our own live connection's cid — a callsign lookup alone can't
+  tell "this is us" from "this feed entry merely has our callsign string"
+  (a lagged snapshot mid-reconnect, a collision window). Surfaced as a
+  "CID MISMATCH" row in the Android bottom drawer; purely informational,
+  doesn't change which plan is used for route matching.
 - Plugin: COM1/2 transmit/receive and Mode C are now gated on
   `CIRCUIT NAVCOM1 ON` (issue #55) — some aircraft's own systems don't
   reset `COM TRANSMIT`/`COM RECEIVE`/`TRANSPONDER STATE` to off when

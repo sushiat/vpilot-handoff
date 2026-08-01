@@ -67,6 +67,11 @@ data class Controller(
 data class ControllerDebug(
     val bucket: Int,
     val bucketName: String,
+    // Issue #68 -- docs/controller-ranking.md's lettered sub-rows for buckets 6/7/8 (6a-6e,
+    // 7a-7c, 8a-8b) that actually produced this controller's flags, e.g. "6c" or "6a, 6e" when
+    // both a highlight row and the next/likely-next row apply. Null for buckets 1-5 and 9, which
+    // the table doesn't subdivide.
+    val subBucket: String? = null,
     val reason: String,
     val distanceNm: Double? = null,
     val vatGlassesSectorMatch: Boolean = false,
@@ -158,7 +163,17 @@ data class FlightPlanMessage(
     val simbriefAlternate: String? = null,
     val vatsimCallsign: String? = null,
     val vatsimOrigin: String? = null,
-    val vatsimDestination: String? = null
+    val vatsimDestination: String? = null,
+    // Issue #68 -- the plugin's own on-ground sanity gate: true when ownship's position doesn't
+    // match the filed origin's coordinates, even if simbrief*/vatsim* fully agree with each other
+    // (both sides can confidently agree on the wrong airport). Distinct from the SimBrief/VATSIM
+    // mismatch this class otherwise surfaces -- see docs/protocol.md.
+    val originMismatch: Boolean = false,
+    // True when the VATSIM feed entry found for our own live callsign carries a cid that doesn't
+    // match our own connection's cid -- a callsign lookup alone can't tell "this is us" from
+    // "this happens to have our callsign string" (lagged feed snapshot, collision window).
+    // Informational only -- vatsimOrigin/vatsimDestination above are still used as normal.
+    val vatsimCidMismatch: Boolean = false
 ) : ServerMessage
 
 /** A destination change the plugin just noticed on the VATSIM data feed (see [FlightPlanMessage]'s

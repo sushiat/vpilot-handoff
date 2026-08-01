@@ -75,6 +75,7 @@ namespace Handoff.Plugin
                     {
                         bucket = c.DebugExplain.Bucket,
                         bucketName = c.DebugExplain.BucketName,
+                        subBucket = c.DebugExplain.SubBucket,
                         reason = c.DebugExplain.Reason,
                         distanceNm = c.DebugExplain.DistanceNm,
                         vatGlassesSectorMatch = c.DebugExplain.VatGlassesSectorMatch,
@@ -121,8 +122,14 @@ namespace Handoff.Plugin
         /// the client can flag a mismatch instead of silently trusting whichever loaded first --
         /// see docs/protocol.md. `vatsimCallsign` is the authoritative live value even when
         /// `vatsimPilot` is null (feed not yet caught up, or nothing filed on the network).
+        /// `originMismatch` is issue #68's on-ground sanity gate (ControllerRankingModel.IsOriginMismatched)
+        /// -- a distinct, narrower warning from the SimBrief/VATSIM disagreement above: it fires
+        /// even when both sides agree with each other, if neither matches where the aircraft is
+        /// physically sitting. `vatsimCidMismatch` (ControllerRankingModel.IsVatsimCidMismatched)
+        /// is narrower still -- the feed entry found for our own callsign carries a cid that isn't
+        /// ours, meaning the lookup above may not actually be us at all.
         /// </summary>
-        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot)
+        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot, bool originMismatch, bool vatsimCidMismatch)
         {
             var payload = new
             {
@@ -133,7 +140,9 @@ namespace Handoff.Plugin
                 simbriefAlternate = simbriefPlan.Alternate,
                 vatsimCallsign,
                 vatsimOrigin = vatsimPilot?.Departure,
-                vatsimDestination = vatsimPilot?.Arrival
+                vatsimDestination = vatsimPilot?.Arrival,
+                originMismatch,
+                vatsimCidMismatch
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
