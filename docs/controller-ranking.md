@@ -67,6 +67,30 @@ order" below, still stale/pending for buckets 6-8.
 | 8c | ETA readout (ownship-level, not per-controller) | -- | Level flight, any altitude -- OR climbing/descending above FL150 | Independent of 8a/8b -- not a gate on `IsHighlighted`/`IsNext`/`IsLikelyNext`, just whether an ETA number gets shown alongside whatever those already resolved. Level flight has no altitude floor at all (even a prop plane cruising at 5000ft gets one, since level flight implies stable speed regardless of altitude); climbing/descending needs FL150 specifically because speed/profile changes too much below it to trust an estimate. FL150 is a single flat threshold, not aircraft-type-aware -- deliberately not worth the SimConnect engine/category-detection work this would need to do properly for a soft UX nicety, not a correctness-critical flag. An unpressurized prop plane may never even reach FL150, but its climb is short regardless (even at a modest 1000fpm, well under 10 minutes to a typical prop cruise altitude), so the "no ETA yet" gap in practice is brief. Long-haul descents from high cruise altitudes are the main beneficiary -- a 30+ minute descent from FL410 stays well above FL150 for most of its length. |
 | 9 | (no flags) | any | Everything that didn't qualify for any bucket above | The original issue #8 base case, untouched by the #18 redesign. Ordered by chain tier (DEL->GND->TWR->APP->CTR relative to current tier), then by distance within tier -- except the CTR tier group, which since issue #11 sorts candidates currently contained by a VATGlasses-or-vatspy FIR polygon (horizontal-only, both sources) ahead of the rest of the tier first (ordering only, no new flag), before the usual route-match/distance ordering applies within each half. In practice this only ever changes anything airborne: 8a's "satisfied" containment is altitude-gated for VATGlasses, so a CTR controller whose sector horizontally contains ownship but whose *altitude* falls outside that specific sector's band (a vertically-stacked sub-sector, say) can miss bucket 8 entirely and land here -- bucket 9's horizontal-only check still catches it. On the ground, 6d already uses the same horizontal-only check, so nothing reaches bucket 9 that 6d didn't already claim. |
 
+## Debug explain view
+
+Issue #65 adds a session-only debug mode surfacing *why* each controller landed where it did,
+both live (`controllers[].debug`/`controllers.debug`, `docs/protocol.md`) and in a full one-shot
+snapshot file (`docs/debug-snapshot.md`). The live `debug` object is intentionally the
+plain-language summary a pilot can glance at, not the full internals -- this table is how its
+fields map back to the bucket letters above:
+
+| `debug` field | Maps to |
+| --- | --- |
+| `bucket`/`bucketName` | The numbered bucket (1-9) the flag/criteria table above uses -- go straight to that row for the exact criteria. |
+| `reason` | A free-form summary of which source decided it (VATGlasses/vatspy containment, flight-plan route match, or distance/radius fallback) plus the resulting `IsNext`/`IsLikelyNext`/`IsHighlighted` status -- see the relevant bucket row's own "Notes" column for the underlying rule being summarized. |
+| `distanceNm` | Whatever distance figure that bucket's own ordering already uses (6b/6c/6d's radius or polygon-boundary distance, 7a/7b's radius, 8a/8b's lateral convergence distance, 9's plain great-circle distance). |
+| `vatGlassesSectorMatch` / `vatSpyPolygonMatch` | Which containment source matched, mirroring the VATGlasses-preferred/vatspy-fallback chain used throughout buckets 6d/7b/8a/9 (see "VATGlasses match parameters" and "vatspy station names" below). Both `false` for a plain radius/distance match. |
+| `routeMatch` | Whether the callsign starts with the current route airport (origin pre-takeoff, destination after -- see bucket 6a and 9's route-match ordering). |
+| `hysteresisState` | `stable`, `pendingPromotion`, or `pendingDemotion` -- surfaces the tier-chain-walk dead-band (bucket 9's `ApplyDistanceHysteresis`, "Flapping protection" below) mid-flight, since a controller stuck in a dead-band window looks like a bug from the outside but is working-as-designed dampening. Currently only reported for bucket 9's tier-chain hysteresis; the spatial/containment dead-bands (6b/6c/6d/7b/8b) stay `stable` in the live view -- their full pending state is in the snapshot file only. |
+| `hysteresisPendingBucket`/`hysteresisPendingSince` | Which bucket the pending transition is toward/within, and when it started -- `null` unless `hysteresisState` is pending. |
+| `candidateRank` | This controller's position among tied `IsNext`/`IsLikelyNext` candidates (see 6e/7c/8b's tie rules above), `1` for `IsNext`, `null` if not a candidate at all. |
+
+The raw internals behind these (route anchor coordinates, committed/pending waypoint indices,
+VATGlasses/vatspy sector/boundary ids, tie-band math, ownership-resolution candidate counts) are
+never part of the live view or this protocol -- see `docs/debug-snapshot.md` for where the full
+detail actually lives.
+
 ## Sort order
 
 The Android client renders the list in exactly the order the plugin sends it -- no client-side

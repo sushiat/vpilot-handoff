@@ -125,7 +125,7 @@ namespace Handoff.Plugin
             _pairingWindow = new HandoffPairingWindow(uiContext);
             _pairingSession = new HandoffPairingSession(_pairingWindow, _broker.PostDebugMessage);
 
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);

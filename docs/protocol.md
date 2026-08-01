@@ -38,6 +38,13 @@ Tracks changes to this document's message shapes specifically, not every plugin/
 release — see the top-level `CHANGELOG.md` for that. Only gets an entry here when something in
 this contract actually changes shape; a release with no protocol changes adds nothing below.
 
+### [0.2.0] - 2026-08-01
+
+Issue #65 -- debug mode. New client→server `setDebugMode`, `saveDebugSnapshot`,
+`attachDebugSnapshotScreenshot`. New server→client `debugSnapshotSaved`. New nullable fields:
+`controllers[].debug`, `controllers.debug` (top-level), `subsystemStatus.systemsDebug` -- all
+`null` unless debug mode is currently on, per this document's Compatibility section.
+
 ### [0.1.0] - 2026-07-31
 
 Initial public release.
@@ -179,6 +186,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
 {
   "type": "controllers",
   "etaMinutes": null,
+  "debug": null,
   "controllers": [
     {
       "callsign": "EGLL_TWR",
@@ -199,7 +207,8 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "isLikelyNext": false,
       "isPinned": false,
       "isStandbyTuned": false,
-      "isSelcalActive": false
+      "isSelcalActive": false,
+      "debug": null
     }
   ]
 }
@@ -267,6 +276,56 @@ The boolean fields are what clients actually consume, each driving its own badge
 minutes remaining to the closest bucket-8-qualifying CTR sector, available during level flight
 (any altitude) or while climbing/descending above FL150, `null` otherwise (including whenever
 nothing currently qualifies for bucket 8 at all).
+
+#### `debug` (issue #65)
+
+Both the top-level `debug` object and each controller's own `debug` object are `null` unless the
+pilot has turned on debug mode this session (`setDebugMode` below) -- see
+`docs/controller-ranking.md`'s "Debug explain view" section for the full field reference and how
+each field maps back to the numbered buckets. Deliberately plain-language, not the ranking
+internals (route anchor coordinates, VATGlasses/vatspy sector ids, tie-band math) -- those live
+only in the debug snapshot file (`saveDebugSnapshot` below), not on the wire.
+
+```json
+{
+  "debug": {
+    "phaseOfFlight": "cruise",
+    "hasTakenOffThisSession": true,
+    "ownshipLatitude": 51.02,
+    "ownshipLongitude": 1.87,
+    "ownshipAltitudeTrue": 45000,
+    "ownshipAltitudeAgl": 44700,
+    "ownshipGroundspeedKt": 461,
+    "ownshipHeadingTrue": 68,
+    "ownshipTrackTrue": 68,
+    "com1TunedCallsign": null,
+    "com2TunedCallsign": null,
+    "activeRouteWaypoint": "KONAN",
+    "lastPassedWaypoint": "GASBA",
+    "etaCalculationDetail": "No bucket-8 candidate currently qualifies."
+  }
+}
+```
+
+Per controller:
+
+```json
+{
+  "debug": {
+    "bucket": 8,
+    "bucketName": "Airborne CTR relevance",
+    "reason": "Bucket 8 (Airborne CTR relevance): VATGlasses sector containment, 47.2nm -- IsHighlighted only.",
+    "distanceNm": 47.2,
+    "vatGlassesSectorMatch": true,
+    "vatSpyPolygonMatch": false,
+    "routeMatch": false,
+    "hysteresisState": "stable",
+    "hysteresisPendingBucket": null,
+    "hysteresisPendingSince": null,
+    "candidateRank": null
+  }
+}
+```
 
 ### `chat`
 
@@ -443,7 +502,8 @@ drawer (issue #13). Resent whenever any of the underlying signals change.
   "simulatorConnected": true,
   "vatsimDataFeedConnected": true,
   "simbriefFetched": false,
-  "pluginVersion": "0.1.0"
+  "pluginVersion": "0.1.0",
+  "systemsDebug": null
 }
 ```
 
@@ -454,6 +514,35 @@ state this session -- an approximation (it can lag a real sim disconnect until t
 hard guarantee. `vatsimDataFeedConnected` reflects the most recent VATSIM data feed poll.
 `simbriefFetched` is whether a SimBrief fetch has ever succeeded this session. `pluginVersion`
 is a static string for now (`"0.1.0"`) until the plugin has a real versioning scheme.
+
+`systemsDebug` (issue #65) is `null` unless debug mode is on -- the debug overlay's "Systems"
+section, one plain-language health line per non-ranking subsystem (radio/SimConnect, VATSIM
+feed, SimBrief, VATGlasses/vatspy data loading, pairing/connection), so a non-ranking bug (a
+stalled feed, SimBrief never fetching, pairing flapping) is visible from the same window without
+needing a full snapshot just to notice something's off:
+
+```json
+{
+  "systemsDebug": {
+    "radioHostConnected": true,
+    "simulatorConnected": true,
+    "lastTelemetryAt": "2026-08-01T12:34:56Z",
+    "vatsimFeedConnected": true,
+    "vatsimFeedLastPollAt": "2026-08-01T12:34:50Z",
+    "simbriefFetchedSuccessfully": true,
+    "simbriefLastError": null,
+    "vatGlassesLoadedRegionCount": 42,
+    "vatSpyBoundaryCount": 380,
+    "pairedClientCount": 1,
+    "authenticatedSocketCount": 1,
+    "activeOperationCount": 0
+  }
+}
+```
+
+This deliberately stays lean (rides this message's existing low-frequency broadcast, not the
+1s `controllers` cadence) -- the exhaustive per-subsystem detail (last errors, cache state,
+raw counts) lives only in the debug snapshot file, same split as `controllers.debug` above.
 
 ### `operationProgress`
 
@@ -511,6 +600,18 @@ abandoned and clear the indicator locally -- a backstop for a dropped `finished`
 (e.g. a disconnect mid-sync), not something the plugin guarantees. This timeout doesn't
 apply once a `finished` message has actually arrived -- that's governed by the
 success/failure linger duration above instead.
+
+### `debugSnapshotSaved`
+
+Issue #65 -- reply to a `saveDebugSnapshot` command, sent only to the requesting client once the
+file write completes. `path` is the full local path on the plugin's machine (informational --
+the Android app can't read it directly, this is for display/troubleshooting only). This is also
+the client's cue to now send the optional `attachDebugSnapshotScreenshot` for the same
+`snapshotId`, rather than racing to capture one the instant the button was tapped.
+
+```json
+{"type": "debugSnapshotSaved", "snapshotId": "b3f1...", "path": "C:\\Users\\pilot\\AppData\\Local\\Handoff\\debug-snapshots\\20260801-123456-b3f1....json"}
+```
 
 ## Client → server messages
 
@@ -696,3 +797,51 @@ The plugin replies directly to the sender only (not broadcast to other connected
 
 `clientTimestamp`/`serverTimestamp` are epoch milliseconds. `serverTimestamp` is informational
 only; latency is `(time pong received) - clientTimestamp`.
+
+### `setDebugMode`
+
+Issue #65 -- toggles the plugin's diagnostic debug mode on/off for the rest of this plugin
+session (in-memory, not persisted across a plugin restart, not part of `subsystemStatus`/settings
+storage). While on, every `controllers` broadcast includes the extra `debug` fields (see above)
+and `subsystemStatus` includes `systemsDebug`; while off, the plugin skips computing that data
+entirely, not just omitting it from the wire. Global to the plugin, not per-client, if multiple
+clients are paired.
+
+```json
+{"type": "setDebugMode", "enabled": true}
+```
+
+### `saveDebugSnapshot`
+
+Triggers a full point-in-time dump of everything the plugin knows -- every subsystem, not just
+ranking -- written synchronously to
+`%LOCALAPPDATA%\Handoff\debug-snapshots\<timestamp>-<snapshotId>.json` (the plugin's own data
+directory, distinct from vPilot's own install). `snapshotId` is a client-generated GUID
+correlating this request with the `debugSnapshotSaved` reply and any later
+`attachDebugSnapshotScreenshot`. `appVersion` is the Android `versionName` -- the plugin doesn't
+otherwise know it, and capturing both plugin and app version in the file matters now that the two
+update independently (see Compatibility above).
+
+```json
+{"type": "saveDebugSnapshot", "snapshotId": "b3f1...", "appVersion": "1.4.0"}
+```
+
+The snapshot file's own shape isn't part of this wire protocol (it's not a message, and is free
+to change shape independently of this document's compatibility rules) -- see
+`docs/debug-snapshot.md`.
+
+### `attachDebugSnapshotScreenshot`
+
+Sent only after `debugSnapshotSaved` comes back for the same `snapshotId` -- a separate, later
+round trip, not bundled into `saveDebugSnapshot` itself (so the snapshot write isn't delayed
+waiting on screenshot capture/encoding). `screenshotPngBase64` must be a **view-scoped** capture
+of the Handoff app's own window only, never a full-display capture -- the tablet normally runs
+split-screen next to another EFB app, and a full-display capture would pull in content that has
+nothing to do with a Handoff bug report. Optional: a client that doesn't implement this, or a
+pilot who dismisses before capture completes, still leaves a fully valid JSON-only snapshot; the
+plugin doesn't wait for this and doesn't treat its absence as an error. Saved alongside the JSON
+as `<timestamp>-<snapshotId>.png`; the plugin doesn't parse or validate the image contents.
+
+```json
+{"type": "attachDebugSnapshotScreenshot", "snapshotId": "b3f1...", "screenshotPngBase64": "iVBORw0KG..."}
+```

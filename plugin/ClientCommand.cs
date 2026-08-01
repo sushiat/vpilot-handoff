@@ -37,6 +37,12 @@ namespace Handoff.Plugin
         public const string TypePing = "ping";
         public const string TypeAuthenticate = "authenticate";
 
+        // Issue #65 -- debug mode: session-only diagnostic toggle, snapshot capture, optional
+        // follow-up screenshot. See docs/protocol.md.
+        public const string TypeSetDebugMode = "setDebugMode";
+        public const string TypeSaveDebugSnapshot = "saveDebugSnapshot";
+        public const string TypeAttachDebugSnapshotScreenshot = "attachDebugSnapshotScreenshot";
+
         public string Type { get; set; }
 
         // sendPrivateMessage
@@ -90,5 +96,14 @@ namespace Handoff.Plugin
         public string Token { get; set; }
         public string PairingCode { get; set; }
         public string DeviceId { get; set; }
+
+        // setDebugMode -- Enabled (above) carries the payload.
+        // saveDebugSnapshot -- client-generated GUID correlating the debugSnapshotSaved reply and
+        // the later attachDebugSnapshotScreenshot; AppVersion is the Android versionName (the
+        // plugin doesn't otherwise know it -- see docs/protocol.md).
+        // attachDebugSnapshotScreenshot -- same SnapshotId, ScreenshotPngBase64 is the PNG bytes.
+        public string SnapshotId { get; set; }
+        public string AppVersion { get; set; }
+        public string ScreenshotPngBase64 { get; set; }
     }
 }

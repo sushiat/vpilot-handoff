@@ -34,6 +34,8 @@ namespace Handoff.Plugin
             new Dictionary<string, VatsimPilotInfo>(StringComparer.OrdinalIgnoreCase);
         private volatile bool _running;
         private volatile bool _connected;
+        private DateTimeOffset? _lastPollAt;
+        private string _lastError;
 
         public event EventHandler Changed;
 
@@ -57,6 +59,15 @@ namespace Handoff.Plugin
 
         /// <summary>Whether the most recent poll of the public VATSIM data feed succeeded.</summary>
         public bool IsConnected => _connected;
+
+        /// <summary>Issue #65 -- full internal feed state for the debug snapshot file.</summary>
+        public VatsimFeedDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                return new VatsimFeedDebugSnapshot(_connected, _controllersByCallsign.Count, _pilotsByCallsign.Count, _lastPollAt, _lastError);
+            }
+        }
 
         public void Start()
         {
@@ -92,18 +103,21 @@ namespace Handoff.Plugin
                 try
                 {
                     var snapshot = _fetch().GetAwaiter().GetResult();
+                    lock (_gate) { _lastPollAt = DateTimeOffset.Now; }
                     if (snapshot != null)
                     {
                         lock (_gate)
                         {
                             _controllersByCallsign = snapshot.Controllers.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
                             _pilotsByCallsign = snapshot.Pilots.ToDictionary(p => p.Callsign, p => p, StringComparer.OrdinalIgnoreCase);
+                            _lastError = null;
                         }
                         _connected = true;
                     }
                     else
                     {
                         _connected = false;
+                        lock (_gate) { _lastError = "Poll returned no data -- feed unreachable."; }
                         Log("Poll returned no data -- feed unreachable.");
                     }
                     Changed?.Invoke(this, EventArgs.Empty);
@@ -111,6 +125,7 @@ namespace Handoff.Plugin
                 catch (Exception ex)
                 {
                     _connected = false;
+                    lock (_gate) { _lastPollAt = DateTimeOffset.Now; _lastError = ex.Message; }
                     Log("Poll failed: " + ex.Message);
                     Changed?.Invoke(this, EventArgs.Empty);
                 }

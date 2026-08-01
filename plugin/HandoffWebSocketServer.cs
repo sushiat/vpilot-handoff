@@ -45,6 +45,9 @@ namespace Handoff.Plugin
         private readonly OperationProgressModel _operationProgress;
         private readonly HandoffPairedClientStore _pairedClients;
         private readonly HandoffPairingSession _pairingSession;
+        private readonly VatGlassesDataModel _vatGlassesData;
+        private readonly VatSpyDataModel _vatSpyData;
+        private readonly DebugSnapshotService _debugSnapshotService;
         private readonly Action<string> _logDebug;
         private readonly X509Certificate2 _certificate;
         private WebSocketServer _server;
@@ -56,7 +59,7 @@ namespace Handoff.Plugin
         // the wire broadcast just goes out on a fixed cadence instead.
         private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(1);
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -70,7 +73,15 @@ namespace Handoff.Plugin
             _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
             _pairedClients = pairedClients ?? throw new ArgumentNullException(nameof(pairedClients));
             _pairingSession = pairingSession ?? throw new ArgumentNullException(nameof(pairingSession));
+            _vatGlassesData = vatGlassesData ?? throw new ArgumentNullException(nameof(vatGlassesData));
+            _vatSpyData = vatSpyData ?? throw new ArgumentNullException(nameof(vatSpyData));
             _logDebug = logDebug;
+
+            _debugSnapshotService = new DebugSnapshotService(
+                _controllerRanking, _radioState, _flightPlanState, _vatsimDataFeed, _controllerState,
+                _vatGlassesData, _vatSpyData, _pilotSession, _operationProgress, _pairedClients, _pairingSession,
+                () => { lock (_gate) { return _authenticatedSockets.Count; } },
+                PluginVersion, _logDebug);
         }
 
         public void Start()
@@ -91,7 +102,7 @@ namespace Handoff.Plugin
 
                 _broadcastTimer = new Timer(_ =>
                 {
-                    Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
+                    Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
                     Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
                 }, null, BroadcastInterval, BroadcastInterval);
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
@@ -137,7 +148,7 @@ namespace Handoff.Plugin
         /// previously sent unconditionally from OnOpen, before device authorization existed.</summary>
         private void SendSnapshotTo(IWebSocketConnection socket)
         {
-            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes));
+            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
             socket.Send(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
@@ -167,7 +178,28 @@ namespace Handoff.Plugin
                 _radioState.IsSimulatorConnected,
                 _vatsimDataFeed.IsConnected,
                 _flightPlanState.HasFetchedSuccessfully,
-                PluginVersion);
+                PluginVersion,
+                _controllerRanking.DebugModeEnabled ? BuildSystemsDebugInfo() : null);
+
+        /// <summary>Issue #65 -- the lean "Systems" section of the debug overlay, only ever built while debug mode is on (see SystemsDebugInfo's own doc comment for why this stays separate from the exhaustive per-subsystem snapshot detail).</summary>
+        private SystemsDebugInfo BuildSystemsDebugInfo()
+        {
+            var radio = _radioState.BuildDebugSnapshot();
+            var feed = _vatsimDataFeed.BuildDebugSnapshot();
+            var flightPlan = _flightPlanState.BuildDebugSnapshot();
+            var vatGlasses = _vatGlassesData.BuildDebugSnapshot();
+            var vatSpy = _vatSpyData.BuildDebugSnapshot();
+            var pairing = _pairedClients.BuildDebugSnapshot(_pairingSession.IsCodeCurrentlyActive);
+            int authenticatedSocketCount;
+            lock (_gate) { authenticatedSocketCount = _authenticatedSockets.Count; }
+
+            return new SystemsDebugInfo(
+                radio.RadioHostConnected, radio.SimulatorConnected, radio.Telemetry?.Timestamp,
+                feed.Connected, feed.LastPollAt,
+                flightPlan.HasFetchedSuccessfully, flightPlan.LastError,
+                vatGlasses.LoadedRegionFiles.Count, vatSpy.BoundaryCount,
+                pairing.PairedClientCount, authenticatedSocketCount, _operationProgress.ActiveOperations.Count);
+        }
 
         private void OnClose(IWebSocketConnection socket)
         {
@@ -274,6 +306,16 @@ namespace Handoff.Plugin
                 case ClientCommand.TypeDismissDiversion:
                     _controllerRanking.DismissDiversion();
                     break;
+                case ClientCommand.TypeSetDebugMode:
+                    _controllerRanking.SetDebugMode(command.Enabled == true);
+                    break;
+                case ClientCommand.TypeSaveDebugSnapshot:
+                    HandleSaveDebugSnapshot(command, socket);
+                    break;
+                case ClientCommand.TypeAttachDebugSnapshotScreenshot:
+                    if (!string.IsNullOrEmpty(command.SnapshotId) && !string.IsNullOrEmpty(command.ScreenshotPngBase64))
+                        _debugSnapshotService.TrySaveScreenshot(command.SnapshotId, command.ScreenshotPngBase64);
+                    break;
                 default:
                     Log("Unknown client message type: " + command?.Type);
                     break;
@@ -329,6 +371,28 @@ namespace Handoff.Plugin
             // so the pilot can read a code off it, but there's no guess to validate here.
             _pairingSession.EnsureActiveCode();
             socket.Send(ProtocolMessages.BuildAuthResultMessage(success: false, reason: "pairingRequired"));
+        }
+
+        /// <summary>Issue #65 section 4 -- writes the snapshot synchronously on this Fleck message
+        /// thread (nothing else queued ahead of it, per the issue's own accuracy requirement)
+        /// before replying, so debugSnapshotSaved genuinely means "the file is on disk."</summary>
+        private void HandleSaveDebugSnapshot(ClientCommand command, IWebSocketConnection socket)
+        {
+            if (string.IsNullOrEmpty(command.SnapshotId))
+            {
+                Log("Ignoring saveDebugSnapshot with no snapshotId.");
+                return;
+            }
+
+            try
+            {
+                var path = _debugSnapshotService.SaveSnapshot(command.SnapshotId, command.AppVersion);
+                socket.Send(ProtocolMessages.BuildDebugSnapshotSavedMessage(command.SnapshotId, path));
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to save debug snapshot: " + ex.Message);
+            }
         }
 
         private void Broadcast(string message)

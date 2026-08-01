@@ -68,6 +68,15 @@ namespace Handoff.Plugin
         /// <summary>CTR suffix word override by 2-letter country ICAO prefix (e.g. "LO" -&gt; "Radar") -- see VatSpyStationNaming.</summary>
         public IReadOnlyDictionary<string, string> CtrSuffixByCountryPrefix { get { lock (_gate) { return _ctrSuffixByCountryPrefix; } } }
 
+        /// <summary>Issue #65 -- loaded-data state for the debug snapshot file.</summary>
+        public VatSpyDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                return new VatSpyDebugSnapshot(_firBoundaries.Count, _airportsByIcao.Count, ReadCachedSha());
+            }
+        }
+
         /// <summary>
         /// Checks the repo's latest commit SHA; if changed (or no cache yet), re-fetches both
         /// files and re-parses/re-combines. Never throws -- a failure leaves whatever was already

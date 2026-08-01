@@ -28,6 +28,8 @@ namespace Handoff.Plugin
         private FlightPlan _current = FlightPlan.Empty;
         private string _userId;
         private string _username;
+        private DateTimeOffset? _lastFetchAttemptAt;
+        private string _lastError;
 
         public event EventHandler Changed;
 
@@ -55,6 +57,16 @@ namespace Handoff.Plugin
         public bool HasFetchedSuccessfully
         {
             get { lock (_gate) { return _current != FlightPlan.Empty; } }
+        }
+
+        /// <summary>Issue #65 -- full internal fetch state for the debug snapshot file. CredentialsPresent is a bool, never the userId/username values themselves (see FlightPlanDebugSnapshot's own doc comment).</summary>
+        public FlightPlanDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                var credentialsPresent = !string.IsNullOrWhiteSpace(_userId) || !string.IsNullOrWhiteSpace(_username);
+                return new FlightPlanDebugSnapshot(_current != FlightPlan.Empty, credentialsPresent, _lastFetchAttemptAt, _lastError, _current);
+            }
         }
 
         /// <summary>
@@ -105,6 +117,8 @@ namespace Handoff.Plugin
 
         private async Task FetchAndApplyAsync(string userId, string username, string operationId)
         {
+            lock (_gate) { _lastFetchAttemptAt = DateTimeOffset.Now; }
+
             FlightPlan plan;
             try
             {
@@ -113,6 +127,7 @@ namespace Handoff.Plugin
             catch (Exception ex)
             {
                 Log("Flight plan fetch threw: " + ex.Message);
+                lock (_gate) { _lastError = ex.Message; }
                 _operationProgress.Finish(operationId, "SimBrief fetch failed: " + ex.Message, success: false);
                 return;
             }
@@ -120,11 +135,12 @@ namespace Handoff.Plugin
             if (plan == null)
             {
                 Log("No flight plan available from SimBrief.");
+                lock (_gate) { _lastError = "No SimBrief flight plan available"; }
                 _operationProgress.Finish(operationId, "No SimBrief flight plan available", success: false);
                 return;
             }
 
-            lock (_gate) { _current = plan; }
+            lock (_gate) { _current = plan; _lastError = null; }
             Log($"Flight plan updated: callsign={plan.Callsign}, origin={plan.Origin}, destination={plan.Destination}, alternate={plan.Alternate}");
             Changed?.Invoke(this, EventArgs.Empty);
             // Reports success (and the fetched route) even when it's identical to what was

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Handoff.Plugin
@@ -62,6 +63,15 @@ namespace Handoff.Plugin
         public IReadOnlyDictionary<string, VatGlassesRegionData> Regions
         {
             get { lock (_gate) { return _regionsByFileName; } }
+        }
+
+        /// <summary>Issue #65 -- loaded-data state for the debug snapshot file. A sync that reported success doesn't guarantee what actually parsed into usable data -- this reads Regions directly, same as everything else here.</summary>
+        public VatGlassesDebugSnapshot BuildDebugSnapshot()
+        {
+            lock (_gate)
+            {
+                return new VatGlassesDebugSnapshot(_regionsByFileName.Keys.ToList(), ReadCachedSha());
+            }
         }
 
         /// <summary>

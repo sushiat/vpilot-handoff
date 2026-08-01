@@ -31,6 +31,12 @@ namespace Handoff.Plugin
             _logDebug = logDebug;
         }
 
+        /// <summary>Issue #65 -- whether a pairing code is currently active/unexpired, never the code itself (a live secret) -- for the debug snapshot file / systemsDebug.</summary>
+        public bool IsCodeCurrentlyActive
+        {
+            get { lock (_gate) { return _code != null && DateTime.UtcNow < _expiresAtUtc; } }
+        }
+
         /// <summary>Returns the currently active code, generating a fresh one first if none is
         /// active or the previous one expired/was exhausted. Always (re-)shows the window, even
         /// when reusing an already-active code -- otherwise a pilot manually closing the window

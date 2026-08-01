@@ -157,6 +157,8 @@ namespace Handoff.Plugin
         private DateTimeOffset _verticalTrendSince;
 
         private IReadOnlyList<RankedController> _current = new List<RankedController>();
+        private bool _debugModeEnabled;
+        private RankingDebugExplain _lastRankingExplain;
         private double? _etaMinutes;
         private bool _hasTakenOffThisSession;
         private string _lastObservedDestination;
@@ -209,6 +211,98 @@ namespace Handoff.Plugin
         public double? EtaMinutes
         {
             get { lock (_gate) { return _etaMinutes; } }
+        }
+
+        /// <summary>
+        /// Issue #65 -- session-only diagnostic flag (not persisted, not part of settings
+        /// storage). While true, Recompute() also builds the per-controller/plugin-wide debug
+        /// explain data (RankedController.DebugExplain, PlanWideDebugExplain); while false, that
+        /// entire step is skipped, not merely omitted from the wire, so debug-unaware operation
+        /// pays nothing extra.
+        /// </summary>
+        public bool DebugModeEnabled
+        {
+            get { lock (_gate) { return _debugModeEnabled; } }
+        }
+
+        /// <summary>Plugin-wide debug context (docs/protocol.md's top-level `controllers.debug`) -- null whenever DebugModeEnabled is false.</summary>
+        public RankingDebugExplain PlanWideDebugExplain
+        {
+            get { lock (_gate) { return _lastRankingExplain; } }
+        }
+
+        public void SetDebugMode(bool enabled)
+        {
+            bool changed;
+            lock (_gate)
+            {
+                changed = _debugModeEnabled != enabled;
+                _debugModeEnabled = enabled;
+                if (!enabled) _lastRankingExplain = null;
+            }
+            if (changed) Recompute();
+        }
+
+        /// <summary>
+        /// Issue #65 section 4 -- full point-in-time dump of the sequencer/hysteresis state
+        /// SequenceRemainingWaypoints and ApplyDistanceHysteresis keep private, for the debug
+        /// snapshot file. Read-only: mirrors SequenceRemainingWaypoints' anchor-relative sweep
+        /// against the currently committed anchor/index without mutating any of it (this can be
+        /// called at any time, including mid-flight while the pilot is mid-review of a previous
+        /// tick's ranking).
+        /// </summary>
+        public RankingSnapshot BuildDebugSnapshot()
+        {
+            var flightPlan = _flightPlanState.Current;
+            var telemetry = _radioState.Telemetry;
+            var all = flightPlan.Waypoints;
+
+            lock (_gate)
+            {
+                var projection = new List<RankingSnapshotWaypoint>();
+                var naturalIndex = _committedWaypointIndex;
+
+                if (all != null && all.Count > 0 && _routeAnchorLat.HasValue && _routeAnchorLon.HasValue && telemetry.Latitude.HasValue && telemetry.Longitude.HasValue)
+                {
+                    var anchorLat = _routeAnchorLat.Value;
+                    var anchorLon = _routeAnchorLon.Value;
+                    for (var i = _committedWaypointIndex; i < all.Count; i++)
+                    {
+                        var legDistance = GeoDistance.NauticalMiles(anchorLat, anchorLon, all[i].Latitude, all[i].Longitude);
+                        var alongTrack = GeoDistance.AlongTrackDistanceNm(anchorLat, anchorLon, all[i].Latitude, all[i].Longitude, telemetry.Latitude.Value, telemetry.Longitude.Value);
+                        projection.Add(new RankingSnapshotWaypoint(all[i].Ident, all[i].Latitude, all[i].Longitude, legDistance, alongTrack));
+                        if (alongTrack >= legDistance) naturalIndex = i + 1;
+                    }
+                }
+                else if (all != null)
+                {
+                    for (var i = _committedWaypointIndex; i < all.Count; i++)
+                    {
+                        projection.Add(new RankingSnapshotWaypoint(all[i].Ident, all[i].Latitude, all[i].Longitude, 0, 0));
+                    }
+                }
+
+                var hysteresisEntries = new List<RankingSnapshotHysteresisEntry>();
+                foreach (var tier in _committedLeader.Keys)
+                {
+                    _pendingChallenger.TryGetValue(tier, out var pending);
+                    DateTimeOffset? since = _pendingSince.TryGetValue(tier, out var s) ? s : (DateTimeOffset?)null;
+                    hysteresisEntries.Add(new RankingSnapshotHysteresisEntry(tier.ToString(), _committedLeader[tier], pending, since));
+                }
+
+                var pendingWaypointName = _pendingWaypointIndex.HasValue && all != null && _pendingWaypointIndex.Value > 0 && _pendingWaypointIndex.Value <= all.Count
+                    ? all[_pendingWaypointIndex.Value - 1].Ident
+                    : null;
+
+                return new RankingSnapshot(
+                    _routeAnchorLat, _routeAnchorLon,
+                    _committedWaypointIndex, _pendingWaypointIndex, pendingWaypointName,
+                    _pendingWaypointIndex.HasValue ? (DateTimeOffset?)_pendingWaypointIndexSince : null,
+                    naturalIndex, projection,
+                    _routeInvalidatedByDiversion, _pendingDiversionDestination,
+                    hysteresisEntries,
+                    _etaMinutes, _lastRankingExplain?.EtaCalculationDetail);
+            }
         }
 
         /// <summary>A destination change just observed on the VATSIM data feed, awaiting pilot
@@ -342,12 +436,17 @@ namespace Handoff.Plugin
             var vatGlassesRegions = _vatGlassesData.Regions;
             var vatSpyBoundaries = _vatSpyData.FirBoundaries;
             var highlightBlocks = new List<HighlightResult>();
+            // Debug-explain only (issue #65) -- which bucket number/name each highlightBlocks
+            // entry corresponds to, so BuildControllerDebugExplain can label a highlighted
+            // controller correctly without re-deriving it from context.
+            var highlightBlockBuckets = new List<(int Bucket, string Name)>();
 
             if (isOnGround)
             {
                 currentTierGroundWalkStartRank = currentTier.HasValue ? (int)currentTier.Value : -1;
                 var groundResult = ComputeGroundHighlight(bucketCandidates, controllers, routeAirport, telemetry, vatGlassesRegions, vatSpyBoundaries);
                 highlightBlocks.Add(groundResult);
+                highlightBlockBuckets.Add((6, "Ground relevance (DEL/GND/TWR/APP/CTR)"));
                 excludedFromRest.UnionWith(groundResult.HighlightedCallsigns);
                 _etaMinutes = null; // Bucket 8c only ever applies airborne.
             }
@@ -356,11 +455,13 @@ namespace Handoff.Plugin
                 var twrAppCandidates = bucketCandidates.Where(c => IsTwrOrApp(c.Callsign.ParseControllerTier())).ToList();
                 var bucket7Result = ComputeBucket7Highlight(twrAppCandidates, controllers, routeAirport, remainingWaypoints, telemetry, vatGlassesRegions);
                 highlightBlocks.Add(bucket7Result);
+                highlightBlockBuckets.Add((7, "Airborne TWR/APP relevance"));
                 excludedFromRest.UnionWith(bucket7Result.HighlightedCallsigns);
 
                 var ctrCandidates = bucketCandidates.Where(c => c.Callsign.ParseControllerTier() == ControllerTier.Center).ToList();
                 var bucket8Result = ComputeBucket8Highlight(ctrCandidates, controllers, remainingWaypoints, telemetry, pressureAltitudeFl, qnhTrueAltitudeFl, vatGlassesRegions, vatSpyBoundaries, currentCallsigns);
                 highlightBlocks.Add(bucket8Result);
+                highlightBlockBuckets.Add((8, "Airborne CTR relevance"));
                 excludedFromRest.UnionWith(bucket8Result.HighlightedCallsigns);
 
                 _etaMinutes = ComputeEtaMinutes(telemetry, bucket8Result);
@@ -404,6 +505,44 @@ namespace Handoff.Plugin
             }
             finalOrder.AddRange(orderedRest);
 
+            Dictionary<string, ControllerDebugExplain> explainByCallsign = null;
+            if (_debugModeEnabled)
+            {
+                explainByCallsign = BuildControllerDebugExplain(
+                    finalOrder, currentTier, currentCallsigns, standbyCallsigns, contactMeCallsigns, selcalCallsigns, pinnedCallsigns,
+                    highlightBlocks, highlightBlockBuckets, rest, routeAirport, telemetry);
+
+                var com1Callsign = radio.Com1Frequency.HasValue ? controllers.FirstOrDefault(c => c.Frequency == radio.Com1Frequency.Value)?.Callsign : null;
+                var com2Callsign = radio.Com2Frequency.HasValue ? controllers.FirstOrDefault(c => c.Frequency == radio.Com2Frequency.Value)?.Callsign : null;
+                var activeWaypoint = remainingWaypoints.Count > 0 ? remainingWaypoints[0].Ident : null;
+                string lastPassedWaypoint;
+                lock (_gate)
+                {
+                    lastPassedWaypoint = _lastWaypointsSeen != null && _committedWaypointIndex > 0 && _committedWaypointIndex <= _lastWaypointsSeen.Count
+                        ? _lastWaypointsSeen[_committedWaypointIndex - 1].Ident
+                        : null;
+                }
+                var etaDetail = _etaMinutes.HasValue
+                    ? "ETA computed from closest bucket-8 candidate distance and current groundspeed."
+                    : isOnGround
+                        ? "Not applicable -- bucket 8c only applies airborne."
+                        : "No bucket-8 candidate currently qualifies, or below the eligibility floor (level flight or > FL150 while climbing/descending, groundspeed > 1kt).";
+
+                _lastRankingExplain = new RankingDebugExplain(
+                    phaseOfFlight: isOnGround ? (_hasTakenOffThisSession ? "landing-taxi-in/parked" : "parked/taxi-out") : "airborne",
+                    hasTakenOffThisSession: _hasTakenOffThisSession,
+                    ownshipLatitude: telemetry.Latitude, ownshipLongitude: telemetry.Longitude,
+                    ownshipAltitudeTrue: telemetry.PressureAltitudeFeet, ownshipAltitudeAgl: telemetry.AltitudeAboveGroundFeet,
+                    ownshipGroundspeedKt: telemetry.GroundSpeedKnots, ownshipHeadingTrue: telemetry.HeadingDegrees, ownshipTrackTrue: telemetry.HeadingDegrees,
+                    com1TunedCallsign: com1Callsign, com2TunedCallsign: com2Callsign,
+                    activeRouteWaypoint: activeWaypoint, lastPassedWaypoint: lastPassedWaypoint,
+                    etaCalculationDetail: etaDetail);
+            }
+            else
+            {
+                _lastRankingExplain = null;
+            }
+
             var ranked = finalOrder.Select(c =>
             {
                 enrichment.TryGetValue(c.Callsign, out var info);
@@ -428,11 +567,189 @@ namespace Handoff.Plugin
                     isStandbyTuned: !isCurrent && standbyFrequencies.Contains(c.Frequency),
                     isSelcalActive: c.SelcalExpiresAtUtc.HasValue,
                     stationName: VatAtisStationNameExtractor.Extract(info?.TextAtis) ?? VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData),
-                    textAtis: info?.TextAtis);
+                    textAtis: info?.TextAtis,
+                    debugExplain: explainByCallsign != null && explainByCallsign.TryGetValue(c.Callsign, out var explain) ? explain : null);
             }).ToList();
 
             lock (_gate) { _current = ranked; }
             Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Issue #65 -- builds the plain-language per-controller `debug` object (docs/protocol.md)
+        /// for every controller in finalOrder, purely by re-reading the bucket-membership sets
+        /// Recompute() already computed (currentCallsigns/standbyCallsigns/.../highlightBlocks/
+        /// rest) -- no new geometry/containment work happens here, this only labels what already
+        /// happened. Only ever called when DebugModeEnabled is true (see Recompute()).
+        /// </summary>
+        private Dictionary<string, ControllerDebugExplain> BuildControllerDebugExplain(
+            List<HandoffController> finalOrder,
+            ControllerTier? currentTier,
+            HashSet<string> currentCallsigns,
+            HashSet<string> standbyCallsigns,
+            HashSet<string> contactMeCallsigns,
+            HashSet<string> selcalCallsigns,
+            HashSet<string> pinnedCallsigns,
+            List<HighlightResult> highlightBlocks,
+            List<(int Bucket, string Name)> highlightBlockBuckets,
+            List<HandoffController> rest,
+            string routeAirport,
+            OwnshipTelemetry telemetry)
+        {
+            var result = new Dictionary<string, ControllerDebugExplain>(StringComparer.OrdinalIgnoreCase);
+            var restCallsigns = new HashSet<string>(rest.Select(c => c.Callsign), StringComparer.OrdinalIgnoreCase);
+            var onFlightPlan = new Func<string, bool>(callsign =>
+                !string.IsNullOrEmpty(routeAirport) && callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase));
+
+            Dictionary<ControllerTier, string> committedLeaderSnapshot;
+            Dictionary<ControllerTier, string> pendingChallengerSnapshot;
+            Dictionary<ControllerTier, DateTimeOffset> pendingSinceSnapshot;
+            lock (_gate)
+            {
+                committedLeaderSnapshot = new Dictionary<ControllerTier, string>(_committedLeader);
+                pendingChallengerSnapshot = new Dictionary<ControllerTier, string>(_pendingChallenger);
+                pendingSinceSnapshot = new Dictionary<ControllerTier, DateTimeOffset>(_pendingSince);
+            }
+
+            foreach (var c in finalOrder)
+            {
+                int bucket;
+                string bucketName;
+                string reason;
+                double? distanceNm = null;
+                var vatGlassesMatch = false;
+                var vatSpyMatch = false;
+                var routeMatch = onFlightPlan(c.Callsign);
+                var hysteresisState = "stable";
+                int? hysteresisPendingBucket = null;
+                DateTimeOffset? hysteresisPendingSince = null;
+                int? candidateRank = null;
+
+                if (currentCallsigns.Contains(c.Callsign))
+                {
+                    bucket = 1; bucketName = "Currently tuned";
+                    reason = "Matches the frequency currently loaded active in COM1 or COM2.";
+                }
+                else if (standbyCallsigns.Contains(c.Callsign))
+                {
+                    bucket = 2; bucketName = "Standby tuned";
+                    reason = "Matches the frequency currently loaded into COM1 or COM2 standby.";
+                }
+                else if (contactMeCallsigns.Contains(c.Callsign))
+                {
+                    bucket = 3; bucketName = "Contact me";
+                    reason = "Outstanding contact-me request from this controller.";
+                }
+                else if (selcalCallsigns.Contains(c.Callsign))
+                {
+                    bucket = 4; bucketName = "SELCAL alert";
+                    reason = "Active SELCAL alert from this controller.";
+                }
+                else if (pinnedCallsigns.Contains(c.Callsign))
+                {
+                    bucket = 5; bucketName = "Pinned";
+                    reason = "Manually pinned by the pilot.";
+                }
+                else
+                {
+                    HighlightResult owningBlock = null;
+                    var owningBucket = 0;
+                    var owningBucketName = "";
+                    for (var i = 0; i < highlightBlocks.Count; i++)
+                    {
+                        if (highlightBlocks[i].HighlightedCallsigns.Contains(c.Callsign))
+                        {
+                            owningBlock = highlightBlocks[i];
+                            owningBucket = highlightBlockBuckets[i].Bucket;
+                            owningBucketName = highlightBlockBuckets[i].Name;
+                            break;
+                        }
+                    }
+
+                    if (owningBlock != null)
+                    {
+                        bucket = owningBucket;
+                        bucketName = owningBucketName;
+                        owningBlock.DistanceNm.TryGetValue(c.Callsign, out var d);
+                        distanceNm = owningBlock.DistanceNm.ContainsKey(c.Callsign) ? d : (double?)null;
+                        vatGlassesMatch = owningBlock.VatGlassesMatched.Contains(c.Callsign);
+                        vatSpyMatch = owningBlock.VatSpyMatched.Contains(c.Callsign);
+
+                        var isNext = owningBlock.NextCallsigns.Contains(c.Callsign);
+                        var isLikelyNext = owningBlock.LikelyNextCallsigns.Contains(c.Callsign);
+                        var sourceLabel = vatGlassesMatch ? "VATGlasses sector containment"
+                            : vatSpyMatch ? "vatspy FIR polygon containment"
+                            : routeMatch ? "flight-plan route match"
+                            : "distance/radius fallback";
+                        var statusLabel = isNext ? "confident IsNext (single qualifying candidate)"
+                            : isLikelyNext ? "IsLikelyNext (tied with other qualifying candidates, or route-relevance unconfirmed)"
+                            : "IsHighlighted only";
+                        reason = $"Bucket {bucket} ({bucketName}): {sourceLabel}" +
+                            (distanceNm.HasValue ? $", {distanceNm.Value:0.0}nm" : "") +
+                            $" -- {statusLabel}.";
+
+                        if (isNext) candidateRank = 1;
+                        else if (isLikelyNext)
+                        {
+                            var ordered = owningBlock.LikelyNextCallsigns
+                                .OrderBy(cs => owningBlock.DistanceNm.TryGetValue(cs, out var dd) ? dd : double.MaxValue)
+                                .ToList();
+                            var idx = ordered.FindIndex(cs => string.Equals(cs, c.Callsign, StringComparison.OrdinalIgnoreCase));
+                            if (idx >= 0) candidateRank = idx + 1;
+                        }
+
+                        if (bucket == 8 && _tieBandCommitted.Contains(c.Callsign) && isLikelyNext)
+                        {
+                            hysteresisState = "stable"; // tie-band membership itself has no separate pending state exposed here -- see the snapshot file for full tie-band math.
+                        }
+                    }
+                    else if (restCallsigns.Contains(c.Callsign))
+                    {
+                        bucket = 9; bucketName = "Chain-tier fallback";
+                        var tier = c.Callsign.ParseControllerTier();
+                        if (telemetry.Latitude.HasValue && telemetry.Longitude.HasValue) distanceNm = DistanceNm(c, telemetry);
+
+                        committedLeaderSnapshot.TryGetValue(tier, out var committedLeader);
+                        pendingChallengerSnapshot.TryGetValue(tier, out var pendingChallenger);
+                        var isCommittedLeader = string.Equals(committedLeader, c.Callsign, StringComparison.OrdinalIgnoreCase);
+                        var isPendingChallenger = string.Equals(pendingChallenger, c.Callsign, StringComparison.OrdinalIgnoreCase);
+
+                        if (isPendingChallenger)
+                        {
+                            hysteresisState = "pendingPromotion";
+                            hysteresisPendingBucket = 9;
+                            if (pendingSinceSnapshot.TryGetValue(tier, out var since)) hysteresisPendingSince = since;
+                        }
+                        else if (isCommittedLeader && pendingChallenger != null)
+                        {
+                            hysteresisState = "pendingDemotion";
+                            hysteresisPendingBucket = 9;
+                            if (pendingSinceSnapshot.TryGetValue(tier, out var since)) hysteresisPendingSince = since;
+                        }
+
+                        reason = $"Bucket 9: chain-tier-then-distance fallback, tier {tier}" +
+                            (distanceNm.HasValue ? $", {distanceNm.Value:0.0}nm" : "") +
+                            (routeMatch ? ", on flight plan" : "") +
+                            (isCommittedLeader ? ", current tier-distance leader (hysteresis-committed)" : "") + ".";
+                    }
+                    else
+                    {
+                        // Shouldn't happen -- every controller in finalOrder came from exactly one
+                        // of the sets above -- but stay defensive rather than throwing on an
+                        // unrecognized callsign in a diagnostics-only code path.
+                        bucket = 0; bucketName = "Unknown";
+                        reason = "Not matched to any known bucket -- this is itself worth reporting as a bug.";
+                    }
+                }
+
+                result[c.Callsign] = new ControllerDebugExplain(
+                    bucket, bucketName, reason, distanceNm,
+                    vatGlassesMatch, vatSpyMatch, routeMatch,
+                    hysteresisState, hysteresisPendingBucket, hysteresisPendingSince,
+                    candidateRank);
+            }
+
+            return result;
         }
 
         /// <summary>Bucket 1 -- COM1's match (if any) always ordered ahead of COM2's.</summary>
@@ -590,6 +907,15 @@ namespace Handoff.Plugin
             public HashSet<string> NextCallsigns { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public HashSet<string> LikelyNextCallsigns { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, double> DistanceNm { get; } = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+            // Debug-explain only (issue #65) -- which containment source actually matched this
+            // callsign, for the wire's vatGlassesSectorMatch/vatSpyPolygonMatch fields. Cheap
+            // bookkeeping (a couple of dictionary writes at sites that already compute these
+            // booleans), populated unconditionally -- only the human-readable Reason text
+            // generation is gated behind DebugModeEnabled, per the issue's "cost nothing when off"
+            // requirement.
+            public HashSet<string> VatGlassesMatched { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public HashSet<string> VatSpyMatched { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         private static bool IsTwrOrApp(ControllerTier tier) => tier == ControllerTier.Tower || tier == ControllerTier.AppDep;
@@ -809,19 +1135,38 @@ namespace Handoff.Plugin
                     case ControllerTier.Delivery:
                     case ControllerTier.Ground:
                     case ControllerTier.Tower:
-                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
-                            || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundDelGndTwrRadiusNm)))
+                        if (hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                        {
                             result.HighlightedCallsigns.Add(c.Callsign);
+                            result.VatGlassesMatched.Add(c.Callsign);
+                        }
+                        else if (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundDelGndTwrRadiusNm))
+                        {
+                            result.HighlightedCallsigns.Add(c.Callsign);
+                        }
                         break;
                     case ControllerTier.AppDep:
-                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
-                            || (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundAppRadiusNm)))
+                        if (hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedNonCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                        {
                             result.HighlightedCallsigns.Add(c.Callsign);
+                            result.VatGlassesMatched.Add(c.Callsign);
+                        }
+                        else if (hasPosition && PassesDeadband(_groundRadiusCommitted, c.Callsign, DistanceNm(c, telemetry), GroundAppRadiusNm))
+                        {
+                            result.HighlightedCallsigns.Add(c.Callsign);
+                        }
                         break;
                     case ControllerTier.Center:
-                        if ((hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
-                            || (hasPosition && PassesVatSpyContainmentDeadband(_groundVatSpyContainmentCommitted, c, vatSpyContainedCtr.Contains(c.Callsign), vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value)))
+                        if (hasPosition && PassesContainmentDeadband(_groundPolygonContainmentCommitted, c, polygonContainedCtr.Contains(c.Callsign), regions, allOnlineControllers, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                        {
                             result.HighlightedCallsigns.Add(c.Callsign);
+                            result.VatGlassesMatched.Add(c.Callsign);
+                        }
+                        else if (hasPosition && PassesVatSpyContainmentDeadband(_groundVatSpyContainmentCommitted, c, vatSpyContainedCtr.Contains(c.Callsign), vatSpyBoundaries, telemetry.Latitude.Value, telemetry.Longitude.Value))
+                        {
+                            result.HighlightedCallsigns.Add(c.Callsign);
+                            result.VatSpyMatched.Add(c.Callsign);
+                        }
                         break;
                     default:
                         break; // Other/ATIS is fully covered by 6a alone.
@@ -912,6 +1257,7 @@ namespace Handoff.Plugin
 
                     result.HighlightedCallsigns.Add(c.Callsign);
                     result.DistanceNm[c.Callsign] = distance;
+                    if (FindAnySectorLevelForController(c, regions, allOnlineControllers) != null) result.VatGlassesMatched.Add(c.Callsign);
                 }
             }
 
@@ -940,6 +1286,7 @@ namespace Handoff.Plugin
                 {
                     result.HighlightedCallsigns.Add(owner.Callsign);
                     result.DistanceNm[owner.Callsign] = match.DistanceNauticalMiles;
+                    result.VatGlassesMatched.Add(owner.Callsign);
                 }
 
                 var allOnFlightPlan = entering.All(x => !string.IsNullOrEmpty(routeAirport) && x.Owner.Callsign.StartsWith(routeAirport, StringComparison.OrdinalIgnoreCase));
@@ -1132,6 +1479,7 @@ namespace Handoff.Plugin
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
                 _ctrSatisfiedCommitted.Add(owner.Callsign);
                 combined.Add((owner, 0));
+                result.VatGlassesMatched.Add(owner.Callsign);
             }
 
             // Dead-band: a previously-satisfied controller that's no longer genuinely contained
@@ -1145,7 +1493,7 @@ namespace Handoff.Plugin
                 if (owner == null) { _ctrSatisfiedCommitted.Remove(callsign); continue; }
                 var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
                 var staysIn = level != null && VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, level) <= PolygonContainmentDeadbandMarginNm;
-                if (staysIn) combined.Add((owner, 0)); else _ctrSatisfiedCommitted.Remove(callsign);
+                if (staysIn) { combined.Add((owner, 0)); result.VatGlassesMatched.Add(owner.Callsign); } else _ctrSatisfiedCommitted.Remove(callsign);
             }
 
             // Issue #11: vatspy "satisfied" fallback -- only for CTR controllers VATGlasses has no
@@ -1161,6 +1509,7 @@ namespace Handoff.Plugin
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
                 _ctrVatSpySatisfiedCommitted.Add(owner.Callsign);
                 combined.Add((owner, 0));
+                result.VatSpyMatched.Add(owner.Callsign);
             }
 
             foreach (var callsign in _ctrVatSpySatisfiedCommitted.Where(cs => !vatSpyContainedCallsigns.Contains(cs)).ToList())
@@ -1170,7 +1519,7 @@ namespace Handoff.Plugin
                 if (owner == null) { _ctrVatSpySatisfiedCommitted.Remove(callsign); continue; }
                 var boundary = FindAnyVatSpyBoundaryForController(owner, vatSpyBoundaries);
                 var staysIn = boundary != null && VatSpyBoundaryLookup.DistanceToBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, boundary) <= PolygonContainmentDeadbandMarginNm;
-                if (staysIn) combined.Add((owner, 0)); else _ctrVatSpySatisfiedCommitted.Remove(callsign);
+                if (staysIn) { combined.Add((owner, 0)); result.VatSpyMatched.Add(owner.Callsign); } else _ctrVatSpySatisfiedCommitted.Remove(callsign);
             }
 
             // "Converging" -- lateral entering AND vertical satisfied-or-converging.
@@ -1180,6 +1529,7 @@ namespace Handoff.Plugin
                 if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue; // already counted as "satisfied" above
                 if (!IsVerticallySatisfiedOrConverging(approach.Match.Level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend)) continue;
                 combined.Add((owner, approach.DistanceNauticalMiles));
+                result.VatGlassesMatched.Add(owner.Callsign);
             }
 
             // Issue #11: vatspy "converging" fallback, same VATGlasses-has-no-data precedence gate
@@ -1191,6 +1541,7 @@ namespace Handoff.Plugin
                 if (containedCallsigns.Contains(owner.Callsign) || vatSpyContainedCallsigns.Contains(owner.Callsign)) continue; // already counted as "satisfied"
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
                 combined.Add((owner, approach.DistanceNauticalMiles));
+                result.VatSpyMatched.Add(owner.Callsign);
             }
 
             var deduped = combined

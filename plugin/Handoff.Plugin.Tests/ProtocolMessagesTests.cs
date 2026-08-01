@@ -124,6 +124,125 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildControllersMessage_NoDebugArgument_DebugFieldsAreNull()
+        {
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false)
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+
+            Assert.Equal(JTokenType.Null, json["debug"].Type);
+            Assert.Equal(JTokenType.Null, json["controllers"][0]["debug"].Type);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_WithDebug_IncludesTopLevelAndPerControllerFields()
+        {
+            var explain = new ControllerDebugExplain(
+                bucket: 8, bucketName: "Airborne CTR relevance", reason: "test reason", distanceNm: 47.2,
+                vatGlassesSectorMatch: true, vatSpyPolygonMatch: false, routeMatch: false,
+                hysteresisState: "stable", hysteresisPendingBucket: null, hysteresisPendingSince: null,
+                candidateRank: null);
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_TWR", 23725, 51.4775, -0.4614, null, null, null, null,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: true, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    debugExplain: explain)
+            };
+            var planWide = new RankingDebugExplain(
+                phaseOfFlight: "cruise", hasTakenOffThisSession: true,
+                ownshipLatitude: 51.0, ownshipLongitude: 1.0, ownshipAltitudeTrue: 45000, ownshipAltitudeAgl: 44700,
+                ownshipGroundspeedKt: 461, ownshipHeadingTrue: 68, ownshipTrackTrue: 68,
+                com1TunedCallsign: null, com2TunedCallsign: null,
+                activeRouteWaypoint: "KONAN", lastPassedWaypoint: "GASBA", etaCalculationDetail: "test detail");
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers, debug: planWide));
+
+            Assert.Equal("cruise", (string)json["debug"]["phaseOfFlight"]);
+            Assert.Equal("KONAN", (string)json["debug"]["activeRouteWaypoint"]);
+            var controllerDebug = json["controllers"][0]["debug"];
+            Assert.Equal(8, (int)controllerDebug["bucket"]);
+            Assert.Equal("Airborne CTR relevance", (string)controllerDebug["bucketName"]);
+            Assert.Equal(47.2, (double)controllerDebug["distanceNm"]);
+            Assert.True((bool)controllerDebug["vatGlassesSectorMatch"]);
+            Assert.False((bool)controllerDebug["vatSpyPolygonMatch"]);
+            Assert.Equal("stable", (string)controllerDebug["hysteresisState"]);
+        }
+
+        [Fact]
+        public void BuildSubsystemStatusMessage_NoSystemsDebugArgument_IsNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0"));
+
+            Assert.Equal(JTokenType.Null, json["systemsDebug"].Type);
+        }
+
+        [Fact]
+        public void BuildSubsystemStatusMessage_WithSystemsDebug_IncludesFields()
+        {
+            var info = new SystemsDebugInfo(
+                radioHostConnected: true, simulatorConnected: true, lastTelemetryAt: null,
+                vatsimFeedConnected: true, vatsimFeedLastPollAt: null,
+                simbriefFetchedSuccessfully: true, simbriefLastError: null,
+                vatGlassesLoadedRegionCount: 42, vatSpyBoundaryCount: 380,
+                pairedClientCount: 1, authenticatedSocketCount: 1, activeOperationCount: 0);
+
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, true, true, true, "0.1.0", info));
+
+            Assert.Equal(42, (int)json["systemsDebug"]["vatGlassesLoadedRegionCount"]);
+            Assert.Equal(380, (int)json["systemsDebug"]["vatSpyBoundaryCount"]);
+            Assert.Equal(1, (int)json["systemsDebug"]["pairedClientCount"]);
+        }
+
+        [Fact]
+        public void BuildDebugSnapshotSavedMessage_IncludesSnapshotIdAndPath()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildDebugSnapshotSavedMessage("abc123", "C:\\path\\to\\snapshot.json"));
+
+            Assert.Equal("debugSnapshotSaved", (string)json["type"]);
+            Assert.Equal("abc123", (string)json["snapshotId"]);
+            Assert.Equal("C:\\path\\to\\snapshot.json", (string)json["path"]);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetDebugMode()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setDebugMode\",\"enabled\":true}");
+
+            Assert.Equal(ClientCommand.TypeSetDebugMode, command.Type);
+            Assert.True(command.Enabled);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SaveDebugSnapshot()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"saveDebugSnapshot\",\"snapshotId\":\"abc123\",\"appVersion\":\"1.4.0\"}");
+
+            Assert.Equal(ClientCommand.TypeSaveDebugSnapshot, command.Type);
+            Assert.Equal("abc123", command.SnapshotId);
+            Assert.Equal("1.4.0", command.AppVersion);
+        }
+
+        [Fact]
+        public void ParseClientCommand_AttachDebugSnapshotScreenshot()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"attachDebugSnapshotScreenshot\",\"snapshotId\":\"abc123\",\"screenshotPngBase64\":\"iVBORw0KG\"}");
+
+            Assert.Equal(ClientCommand.TypeAttachDebugSnapshotScreenshot, command.Type);
+            Assert.Equal("abc123", command.SnapshotId);
+            Assert.Equal("iVBORw0KG", command.ScreenshotPngBase64);
+        }
+
+        [Fact]
         public void BuildChatMessage_PrivateMessage_ChannelAndDirectionAreLowercase()
         {
             var messages = new List<ChatMessage>
