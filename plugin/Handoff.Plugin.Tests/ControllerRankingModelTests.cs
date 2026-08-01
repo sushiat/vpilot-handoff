@@ -1043,6 +1043,80 @@ namespace Handoff.Plugin.Tests
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
         }
 
+        [Fact]
+        public async Task AbeamSequencing_DirectToFarAheadWaypoint_RecoversViaProximity()
+        {
+            // B and C sit due east of A (bearing 90 deg), while the direct-to target D sits
+            // southwest (bearing ~225 deg) -- more than 90 degrees off, so
+            // AlongTrackDistanceNm (negative "if the projection falls behind `from`", see its
+            // doc comment) stays negative for both B and C no matter how far towards D ownship
+            // flies. The anchor-relative sweep can never naturally advance past them -- exactly
+            // the stuck case #66 reported -- so only the proximity catch-up can recover.
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("B", 0, 0.8),
+                new FlightPlanWaypoint("C", 0, 1.6),
+                new FlightPlanWaypoint("D", -1, -1),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+
+            // Box centered exactly on B -- only reachable via a leg that actually heads to B (same
+            // route-projected entering check as the sustained-crossing test above). Ownship's
+            // post-direct-to position is still within RouteApproachMaxNauticalMiles (150nm) of B
+            // along the (uncommitted) remaining route, so this isolates the committed-index bug
+            // rather than an unrelated route-distance cap.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0.8, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 0, 0.8);
+
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            // Direct-to D, cutting across to the southwest -- the opposite general direction from
+            // B/C.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, -1, -1, now);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // not yet -- sustained-disagreement hysteresis hasn't elapsed
+
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // committed: proximity catch-up sequenced past B, C, and D in one step
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_NearMissNotOverflight_DoesNotFalsePositive()
+        {
+            // Same stuck-sweep setup as above, but ownship only ever comes within ~6nm of D --
+            // outside WaypointOverflightRadiusNm (2nm) -- so the proximity catch-up must not
+            // fire either. Guards the "tight enough not to false-positive on a route that merely
+            // passes near a waypoint without actually sequencing through it" requirement.
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("B", 0, 0.8),
+                new FlightPlanWaypoint("C", 0, 1.6),
+                new FlightPlanWaypoint("D", -1, -1),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0.8, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 0, 0.8);
+
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+
+            // ~6nm short of D (0.1 degrees longitude at this latitude), not an overflight.
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, -1, -0.9, now);
+            _radio.RaiseChanged();
+            now = now.AddSeconds(13);
+            _radio.RaiseChanged();
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // still stuck -- correctly so, this was never an overflight
+        }
+
         // ---- Issue #11: vatspy station names and FIR-polygon fallback -----------------------
 
         [Fact]
