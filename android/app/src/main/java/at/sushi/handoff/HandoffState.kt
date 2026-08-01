@@ -3,6 +3,7 @@ package at.sushi.handoff
 import at.sushi.handoff.network.AppUpdateInfo
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
 import at.sushi.handoff.protocol.DebugSnapshotSavedMessage
 import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
@@ -199,6 +200,13 @@ object HandoffState {
     private val _debugSnapshotSaved = MutableStateFlow<DebugSnapshotSavedMessage?>(null)
     val debugSnapshotSaved: StateFlow<DebugSnapshotSavedMessage?> = _debugSnapshotSaved.asStateFlow()
 
+    // Same one-shot-consumption pattern as [_debugSnapshotSaved] above, but for the
+    // debugSnapshotNamed reply (issue #73b) -- the debug window's inline naming UI clears this
+    // after showing the success/failure status, so a stale reply doesn't linger and get
+    // re-read on the next unrelated recomposition.
+    private val _debugSnapshotNamed = MutableStateFlow<DebugSnapshotNamedMessage?>(null)
+    val debugSnapshotNamed: StateFlow<DebugSnapshotNamedMessage?> = _debugSnapshotNamed.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -340,6 +348,16 @@ object HandoffState {
      *  recomposition/observer re-collection. */
     fun clearDebugSnapshotSaved() {
         _debugSnapshotSaved.value = null
+    }
+
+    fun update(message: DebugSnapshotNamedMessage) {
+        _debugSnapshotNamed.value = message
+    }
+
+    /** Same reasoning as [clearDebugSnapshotSaved] -- clears the one-shot debugSnapshotNamed
+     *  signal once the naming UI has shown its success/failure status for it. */
+    fun clearDebugSnapshotNamed() {
+        _debugSnapshotNamed.value = null
     }
 
     fun setUpdateAvailable(info: AppUpdateInfo?) {

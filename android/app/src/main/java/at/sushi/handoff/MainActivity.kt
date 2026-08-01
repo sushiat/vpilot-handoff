@@ -10,14 +10,23 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
+import at.sushi.handoff.ui.debug.MediaProjectionRequester
 import at.sushi.handoff.ui.main.MainScreen
 
 class MainActivity : ComponentActivity() {
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { startConnectionService() }
 
+    // Issue #73a -- MediaProjection consent must be requested via an Activity; DebugOverlayHost's
+    // overlay window isn't one, so MediaProjectionRequester bridges the two.
+    private val requestMediaProjection =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            MediaProjectionRequester.onResult(result.resultCode, result.data)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MediaProjectionRequester.bind { intent -> requestMediaProjection.launch(intent) }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED

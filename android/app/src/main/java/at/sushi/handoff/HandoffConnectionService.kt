@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.os.BatteryManager
 import android.os.IBinder
 import android.os.Process
@@ -30,6 +31,7 @@ import at.sushi.handoff.protocol.AuthenticateCommand
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
+import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
 import at.sushi.handoff.protocol.DebugSnapshotSavedMessage
 import at.sushi.handoff.protocol.DiversionPendingMessage
 import at.sushi.handoff.protocol.FlightPlanMessage
@@ -72,6 +74,16 @@ class HandoffConnectionService : Service() {
         private const val MinBackoffMillis = 2_000L
         private const val MaxBackoffMillis = 30_000L
         private const val PingIntervalMillis = 10_000L
+        // Issue #73a -- the type this service's *normal* startForeground calls declare. Does NOT
+        // include mediaProjection: Android 14+ rejects asserting that type until the user has
+        // actually granted MediaProjection consent in this session (the underlying "project_media"
+        // app-op isn't held before then, even though the FOREGROUND_SERVICE_MEDIA_PROJECTION
+        // manifest permission itself is granted at install) -- confirmed on-device, asserting it
+        // unconditionally at service startup throws SecurityException and crashes on launch. See
+        // promoteToMediaProjectionForeground, called only after consent is granted.
+        private const val ForegroundServiceTypeNormal = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        private const val ForegroundServiceTypeWithMediaProjection =
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
 
         /** Same-process access for the UI to send commands / trigger a reconnect -- no
          *  bindService/Messenger needed since Service and Activity share the process. */
@@ -151,7 +163,7 @@ class HandoffConnectionService : Service() {
 
         override fun onStop(owner: LifecycleOwner) {
             HandoffState.setAppVisible(false)
-            startForeground(NotificationId, buildConnectionNotification())
+            ServiceCompat.startForeground(this@HandoffConnectionService, NotificationId, buildConnectionNotification(), ForegroundServiceTypeNormal)
         }
     }
 
@@ -188,7 +200,7 @@ class HandoffConnectionService : Service() {
         // then unconditionally post the notification right afterward with nothing left to hide
         // it until the next real background/foreground transition, leaving it stuck showing on
         // a fresh launch even though the app is already on screen.
-        startForeground(NotificationId, buildConnectionNotification())
+        ServiceCompat.startForeground(this, NotificationId, buildConnectionNotification(), ForegroundServiceTypeNormal)
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         HandoffState.setKeepScreenAwake(isCharging())
@@ -255,6 +267,17 @@ class HandoffConnectionService : Service() {
 
     fun sendCommand(command: ClientCommand) {
         client.send(command)
+    }
+
+    /** Issue #73a -- must be called after MediaProjection consent is granted (the screen-capture
+     *  Intent's resultCode/data) and before MediaProjectionManager.getMediaProjection(), never
+     *  before: see [ForegroundServiceTypeNormal]'s doc comment for why asserting this type any
+     *  earlier crashes the whole process. Never demoted back afterward -- harmless to keep
+     *  asserted for the rest of this service's lifetime once legitimately granted once, and the
+     *  visible screen-capture indicator is driven by the MediaProjection instance itself
+     *  (MediaProjectionRequester/DebugOverlayHost), not by this foreground-service type flag. */
+    fun promoteToMediaProjectionForeground() {
+        ServiceCompat.startForeground(this, NotificationId, buildConnectionNotification(), ForegroundServiceTypeWithMediaProjection)
     }
 
     private fun reconnectLoop() {
@@ -477,6 +500,7 @@ class HandoffConnectionService : Service() {
             is SubsystemStatusMessage -> HandoffState.update(message)
             is OperationProgressMessage -> HandoffState.update(message)
             is DebugSnapshotSavedMessage -> HandoffState.update(message)
+            is DebugSnapshotNamedMessage -> HandoffState.update(message)
             is PongMessage -> HandoffState.setLatencyMs(System.currentTimeMillis() - message.clientTimestamp)
             // Always intercepted by onServerMessage before reaching here -- kept only for
             // ServerMessage's sealed-interface exhaustiveness.

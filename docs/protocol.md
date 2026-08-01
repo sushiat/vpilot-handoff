@@ -38,6 +38,15 @@ Tracks changes to this document's message shapes specifically, not every plugin/
 release — see the top-level `CHANGELOG.md` for that. Only gets an entry here when something in
 this contract actually changes shape; a release with no protocol changes adds nothing below.
 
+### Unreleased
+
+Issue #73 -- debug window refinements. New client→server `nameDebugSnapshot`. New server→client
+`debugSnapshotNamed`. New nullable fields on the top-level `debug` object:
+`lastWaypointAdvanceMechanism`, `lastWaypointAdvanceAt`, null unless debug mode is on (same
+lifetime as the rest of `debug`). `attachDebugSnapshotScreenshot`'s `screenshotPngBase64` can now
+optionally be a full-device capture rather than always view-scoped, per the pilot's own opt-in --
+no shape change, just a clarified doc note (issue #73a).
+
 ### [0.2.0] - 2026-08-01
 
 Issue #65 -- debug mode. New client→server `setDebugMode`, `saveDebugSnapshot`,
@@ -306,10 +315,18 @@ only in the debug snapshot file (`saveDebugSnapshot` below), not on the wire.
     "activeRouteWaypointDistanceNm": 55.3,
     "lastPassedWaypointBearingTrue": 178,
     "lastPassedWaypointDistanceNm": 12.3,
-    "etaCalculationDetail": "No bucket-8 candidate currently qualifies."
+    "etaCalculationDetail": "No bucket-8 candidate currently qualifies.",
+    "lastWaypointAdvanceMechanism": "alongTrackSweep",
+    "lastWaypointAdvanceAt": "2026-08-01T10:15:32Z"
   }
 }
 ```
+
+`lastWaypointAdvanceMechanism`/`lastWaypointAdvanceAt` (issue #73c) -- which mechanism last
+advanced the committed waypoint index, and when: `"alongTrackSweep"` for the normal
+anchor-relative along-track sweep, `"proximityCatchUp"` for the issue #66 proximity fallback that
+recovers sequencing after a direct-to desyncs the route anchor. Both `null` until the first
+advance of the session.
 
 Per controller:
 
@@ -642,6 +659,20 @@ the client's cue to now send the optional `attachDebugSnapshotScreenshot` for th
 {"type": "debugSnapshotSaved", "snapshotId": "b3f1...", "path": "C:\\Users\\pilot\\AppData\\Local\\Handoff\\debug-snapshots\\20260801-123456-b3f1....json"}
 ```
 
+### `debugSnapshotNamed`
+
+Issue #73b -- reply to a `nameDebugSnapshot` command, sent only to the requesting client.
+`success: false` covers both an unknown/expired `snapshotId` (past `saveDebugSnapshot`'s
+`ScreenshotCorrelationWindow`, 10 minutes) and a rename I/O failure -- either way the original
+`<timestamp>-<snapshotId>.json`/`.png` files are left exactly as they already were, never
+partially renamed or corrupted. `error` is a short human-readable reason, present only when
+`success` is `false`.
+
+```json
+{"type": "debugSnapshotNamed", "snapshotId": "b3f1...", "success": true}
+{"type": "debugSnapshotNamed", "snapshotId": "b3f1...", "success": false, "error": "Unknown or expired snapshotId."}
+```
+
 ## Client → server messages
 
 ### `sendPrivateMessage`
@@ -863,14 +894,39 @@ to change shape independently of this document's compatibility rules) -- see
 
 Sent only after `debugSnapshotSaved` comes back for the same `snapshotId` -- a separate, later
 round trip, not bundled into `saveDebugSnapshot` itself (so the snapshot write isn't delayed
-waiting on screenshot capture/encoding). `screenshotPngBase64` must be a **view-scoped** capture
-of the Handoff app's own window only, never a full-display capture -- the tablet normally runs
-split-screen next to another EFB app, and a full-display capture would pull in content that has
-nothing to do with a Handoff bug report. Optional: a client that doesn't implement this, or a
-pilot who dismisses before capture completes, still leaves a fully valid JSON-only snapshot; the
-plugin doesn't wait for this and doesn't treat its absence as an error. Saved alongside the JSON
-as `<timestamp>-<snapshotId>.png`; the plugin doesn't parse or validate the image contents.
+waiting on screenshot capture/encoding). `screenshotPngBase64` is, **by default**, a
+**view-scoped** capture of the Handoff app's own window only -- the tablet normally runs
+split-screen next to another EFB app, and a full-display capture would otherwise pull in content
+that has nothing to do with a Handoff bug report. Issue #73a adds an explicit opt-in: the pilot
+can check a "full-device screenshot" box in the debug window's title bar, which grants
+`MediaProjection` consent (a system prompt, requested once when the box is checked, not per
+snapshot) and captures the whole display instead -- useful when seeing the neighboring EFB app
+(charts, performance tool) alongside Handoff's state actually helps diagnosis. The plugin has no
+way to tell which kind of capture it received; both arrive the same shape on this field. Optional
+either way: a client that doesn't implement this, or a pilot who dismisses before capture
+completes, still leaves a fully valid JSON-only snapshot; the plugin doesn't wait for this and
+doesn't treat its absence as an error. Saved alongside the JSON as `<timestamp>-<snapshotId>.png`;
+the plugin doesn't parse or validate the image contents.
 
 ```json
 {"type": "attachDebugSnapshotScreenshot", "snapshotId": "b3f1...", "screenshotPngBase64": "iVBORw0KG..."}
+```
+
+### `nameDebugSnapshot`
+
+Issue #73b -- attaches a pilot-chosen name to an already-saved snapshot, strictly after the fact:
+sent only once the pilot has typed a name into the inline field that appears after
+`debugSnapshotSaved` comes back, never blocking or delaying the save itself (the timing of the
+original capture matters for what it's snapshotting). Looks up the same `snapshotId` correlation
+`saveDebugSnapshot`/`attachDebugSnapshotScreenshot` already use (`ScreenshotCorrelationWindow`, 10
+minutes -- confirmed long enough to allow for typing a name while flying), stores `name` as a new
+field inside the JSON, and renames both the `.json` and (if it exists yet) the `.png` file by
+appending a sanitized, length-truncated version of `name` to their existing
+`<timestamp>-<snapshotId>` stem. If the correlation window has expired or the rename fails for any
+I/O reason, the original files are left exactly as they were -- never a reason to lose or corrupt
+an already-saved snapshot over a cosmetic rename failing. See `debugSnapshotNamed` above for the
+reply.
+
+```json
+{"type": "nameDebugSnapshot", "snapshotId": "b3f1...", "name": "sequencing lag near KONAN"}
 ```

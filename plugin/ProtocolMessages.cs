@@ -48,7 +48,9 @@ namespace Handoff.Plugin
                     activeRouteWaypointDistanceNm = debug.ActiveRouteWaypointDistanceNm,
                     lastPassedWaypointBearingTrue = debug.LastPassedWaypointBearingTrue,
                     lastPassedWaypointDistanceNm = debug.LastPassedWaypointDistanceNm,
-                    etaCalculationDetail = debug.EtaCalculationDetail
+                    etaCalculationDetail = debug.EtaCalculationDetail,
+                    lastWaypointAdvanceMechanism = debug.LastWaypointAdvanceMechanism,
+                    lastWaypointAdvanceAt = debug.LastWaypointAdvanceAt
                 },
                 controllers = controllers.Select(c => new
                 {
@@ -236,6 +238,20 @@ namespace Handoff.Plugin
                 type = "debugSnapshotSaved",
                 snapshotId,
                 path
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        /// <summary>Issue #73b -- reply to nameDebugSnapshot. error is only meaningful when
+        /// success is false (unknown/expired snapshotId, or a rename I/O failure).</summary>
+        public static string BuildDebugSnapshotNamedMessage(string snapshotId, bool success, string error)
+        {
+            var payload = new
+            {
+                type = "debugSnapshotNamed",
+                snapshotId,
+                success,
+                error
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

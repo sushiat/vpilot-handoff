@@ -321,6 +321,9 @@ namespace Handoff.Plugin
                     if (!string.IsNullOrEmpty(command.SnapshotId) && !string.IsNullOrEmpty(command.ScreenshotPngBase64))
                         _debugSnapshotService.TrySaveScreenshot(command.SnapshotId, command.ScreenshotPngBase64);
                     break;
+                case ClientCommand.TypeNameDebugSnapshot:
+                    HandleNameDebugSnapshot(command, socket);
+                    break;
                 default:
                     Log("Unknown client message type: " + command?.Type);
                     break;
@@ -397,6 +400,31 @@ namespace Handoff.Plugin
             catch (Exception ex)
             {
                 Log("Failed to save debug snapshot: " + ex.Message);
+            }
+        }
+
+        /// <summary>Issue #73b -- attaches a pilot-chosen name to an already-saved snapshot,
+        /// strictly after the fact. Always replies with debugSnapshotNamed, success or not, so
+        /// the client can show the pilot a clear result either way.</summary>
+        private void HandleNameDebugSnapshot(ClientCommand command, IWebSocketConnection socket)
+        {
+            Log("HandleNameDebugSnapshot: received for snapshotId=" + command.SnapshotId + " name=" + command.Name);
+            if (string.IsNullOrEmpty(command.SnapshotId) || string.IsNullOrEmpty(command.Name))
+            {
+                Log("Ignoring nameDebugSnapshot with no snapshotId/name.");
+                return;
+            }
+
+            try
+            {
+                var (success, error) = _debugSnapshotService.RenameSnapshot(command.SnapshotId, command.Name);
+                Log("HandleNameDebugSnapshot: RenameSnapshot returned success=" + success + " error=" + error);
+                socket.Send(ProtocolMessages.BuildDebugSnapshotNamedMessage(command.SnapshotId, success, error));
+                Log("HandleNameDebugSnapshot: reply sent");
+            }
+            catch (Exception ex)
+            {
+                Log("HandleNameDebugSnapshot: unhandled exception: " + ex);
             }
         }
 

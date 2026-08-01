@@ -166,7 +166,8 @@ namespace Handoff.Plugin.Tests
                 activeRouteWaypoint: "KONAN", lastPassedWaypoint: "GASBA",
                 activeRouteWaypointBearingTrue: 68.0, activeRouteWaypointDistanceNm: 55.3,
                 lastPassedWaypointBearingTrue: 178.0, lastPassedWaypointDistanceNm: 12.3,
-                etaCalculationDetail: "test detail");
+                etaCalculationDetail: "test detail",
+                lastWaypointAdvanceMechanism: "alongTrackSweep", lastWaypointAdvanceAt: DateTimeOffset.Parse("2026-08-01T10:00:00Z"));
 
             var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers, debug: planWide));
 
@@ -174,6 +175,7 @@ namespace Handoff.Plugin.Tests
             Assert.Equal("KONAN", (string)json["debug"]["activeRouteWaypoint"]);
             Assert.Equal(55.3, (double)json["debug"]["activeRouteWaypointDistanceNm"]);
             Assert.Equal(178.0, (double)json["debug"]["lastPassedWaypointBearingTrue"]);
+            Assert.Equal("alongTrackSweep", (string)json["debug"]["lastWaypointAdvanceMechanism"]);
             var controllerDebug = json["controllers"][0]["debug"];
             Assert.Equal(8, (int)controllerDebug["bucket"]);
             Assert.Equal("Airborne CTR relevance", (string)controllerDebug["bucketName"]);
@@ -220,6 +222,26 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildDebugSnapshotNamedMessage_Success_OmitsError()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildDebugSnapshotNamedMessage("abc123", true, null));
+
+            Assert.Equal("debugSnapshotNamed", (string)json["type"]);
+            Assert.Equal("abc123", (string)json["snapshotId"]);
+            Assert.True((bool)json["success"]);
+            Assert.Null((string)json["error"]);
+        }
+
+        [Fact]
+        public void BuildDebugSnapshotNamedMessage_Failure_IncludesError()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildDebugSnapshotNamedMessage("abc123", false, "Unknown or expired snapshotId."));
+
+            Assert.False((bool)json["success"]);
+            Assert.Equal("Unknown or expired snapshotId.", (string)json["error"]);
+        }
+
+        [Fact]
         public void ParseClientCommand_SetDebugMode()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setDebugMode\",\"enabled\":true}");
@@ -246,6 +268,16 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(ClientCommand.TypeAttachDebugSnapshotScreenshot, command.Type);
             Assert.Equal("abc123", command.SnapshotId);
             Assert.Equal("iVBORw0KG", command.ScreenshotPngBase64);
+        }
+
+        [Fact]
+        public void ParseClientCommand_NameDebugSnapshot()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"nameDebugSnapshot\",\"snapshotId\":\"abc123\",\"name\":\"sequencing lag\"}");
+
+            Assert.Equal(ClientCommand.TypeNameDebugSnapshot, command.Type);
+            Assert.Equal("abc123", command.SnapshotId);
+            Assert.Equal("sequencing lag", command.Name);
         }
 
         [Fact]

@@ -1043,6 +1043,9 @@ namespace Handoff.Plugin.Tests
             now = now.AddSeconds(13);
             _radio.RaiseChanged();
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // committed: B sequenced past, remaining route no longer detours through it
+            // Issue #73c -- the along-track sweep alone (not the proximity catch-up) produced
+            // this commit.
+            Assert.Equal("alongTrackSweep", model.BuildDebugSnapshot().LastWaypointAdvanceMechanism);
         }
 
         [Fact]
@@ -1120,6 +1123,10 @@ namespace Handoff.Plugin.Tests
             now = now.AddSeconds(13);
             _radio.RaiseChanged();
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // committed: proximity catch-up sequenced past B, C, and D in one step
+            // Issue #73c -- this commit could only have come from the proximity catch-up, since
+            // the along-track sweep alone can never advance past B/C/D on this bearing (see this
+            // test's own doc comment above).
+            Assert.Equal("proximityCatchUp", model.BuildDebugSnapshot().LastWaypointAdvanceMechanism);
         }
 
         [Fact]

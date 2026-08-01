@@ -140,6 +140,11 @@ namespace Handoff.Plugin
         // GPS/telemetry precision for "ownship is genuinely at this point."
         private const double WaypointOverflightRadiusNm = 2.0;
 
+        // Issue #73c -- wire/debug-visible labels for which SequenceRemainingWaypoints mechanism
+        // last advanced _committedWaypointIndex.
+        internal const string WaypointAdvanceMechanismAlongTrackSweep = "alongTrackSweep";
+        internal const string WaypointAdvanceMechanismProximityCatchUp = "proximityCatchUp";
+
         private readonly object _gate = new object();
         private readonly HandoffControllerStateModel _controllerState;
         private readonly IRadioStateModel _radioState;
@@ -217,6 +222,12 @@ namespace Handoff.Plugin
         private int? _pendingWaypointIndex;
         private DateTimeOffset _pendingWaypointIndexSince;
         private IReadOnlyList<FlightPlanWaypoint> _lastWaypointsSeen;
+        // Issue #73c -- which of SequenceRemainingWaypoints' two mechanisms produced the most
+        // recent _committedWaypointIndex advance, and when. Set only at the moment a commit
+        // actually happens, not on every speculative naturalIndex recompute -- same lifetime as
+        // _routeAnchorLat/Lon, which commit at the same point.
+        private string _lastWaypointAdvanceMechanism;
+        private DateTimeOffset? _lastWaypointAdvanceAt;
 
         public event EventHandler Changed;
 
@@ -342,7 +353,8 @@ namespace Handoff.Plugin
                     naturalIndex, projection,
                     _routeInvalidatedByDiversion, _pendingDiversionDestination,
                     hysteresisEntries,
-                    _etaMinutes, _lastRankingExplain?.EtaCalculationDetail);
+                    _etaMinutes, _lastRankingExplain?.EtaCalculationDetail,
+                    _lastWaypointAdvanceMechanism, _lastWaypointAdvanceAt);
             }
         }
 
@@ -631,11 +643,15 @@ namespace Handoff.Plugin
                 var com2Callsign = radio.Com2Frequency.HasValue ? controllers.FirstOrDefault(c => c.Frequency == radio.Com2Frequency.Value)?.Callsign : null;
                 var activeWaypoint = remainingWaypoints.Count > 0 ? remainingWaypoints[0] : null;
                 FlightPlanWaypoint lastPassedWaypoint;
+                string lastWaypointAdvanceMechanism;
+                DateTimeOffset? lastWaypointAdvanceAt;
                 lock (_gate)
                 {
                     lastPassedWaypoint = _lastWaypointsSeen != null && _committedWaypointIndex > 0 && _committedWaypointIndex <= _lastWaypointsSeen.Count
                         ? _lastWaypointsSeen[_committedWaypointIndex - 1]
                         : null;
+                    lastWaypointAdvanceMechanism = _lastWaypointAdvanceMechanism;
+                    lastWaypointAdvanceAt = _lastWaypointAdvanceAt;
                 }
                 var etaDetail = _etaMinutes.HasValue
                     ? "ETA computed from closest bucket-8 candidate distance and current groundspeed."
@@ -674,7 +690,8 @@ namespace Handoff.Plugin
                     activeRouteWaypoint: activeWaypoint?.Ident, lastPassedWaypoint: lastPassedWaypoint?.Ident,
                     activeRouteWaypointBearingTrue: activeWaypointBearing, activeRouteWaypointDistanceNm: activeWaypointDistanceNm,
                     lastPassedWaypointBearingTrue: lastPassedWaypointBearing, lastPassedWaypointDistanceNm: lastPassedWaypointDistanceNm,
-                    etaCalculationDetail: etaDetail);
+                    etaCalculationDetail: etaDetail,
+                    lastWaypointAdvanceMechanism: lastWaypointAdvanceMechanism, lastWaypointAdvanceAt: lastWaypointAdvanceAt);
             }
             else
             {
@@ -2059,6 +2076,7 @@ namespace Handoff.Plugin
                     if (alongTrack < legDistance) break;
                     naturalIndex = i + 1;
                 }
+                var afterAlongTrackSweep = naturalIndex;
 
                 // Proximity catch-up: ownship being physically on top of a downstream waypoint is
                 // authoritative regardless of what the anchor-relative course says -- this is what
@@ -2089,6 +2107,10 @@ namespace Handoff.Plugin
                         _pendingWaypointIndex = null;
                         _routeAnchorLat = lat;
                         _routeAnchorLon = lon;
+                        _lastWaypointAdvanceMechanism = naturalIndex != afterAlongTrackSweep
+                            ? WaypointAdvanceMechanismProximityCatchUp
+                            : WaypointAdvanceMechanismAlongTrackSweep;
+                        _lastWaypointAdvanceAt = _now();
                     }
                 }
                 else

@@ -77,6 +77,12 @@ namespace Handoff.Plugin
         public double? LastPassedWaypointBearingTrue { get; }
         public double? LastPassedWaypointDistanceNm { get; }
         public string EtaCalculationDetail { get; }
+        // Issue #73c -- which SequenceRemainingWaypoints mechanism last advanced
+        // _committedWaypointIndex ("alongTrackSweep"/"proximityCatchUp", see
+        // ControllerRankingModel's WaypointAdvanceMechanism* constants), and when. Null until the
+        // first commit of the session.
+        public string LastWaypointAdvanceMechanism { get; }
+        public DateTimeOffset? LastWaypointAdvanceAt { get; }
 
         public RankingDebugExplain(
             string phaseOfFlight, bool hasTakenOffThisSession,
@@ -86,7 +92,8 @@ namespace Handoff.Plugin
             string activeRouteWaypoint, string lastPassedWaypoint,
             double? activeRouteWaypointBearingTrue, double? activeRouteWaypointDistanceNm,
             double? lastPassedWaypointBearingTrue, double? lastPassedWaypointDistanceNm,
-            string etaCalculationDetail)
+            string etaCalculationDetail,
+            string lastWaypointAdvanceMechanism, DateTimeOffset? lastWaypointAdvanceAt)
         {
             PhaseOfFlight = phaseOfFlight;
             HasTakenOffThisSession = hasTakenOffThisSession;
@@ -106,6 +113,8 @@ namespace Handoff.Plugin
             LastPassedWaypointBearingTrue = lastPassedWaypointBearingTrue;
             LastPassedWaypointDistanceNm = lastPassedWaypointDistanceNm;
             EtaCalculationDetail = etaCalculationDetail;
+            LastWaypointAdvanceMechanism = lastWaypointAdvanceMechanism;
+            LastWaypointAdvanceAt = lastWaypointAdvanceAt;
         }
     }
 }

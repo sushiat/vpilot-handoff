@@ -22,6 +22,9 @@ contract.
   first -- since the plugin and app now update independently (`docs/protocol.md`'s
   Compatibility section), a version mismatch here can explain a bug report that doesn't reproduce
   on a dev's own matched pair.
+- **`name`** (issue #73b): the pilot-chosen label attached via `nameDebugSnapshot`, `null` for
+  never-named snapshots. The `.json`/`.png` filenames themselves are also renamed to include a
+  sanitized version of this on success -- see `docs/protocol.md`'s `nameDebugSnapshot`.
 - **Connection**: `vatsimCallsign`/`vatsimCid` (`PilotSessionModel`, the live `IBroker`-sourced
   value, not SimBrief's).
 - **`computedControllers`** (`RankedController[]`): the full `controllers` message as it would
@@ -46,6 +49,12 @@ contract.
   - `tierChainHysteresis`: every tier's committed leader / pending challenger / pending-since,
     not just the currently-visible ones (bucket 9's "Flapping protection",
     `docs/controller-ranking.md`).
+  - `lastWaypointAdvanceMechanism`/`lastWaypointAdvanceAt` (issue #73c): which mechanism last
+    advanced `committedWaypointIndex` -- `"alongTrackSweep"` (the anchor-relative sweep above) or
+    `"proximityCatchUp"` (issue #66's fallback, ownship physically within
+    `WaypointOverflightRadiusNm` of a downstream waypoint) -- and when. Mirrors the same field on
+    `rankingContext`/the live `controllers.debug` object (`docs/protocol.md`); both null until the
+    first advance of the session.
 - **`controllerState`** (`ControllerStateDebugSnapshot`): the raw pre-ranking controller list,
   **including currently-hidden** (grace-window) stations, plus pinned/contact-me/SELCAL pending
   counts -- separates "why is X missing entirely" from "why is X ranked wrong."
@@ -72,4 +81,6 @@ contract.
 - No plaintext secrets (SimBrief credentials, pairing codes, paired-client tokens) -- see the
   per-section notes above.
 - The screenshot (if sent) is saved as-is, unparsed/unvalidated, purely as "what the pilot was
-  looking at" context alongside the JSON.
+  looking at" context alongside the JSON. View-scoped (Handoff's own app window) by default;
+  full-device only when the pilot explicitly opts in per `docs/protocol.md`'s
+  `attachDebugSnapshotScreenshot` (issue #73a) -- the file itself doesn't record which kind it is.

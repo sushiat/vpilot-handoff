@@ -1,6 +1,7 @@
 package at.sushi.handoff.ui.debug
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -21,6 +22,7 @@ import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.protocol.AttachDebugSnapshotScreenshotCommand
+import at.sushi.handoff.protocol.NameDebugSnapshotCommand
 import at.sushi.handoff.protocol.SaveDebugSnapshotCommand
 import at.sushi.handoff.ui.theme.HandoffTheme
 import kotlinx.coroutines.delay
@@ -47,6 +49,7 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     val controllers by HandoffState.controllers.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
     val debugSnapshotSaved by HandoffState.debugSnapshotSaved.collectAsState()
+    val debugSnapshotNamed by HandoffState.debugSnapshotNamed.collectAsState()
 
     val overlay = remember { DebugOverlayWindow(context) }
     val currentThemeMode = rememberUpdatedState(themeMode)
@@ -55,6 +58,32 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
 
     var pendingSnapshotId by remember { mutableStateOf<String?>(null) }
     var snapshotStatus by remember { mutableStateOf<String?>(null) }
+    // Issue #73b -- survives pendingSnapshotId being cleared at the end of the save round trip,
+    // so the inline naming field (DebugOverlayContent) still knows which snapshot to name.
+    // Cleared once a name is actually submitted (see onNameSnapshot) or a new save starts.
+    var lastSavedSnapshotId by remember { mutableStateOf<String?>(null) }
+
+    // Issue #73a -- reflects actual granted MediaProjection consent, not just the checkbox tap;
+    // see FullDeviceCaptureSession's own doc comment for why this lives in a process-wide
+    // singleton rather than local `remember` state (Activity recreation on a fullscreen<->
+    // split-screen transition would otherwise silently lose it).
+    val fullDeviceCapture by FullDeviceCaptureSession.active.collectAsState()
+
+    val onFullDeviceCaptureChange: (Boolean) -> Unit = { checked ->
+        if (checked) {
+            MediaProjectionRequester.requestConsent(context) { resultCode, data ->
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    // Must happen before FullDeviceCaptureSession.start's getMediaProjection call
+                    // -- see HandoffConnectionService.promoteToMediaProjectionForeground's own doc
+                    // comment for why the order matters (Android 14+ crashes otherwise).
+                    HandoffConnectionService.instance?.promoteToMediaProjectionForeground()
+                    FullDeviceCaptureSession.start(context, resultCode, data)
+                }
+            }
+        } else {
+            FullDeviceCaptureSession.stop()
+        }
+    }
 
     val appVersion = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
@@ -75,6 +104,7 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     val onSaveSnapshot: () -> Unit = onSaveSnapshot@{
         val snapshotId = UUID.randomUUID().toString()
         pendingSnapshotId = snapshotId
+        lastSavedSnapshotId = null
         snapshotStatus = "Saving snapshot..."
         HandoffConnectionService.instance?.sendCommand(SaveDebugSnapshotCommand(snapshotId = snapshotId, appVersion = appVersion))
     }
@@ -93,10 +123,11 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
             snapshotStatus = "Snapshot saved (no screenshot -- host isn't an Activity)."
             HandoffState.clearDebugSnapshotSaved()
             pendingSnapshotId = null
+            lastSavedSnapshotId = expectedId
             return@LaunchedEffect
         }
 
-        captureWindowScreenshot(activity) { base64Png ->
+        val onCaptureResult: (String?) -> Unit = { base64Png ->
             if (base64Png != null) {
                 HandoffConnectionService.instance?.sendCommand(
                     AttachDebugSnapshotScreenshotCommand(snapshotId = expectedId, screenshotPngBase64 = base64Png)
@@ -107,8 +138,41 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
             }
             HandoffState.clearDebugSnapshotSaved()
             pendingSnapshotId = null
+            lastSavedSnapshotId = expectedId
+        }
+
+        // Issue #73a -- the pilot's opt-in choice, made once when the checkbox was checked; the
+        // plugin can't tell which kind it received either way, both arrive on the same field.
+        val surface = FullDeviceCaptureSession.currentSurface
+        if (fullDeviceCapture && surface != null) {
+            captureFullDeviceScreenshot(surface, onCaptureResult)
+        } else {
+            captureWindowScreenshot(activity, onCaptureResult)
         }
     }
+
+    // Issue #73b -- once the pilot submits a name for lastSavedSnapshotId, this is the cue to
+    // report success/failure and clear the inline naming field, same one-shot-consumption
+    // pattern as the debugSnapshotSaved effect above.
+    val onNameSnapshot: (String) -> Unit = { name ->
+        val snapshotId = lastSavedSnapshotId
+        if (snapshotId != null) {
+            snapshotStatus = "Naming snapshot..."
+            HandoffConnectionService.instance?.sendCommand(NameDebugSnapshotCommand(snapshotId = snapshotId, name = name))
+        }
+    }
+
+    LaunchedEffect(debugSnapshotNamed) {
+        val message = debugSnapshotNamed ?: return@LaunchedEffect
+        snapshotStatus = if (message.success) "Snapshot named." else "Failed to name snapshot: ${message.error ?: "unknown error"}"
+        lastSavedSnapshotId = null
+        HandoffState.clearDebugSnapshotNamed()
+    }
+
+    // Issue #73b -- lets the pilot dismiss the inline name field without typing anything, same
+    // "the files are simply left exactly as they already are" outcome as never getting around to
+    // naming it at all -- no command sent, nothing for the plugin to do.
+    val onSkipName: () -> Unit = { lastSavedSnapshotId = null }
 
     DisposableEffect(visible, debugModeEnabled) {
         if (visible && debugModeEnabled) {
@@ -133,14 +197,35 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
                         },
                         onClose = { HandoffState.setDebugWindowOpen(false) },
                         onSaveSnapshot = onSaveSnapshot,
-                        snapshotStatus = snapshotStatus
+                        snapshotStatus = snapshotStatus,
+                        awaitingName = lastSavedSnapshotId != null,
+                        onNameSnapshot = onNameSnapshot,
+                        onSkipName = onSkipName,
+                        fullDeviceCapture = fullDeviceCapture,
+                        onFullDeviceCaptureChange = onFullDeviceCaptureChange
                     )
                 }
             }
         } else {
             overlay.hide()
+            // Issue #73b -- otherwise closing the window without naming a just-saved snapshot
+            // leaves lastSavedSnapshotId set forever (this composable stays alive across the
+            // window's own show/hide, so nothing else would ever clear it), permanently stuck
+            // showing the inline name field instead of the save button on next open.
+            lastSavedSnapshotId = null
+            // Deliberately NOT calling FullDeviceCaptureSession.stop() here -- per the pilot's
+            // own request, the granted MediaProjection consent should survive the window closing
+            // (re-approving the system consent dialog every time is exactly what "prompt once"
+            // was meant to avoid), not just survive across snapshots taken while the window
+            // stays open. Only an explicit uncheck (onFullDeviceCaptureChange) or the system
+            // itself revoking it (FullDeviceCaptureSession's own MediaProjection.Callback) ever
+            // stops it now -- and being a singleton rather than local state, it also survives
+            // MainActivity being recreated on a fullscreen<->split-screen transition.
         }
-        onDispose { overlay.hide() }
+        onDispose {
+            overlay.hide()
+            lastSavedSnapshotId = null
+        }
     }
 }
 

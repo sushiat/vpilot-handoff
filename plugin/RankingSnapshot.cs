@@ -65,6 +65,11 @@ namespace Handoff.Plugin
         public IReadOnlyList<RankingSnapshotHysteresisEntry> TierChainHysteresis { get; }
         public double? EtaMinutes { get; }
         public string EtaCalculationDetail { get; }
+        // Issue #73c -- mirrors RankingDebugExplain.LastWaypointAdvanceMechanism/At (see
+        // ControllerRankingModel's WaypointAdvanceMechanism* constants); the live-view and
+        // snapshot-file copies of the same underlying model fields.
+        public string LastWaypointAdvanceMechanism { get; }
+        public DateTimeOffset? LastWaypointAdvanceAt { get; }
 
         public RankingSnapshot(
             double? routeAnchorLatitude, double? routeAnchorLongitude,
@@ -72,7 +77,8 @@ namespace Handoff.Plugin
             int naturalWaypointIndex, IReadOnlyList<RankingSnapshotWaypoint> remainingWaypointProjection,
             bool routeInvalidatedByDiversion, string pendingDiversionDestination,
             IReadOnlyList<RankingSnapshotHysteresisEntry> tierChainHysteresis,
-            double? etaMinutes, string etaCalculationDetail)
+            double? etaMinutes, string etaCalculationDetail,
+            string lastWaypointAdvanceMechanism, DateTimeOffset? lastWaypointAdvanceAt)
         {
             RouteAnchorLatitude = routeAnchorLatitude;
             RouteAnchorLongitude = routeAnchorLongitude;
@@ -87,6 +93,8 @@ namespace Handoff.Plugin
             TierChainHysteresis = tierChainHysteresis;
             EtaMinutes = etaMinutes;
             EtaCalculationDetail = etaCalculationDetail;
+            LastWaypointAdvanceMechanism = lastWaypointAdvanceMechanism;
+            LastWaypointAdvanceAt = lastWaypointAdvanceAt;
         }
     }
 }

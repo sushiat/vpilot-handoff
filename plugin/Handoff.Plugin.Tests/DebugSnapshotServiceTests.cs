@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Xunit;
@@ -88,6 +89,57 @@ namespace Handoff.Plugin.Tests
 
             Assert.True(saved);
             Assert.True(File.Exists(pngPath));
+        }
+
+        [Fact]
+        public void RenameSnapshot_UnknownSnapshotId_ReturnsFalseWithError()
+        {
+            var service = CreateService(out _);
+
+            var (success, error) = service.RenameSnapshot("never-saved", "some name");
+
+            Assert.False(success);
+            Assert.NotNull(error);
+        }
+
+        [Fact]
+        public void RenameSnapshot_KnownSnapshotId_RenamesJsonAndPngAndPatchesNameField()
+        {
+            var service = CreateService(out var ranking);
+            ranking.SetDebugMode(true);
+            var jsonPath = service.SaveSnapshot("snap-3", "1.4.0");
+            var pngPath = Path.ChangeExtension(jsonPath, ".png");
+            service.TrySaveScreenshot("snap-3", Convert.ToBase64String(new byte[] { 1, 2, 3 }));
+
+            var (success, error) = service.RenameSnapshot("snap-3", "sequencing lag near KONAN");
+
+            Assert.True(success);
+            Assert.Null(error);
+            Assert.False(File.Exists(jsonPath));
+            Assert.False(File.Exists(pngPath));
+            var renamedJsonPath = Directory.GetFiles(_snapshotDirectory, "*.json").Single();
+            Assert.Contains("sequencing lag near KONAN", renamedJsonPath);
+            var renamedPngPath = Path.ChangeExtension(renamedJsonPath, ".png");
+            Assert.True(File.Exists(renamedPngPath));
+            var json = JObject.Parse(File.ReadAllText(renamedJsonPath));
+            Assert.Equal("sequencing lag near KONAN", (string)json["name"]);
+        }
+
+        [Fact]
+        public void RenameSnapshot_TruncatesLongNameInFileNameButKeepsFullNameInJson()
+        {
+            var service = CreateService(out var ranking);
+            ranking.SetDebugMode(true);
+            service.SaveSnapshot("snap-4", "1.4.0");
+            var longName = new string('x', 100);
+
+            var (success, _) = service.RenameSnapshot("snap-4", longName);
+
+            Assert.True(success);
+            var renamedJsonPath = Directory.GetFiles(_snapshotDirectory, "*.json").Single();
+            Assert.True(Path.GetFileNameWithoutExtension(renamedJsonPath).Length < longName.Length);
+            var json = JObject.Parse(File.ReadAllText(renamedJsonPath));
+            Assert.Equal(longName, (string)json["name"]);
         }
     }
 }
