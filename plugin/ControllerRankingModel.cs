@@ -111,6 +111,14 @@ namespace Handoff.Plugin
         // percentage against here, just an edge.
         private const double PolygonContainmentDeadbandMarginNm = 1.0;
 
+        // SequenceRemainingWaypoints' proximity catch-up (issue #66) -- ownship within this
+        // radius of a waypoint is treated as proof of overflight regardless of what the
+        // anchor-relative along-track sweep says, which is what lets sequencing recover after a
+        // direct-to desyncs the anchor. Tight enough that a route merely passing near a waypoint
+        // without actually flying through it won't false-trigger, comfortably inside normal
+        // GPS/telemetry precision for "ownship is genuinely at this point."
+        private const double WaypointOverflightRadiusNm = 2.0;
+
         private readonly object _gate = new object();
         private readonly HandoffControllerStateModel _controllerState;
         private readonly IRadioStateModel _radioState;
@@ -1310,6 +1318,18 @@ namespace Handoff.Plugin
         /// sweep as "already passed". Sustained-disagreement state (_pendingWaypointIndex /
         /// _pendingWaypointIndexSince, the same HysteresisWindow used elsewhere in this class)
         /// absorbs a momentary abeam-plane crossing mid-turn without committing to it.
+        ///
+        /// Issue #66's fix: the anchor-relative sweep above has no way to recover once a real
+        /// direct-to actually desyncs it -- there's no signal for "a direct-to happened"
+        /// (IBroker exposes no FMS direct-to event), so _routeAnchor stays frozen at a stale
+        /// pre-direct-to position and the along-track projection against it can stay short of
+        /// legDistance forever. A second, independent proximity check now also feeds
+        /// naturalIndex: ownship within WaypointOverflightRadiusNm of any not-yet-committed
+        /// waypoint is treated as proof of overflight regardless of the anchor-relative course,
+        /// same as a real FMS trusting sensor-confirmed overflight over planned leg geometry.
+        /// This flows through the same pending/committed hysteresis as the sweep above, so it
+        /// gets the same flapping protection and re-anchors at ownship's position on commit --
+        /// no new state, just another way naturalIndex can advance.
         /// </summary>
         private List<FlightPlanWaypoint> SequenceRemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
         {
@@ -1352,6 +1372,23 @@ namespace Handoff.Plugin
                     var alongTrack = GeoDistance.AlongTrackDistanceNm(anchorLat, anchorLon, all[i].Latitude, all[i].Longitude, lat, lon);
                     if (alongTrack < legDistance) break;
                     naturalIndex = i + 1;
+                }
+
+                // Proximity catch-up: ownship being physically on top of a downstream waypoint is
+                // authoritative regardless of what the anchor-relative course says -- this is what
+                // lets sequencing recover after a direct-to desyncs the anchor above, which the
+                // along-track sweep alone can never do (issue #66). Position-only, not
+                // heading-based, so it doesn't reintroduce the holding-pattern false-positive a
+                // heading-vs-bearing skip-forward check had (see this method's own doc comment).
+                // Walking backward finds the furthest-along overflown waypoint first, so a
+                // direct-to that skipped several waypoints jumps past all of them in one step.
+                for (var i = all.Count - 1; i >= naturalIndex; i--)
+                {
+                    if (GeoDistance.NauticalMiles(lat, lon, all[i].Latitude, all[i].Longitude) <= WaypointOverflightRadiusNm)
+                    {
+                        naturalIndex = i + 1;
+                        break;
+                    }
                 }
 
                 if (naturalIndex == _committedWaypointIndex)
