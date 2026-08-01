@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
@@ -145,11 +146,10 @@ namespace Handoff.Plugin
 
         private void PruneStaleCorrelations(DateTimeOffset now)
         {
-            var stale = new List<string>();
-            foreach (var kv in _recentSnapshots)
-            {
-                if (now - kv.Value.SavedAt > ScreenshotCorrelationWindow) stale.Add(kv.Key);
-            }
+            var stale = _recentSnapshots
+                .Where(kv => now - kv.Value.SavedAt > ScreenshotCorrelationWindow)
+                .Select(kv => kv.Key)
+                .ToList();
             foreach (var key in stale) _recentSnapshots.Remove(key);
         }
 
