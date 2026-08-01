@@ -181,6 +181,7 @@ namespace Handoff.Plugin
         private string _lastObservedSimbriefOrigin;
         private string _lastObservedSimbriefDestination;
         private bool _isOriginMismatched;
+        private bool _isVatsimCidMismatched;
 
         // Abeam-point waypoint sequencing state (issue #22) -- see SequenceRemainingWaypoints.
         // _routeAnchor is the geographic point the active leg's course is measured from, frozen
@@ -342,6 +343,18 @@ namespace Handoff.Plugin
             get { lock (_gate) { return _isOriginMismatched; } }
         }
 
+        /// <summary>True when the VATSIM data feed's entry for our own callsign carries a cid
+        /// that doesn't match our own live connection's cid (PilotSessionModel.Cid) -- a callsign
+        /// lookup alone can't distinguish "this is us" from "this happens to have our callsign
+        /// string" (a lagged feed snapshot mid-reconnect, a collision window), so this is the
+        /// stronger check. Purely a warning -- the looked-up plan is still used for route
+        /// matching as before, same as SimBrief/VATSIM origin-destination mismatches. See
+        /// docs/protocol.md's flightPlan message vatsimCidMismatch field.</summary>
+        public bool IsVatsimCidMismatched
+        {
+            get { lock (_gate) { return _isVatsimCidMismatched; } }
+        }
+
         /// <summary>Pilot confirmed the pending destination change is a real diversion -- drops the
         /// filed route from approach prediction, same as the old unconditional behavior did.</summary>
         public void ConfirmDiversion()
@@ -427,6 +440,16 @@ namespace Handoff.Plugin
             VatsimPilotInfo vatsimPilot = null;
             var vatsimCallsign = _pilotSession.Callsign;
             if (vatsimCallsign != null) _vatsimFeed.Pilots.TryGetValue(vatsimCallsign, out vatsimPilot);
+
+            // A callsign lookup can't tell "this feed entry is us" from "this feed entry merely
+            // has our callsign string" -- a lagged snapshot mid-reconnect, or (in principle) a
+            // second pilot connected under the same callsign, would look identical. Cid is the
+            // actual unique identifier, so a mismatch here is a real red flag worth surfacing even
+            // though we still use the looked-up plan as before (see docs/protocol.md's
+            // vatsimCidMismatch).
+            _isVatsimCidMismatched = vatsimPilot?.Cid != null && _pilotSession.Cid != null &&
+                !string.Equals(vatsimPilot.Cid, _pilotSession.Cid, StringComparison.Ordinal);
+
             var origin = vatsimPilot?.Departure ?? flightPlan.Origin;
             var destination = vatsimPilot?.Arrival ?? flightPlan.Destination;
             var routeAirport = _hasTakenOffThisSession ? destination : origin;

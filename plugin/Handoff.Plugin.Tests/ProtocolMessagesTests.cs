@@ -339,7 +339,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildFlightPlanMessage_BeforeFirstFetch_FieldsAreNull()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: false));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
 
             Assert.Equal("flightPlan", (string)json["type"]);
             Assert.Equal(JTokenType.Null, json["simbriefCallsign"].Type);
@@ -357,7 +357,7 @@ namespace Handoff.Plugin.Tests
         {
             var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
 
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null, originMismatch: false));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
 
             Assert.Equal("BAW123", (string)json["simbriefCallsign"]);
             Assert.Equal("EGLL", (string)json["simbriefOrigin"]);
@@ -371,7 +371,7 @@ namespace Handoff.Plugin.Tests
             var simbrief = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS");
             var vatsimPilot = new VatsimPilotInfo(callsign: "BAW123", departure: "EGLL", arrival: "KJFK");
 
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(simbrief, vatsimCallsign: "BAW123", vatsimPilot: vatsimPilot, originMismatch: false));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(simbrief, vatsimCallsign: "BAW123", vatsimPilot: vatsimPilot, originMismatch: false, vatsimCidMismatch: false));
 
             Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
             Assert.Equal("EGLL", (string)json["vatsimOrigin"]);
@@ -381,7 +381,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildFlightPlanMessage_VatsimCallsignKnown_ButNothingFiledYet_OriginDestinationStayNull()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: "BAW123", vatsimPilot: null, originMismatch: false));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: "BAW123", vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
 
             Assert.Equal("BAW123", (string)json["vatsimCallsign"]);
             Assert.Equal(JTokenType.Null, json["vatsimOrigin"].Type);
@@ -391,9 +391,17 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildFlightPlanMessage_OriginMismatchTrue()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: true));
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: true, vatsimCidMismatch: false));
 
             Assert.True((bool)json["originMismatch"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_VatsimCidMismatchTrue()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: true));
+
+            Assert.True((bool)json["vatsimCidMismatch"]);
         }
 
         [Fact]

@@ -289,6 +289,22 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesFlightPlanMessage_VatsimCidMismatchTrue() {
+        val json = """{"type":"flightPlan","simbriefCallsign":null,"simbriefOrigin":null,"simbriefDestination":null,"simbriefAlternate":null,"vatsimCallsign":null,"vatsimOrigin":null,"vatsimDestination":null,"vatsimCidMismatch":true}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals(true, message.vatsimCidMismatch)
+    }
+
+    @Test
+    fun decodesFlightPlanMessage_VatsimCidMismatchOmitted_DefaultsFalse() {
+        val json = """{"type":"flightPlan","simbriefCallsign":null,"simbriefOrigin":null,"simbriefDestination":null,"simbriefAlternate":null,"vatsimCallsign":null,"vatsimOrigin":null,"vatsimDestination":null}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals(false, message.vatsimCidMismatch)
+    }
+
+    @Test
     fun decodesDiversionPendingMessage_WithDestination() {
         val json = """{"type":"diversionPending","destination":"EDDF"}"""
 

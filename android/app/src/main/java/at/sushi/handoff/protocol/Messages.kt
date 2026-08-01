@@ -168,7 +168,12 @@ data class FlightPlanMessage(
     // match the filed origin's coordinates, even if simbrief*/vatsim* fully agree with each other
     // (both sides can confidently agree on the wrong airport). Distinct from the SimBrief/VATSIM
     // mismatch this class otherwise surfaces -- see docs/protocol.md.
-    val originMismatch: Boolean = false
+    val originMismatch: Boolean = false,
+    // True when the VATSIM feed entry found for our own live callsign carries a cid that doesn't
+    // match our own connection's cid -- a callsign lookup alone can't tell "this is us" from
+    // "this happens to have our callsign string" (lagged feed snapshot, collision window).
+    // Informational only -- vatsimOrigin/vatsimDestination above are still used as normal.
+    val vatsimCidMismatch: Boolean = false
 ) : ServerMessage
 
 /** A destination change the plugin just noticed on the VATSIM data feed (see [FlightPlanMessage]'s

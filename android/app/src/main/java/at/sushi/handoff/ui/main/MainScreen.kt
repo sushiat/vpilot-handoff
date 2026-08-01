@@ -230,7 +230,11 @@ private fun MainScreenContent() {
     // vatsimMissing/simbriefMissing this isn't a poll-lag/startup transient, the plugin only sets
     // it once ownship position and origin coordinates are both known.
     val originMismatch = flightPlan.originMismatch
-    val flightPlanWarning = flightPlanMismatch || vatsimMissing || originMismatch
+    // The feed entry the plugin matched to our own callsign carries a different cid than our own
+    // live connection -- a callsign lookup alone can't rule out "this isn't actually us" (a
+    // lagged feed snapshot, a collision window). Purely informational like the others above.
+    val vatsimCidMismatch = flightPlan.vatsimCidMismatch
+    val flightPlanWarning = flightPlanMismatch || vatsimMissing || originMismatch || vatsimCidMismatch
     val hideTunedControllers by HandoffState.hideTunedControllers.collectAsState()
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
@@ -567,6 +571,7 @@ private fun MainScreenContent() {
                 flightPlanWarning = flightPlanWarning,
                 flightPlanMismatch = flightPlanMismatch,
                 originMismatch = originMismatch,
+                vatsimCidMismatch = vatsimCidMismatch,
                 activeCallsign = flightPlan.vatsimCallsign,
                 simbriefOrigin = flightPlan.simbriefOrigin,
                 simbriefDestination = flightPlan.simbriefDestination,

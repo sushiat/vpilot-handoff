@@ -439,7 +439,8 @@ feed's next poll (~15s interval) lands.
   "vatsimCallsign": "BAW123",
   "vatsimOrigin": "EGLL",
   "vatsimDestination": "KJFK",
-  "originMismatch": false
+  "originMismatch": false,
+  "vatsimCidMismatch": false
 }
 ```
 
@@ -466,6 +467,17 @@ the wrong airport. It's a per-tick condition, not a latch: it clears the instant
 refreshed to match reality, the aircraft is repositioned, or the aircraft takes off. Resent on the
 same periodic cadence as `diversionPending` (not just on the three `flightPlan`-triggering
 `Changed` events above), since it can flip every tick as telemetry updates.
+
+`vatsimCidMismatch` is narrower still. `vatsimOrigin`/`vatsimDestination` above come from looking
+up the data feed's `pilots[]` by our own live callsign (`PilotSessionModel.Callsign`) -- a lookup
+that can't distinguish "this feed entry is genuinely us" from "this feed entry merely has our
+callsign string" (a lagged snapshot mid-reconnect, a callsign collision window). The feed also
+carries a `cid` per pilot, same as it does per controller; when the looked-up entry's `cid`
+disagrees with our own connection's cid, that's a real red flag the callsign match alone can't
+catch. Purely informational -- the looked-up plan is still used for route matching exactly as
+before, no fallback behavior changes. Resent on the same cadence as `originMismatch` above, for
+the same reason (it depends on the feed poll and our own connection state, not just a SimBrief
+refetch).
 
 ### `diversionPending`
 

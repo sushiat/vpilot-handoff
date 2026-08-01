@@ -174,7 +174,7 @@ namespace Handoff.Plugin
             var vatsimCallsign = _pilotSession.Callsign;
             VatsimPilotInfo vatsimPilot = null;
             if (vatsimCallsign != null) _vatsimDataFeed.Pilots.TryGetValue(vatsimCallsign, out vatsimPilot);
-            return ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current, vatsimCallsign, vatsimPilot, _controllerRanking.IsOriginMismatched);
+            return ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current, vatsimCallsign, vatsimPilot, _controllerRanking.IsOriginMismatched, _controllerRanking.IsVatsimCidMismatched);
         }
 
         private string BuildSubsystemStatusMessage() =>

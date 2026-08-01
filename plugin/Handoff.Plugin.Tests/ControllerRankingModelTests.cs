@@ -377,11 +377,11 @@ namespace Handoff.Plugin.Tests
             vatsimFeed.Stop();
         }
 
-        private VatsimDataFeedModel CreateVatsimFeedWithPilot(string callsign, string departure, string arrival)
+        private VatsimDataFeedModel CreateVatsimFeedWithPilot(string callsign, string departure, string arrival, string cid = null)
         {
             var snapshot = new VatsimDataFeedSnapshot(
                 new List<VatsimControllerInfo>(),
-                new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival) });
+                new List<VatsimPilotInfo> { new VatsimPilotInfo(callsign, departure, arrival, cid) });
             var feed = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
             using var raised = new ManualResetEventSlim();
             feed.Changed += (s, e) => raised.Set();
@@ -1566,6 +1566,57 @@ namespace Handoff.Plugin.Tests
             await flightPlan.RefreshAsync();
 
             Assert.Null(model.PendingDiversionDestination);
+        }
+
+        // ---- Cid mismatch: the VATSIM feed entry found for our callsign may not be us ---------
+
+        [Fact]
+        public void VatsimCidMismatch_DetectedWhenFeedEntryCidDiffersFromOurOwn()
+        {
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: "9999999");
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.True(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenCidsMatch()
+        {
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: "1234567");
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.False(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenFeedEntryHasNoCid()
+        {
+            // Defensive: an older/degraded feed response missing cid shouldn't false-positive.
+            var vatsimFeed = CreateVatsimFeedWithPilot("BAW123", "LOWW", "LOWI", cid: null);
+            _pilotSession.OnNetworkConnected("BAW123", "1234567");
+
+            var model = new ControllerRankingModel(_controllerState, _radio, NoOpFlightPlan(), vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData);
+            _radio.RaiseChanged();
+
+            Assert.False(model.IsVatsimCidMismatched);
+            vatsimFeed.Stop();
+        }
+
+        [Fact]
+        public void VatsimCidMismatch_FalseWhenNoVatsimPilotMatched()
+        {
+            // Not connected at all -- nothing to look up, nothing to mismatch.
+            var model = CreateModel();
+
+            Assert.False(model.IsVatsimCidMismatched);
         }
 
         // ---- VatSpy fixture helpers -----------------------------------------------------------

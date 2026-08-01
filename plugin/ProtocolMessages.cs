@@ -125,9 +125,11 @@ namespace Handoff.Plugin
         /// `originMismatch` is issue #68's on-ground sanity gate (ControllerRankingModel.IsOriginMismatched)
         /// -- a distinct, narrower warning from the SimBrief/VATSIM disagreement above: it fires
         /// even when both sides agree with each other, if neither matches where the aircraft is
-        /// physically sitting.
+        /// physically sitting. `vatsimCidMismatch` (ControllerRankingModel.IsVatsimCidMismatched)
+        /// is narrower still -- the feed entry found for our own callsign carries a cid that isn't
+        /// ours, meaning the lookup above may not actually be us at all.
         /// </summary>
-        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot, bool originMismatch)
+        public static string BuildFlightPlanMessage(FlightPlan simbriefPlan, string vatsimCallsign, VatsimPilotInfo vatsimPilot, bool originMismatch, bool vatsimCidMismatch)
         {
             var payload = new
             {
@@ -139,7 +141,8 @@ namespace Handoff.Plugin
                 vatsimCallsign,
                 vatsimOrigin = vatsimPilot?.Departure,
                 vatsimDestination = vatsimPilot?.Arrival,
-                originMismatch
+                originMismatch,
+                vatsimCidMismatch
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

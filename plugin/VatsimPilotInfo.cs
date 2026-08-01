@@ -13,12 +13,19 @@ namespace Handoff.Plugin
         public string Callsign { get; }
         public string Departure { get; }
         public string Arrival { get; }
+        // The feed's cid for whoever is actually flying this callsign right now -- compared
+        // against PilotSessionModel.Cid (our own live connection's cid) so a callsign lookup that
+        // happens to land on a different pilot (a stale feed snapshot mid-reconnect, a callsign
+        // collision window) doesn't get silently trusted as "our" filed plan. String, matching
+        // PilotSessionModel.Cid's type, so the two can be compared directly without a parse step.
+        public string Cid { get; }
 
-        public VatsimPilotInfo(string callsign, string departure, string arrival)
+        public VatsimPilotInfo(string callsign, string departure, string arrival, string cid = null)
         {
             Callsign = callsign;
             Departure = departure;
             Arrival = arrival;
+            Cid = cid;
         }
     }
 }
