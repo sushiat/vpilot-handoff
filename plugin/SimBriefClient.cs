@@ -56,19 +56,47 @@ namespace Handoff.Plugin
 
                     var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     var json = JObject.Parse(body);
+                    var (originLat, originLon) = ParseOriginCoordinates(body, logDebug);
 
                     return new FlightPlan(
                         callsign: (string)json.SelectToken("atc.callsign"),
                         origin: (string)json.SelectToken("origin.icao_code"),
                         destination: (string)json.SelectToken("destination.icao_code"),
                         alternate: (string)json.SelectToken("alternate.icao_code"),
-                        waypoints: ParseWaypoints(body, logDebug));
+                        waypoints: ParseWaypoints(body, logDebug),
+                        originLatitude: originLat,
+                        originLongitude: originLon);
                 }
             }
             catch (Exception ex)
             {
                 logDebug?.Invoke($"SimBriefClient: fetch by {paramName} threw: {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Issue #68 -- origin.pos_lat/pos_long, same string-decimal shape as navlog.fix[]'s
+        /// pos_lat/pos_long (not confirmed against a real OFP response yet, same "verify
+        /// empirically" caveat as this class's other field paths). Degrades to (null, null) on
+        /// any missing/malformed value -- destination coordinates are explicitly out of scope
+        /// per issue #68's narrow framing.
+        /// </summary>
+        public static (double? Latitude, double? Longitude) ParseOriginCoordinates(string json, Action<string> logDebug = null)
+        {
+            try
+            {
+                var root = JObject.Parse(json);
+                var lat = (string)root.SelectToken("origin.pos_lat");
+                var lon = (string)root.SelectToken("origin.pos_long");
+                if (lat == null || lon == null) return (null, null);
+
+                return (double.Parse(lat, CultureInfo.InvariantCulture), double.Parse(lon, CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                logDebug?.Invoke("SimBriefClient: skipping malformed origin coordinates: " + ex.Message);
+                return (null, null);
             }
         }
 

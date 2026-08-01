@@ -224,7 +224,13 @@ private fun MainScreenContent() {
     // just as much as forgetting to file at all, since it's the same "wrong info on frequency" risk.
     val flightPlanMismatch = flightPlan.vatsimOrigin != null && flightPlan.simbriefOrigin != null &&
         (flightPlan.vatsimOrigin != flightPlan.simbriefOrigin || flightPlan.vatsimDestination != flightPlan.simbriefDestination)
-    val flightPlanWarning = flightPlanMismatch || vatsimMissing
+    // Issue #68: the plugin's own on-ground sanity gate -- can be true even when simbrief*/vatsim*
+    // fully agree with each other, so it's folded into the collapsed row's warning triangle
+    // independent of flightPlanMismatch above. No rememberSustained needed: unlike
+    // vatsimMissing/simbriefMissing this isn't a poll-lag/startup transient, the plugin only sets
+    // it once ownship position and origin coordinates are both known.
+    val originMismatch = flightPlan.originMismatch
+    val flightPlanWarning = flightPlanMismatch || vatsimMissing || originMismatch
     val hideTunedControllers by HandoffState.hideTunedControllers.collectAsState()
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
@@ -560,6 +566,7 @@ private fun MainScreenContent() {
                 destination = displayDestination,
                 flightPlanWarning = flightPlanWarning,
                 flightPlanMismatch = flightPlanMismatch,
+                originMismatch = originMismatch,
                 activeCallsign = flightPlan.vatsimCallsign,
                 simbriefOrigin = flightPlan.simbriefOrigin,
                 simbriefDestination = flightPlan.simbriefDestination,

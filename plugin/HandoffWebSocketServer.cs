@@ -104,6 +104,11 @@ namespace Handoff.Plugin
                 {
                     Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
                     Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
+                    // originMismatch (issue #68) is telemetry-driven and can flip every Recompute
+                    // tick, not just on the three Changed events flightPlan is otherwise wired to
+                    // below -- resent here on the same cadence as its IsOriginMismatched sibling
+                    // PendingDiversionDestination above.
+                    Broadcast(BuildFlightPlanMessage());
                 }, null, BroadcastInterval, BroadcastInterval);
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
@@ -169,7 +174,7 @@ namespace Handoff.Plugin
             var vatsimCallsign = _pilotSession.Callsign;
             VatsimPilotInfo vatsimPilot = null;
             if (vatsimCallsign != null) _vatsimDataFeed.Pilots.TryGetValue(vatsimCallsign, out vatsimPilot);
-            return ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current, vatsimCallsign, vatsimPilot);
+            return ProtocolMessages.BuildFlightPlanMessage(_flightPlanState.Current, vatsimCallsign, vatsimPilot, _controllerRanking.IsOriginMismatched);
         }
 
         private string BuildSubsystemStatusMessage() =>

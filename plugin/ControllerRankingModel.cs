@@ -49,12 +49,20 @@ namespace Handoff.Plugin
 
         // Minimum AGL required before latching _hasTakenOffThisSession and flipping routeAirport
         // from origin to destination. Well above squat-switch flicker (a few feet at most from a
-        // ramp bump), but also deliberately well above a bare rotation -- flight-test feedback
-        // (issue #17) showed the departure airport's own APP/DEP losing next-candidate status
-        // mid-climbout because a ~50ft threshold flipped routeAirport to the destination almost
-        // immediately at liftoff, while the flight was still very much dealing with the origin's
-        // own airspace. 3000ft AGL keeps origin route-matching active through the initial climb.
-        private const double TakeoffAglThresholdFeet = 3000;
+        // ramp bump). Used to be 3000ft on the theory that it protected the departure airport's
+        // own APP/DEP from losing next-candidate status mid-climbout (issue #17) -- that's
+        // actually fixed by bucket 7b's AppHighlightRadiusNm having no lower altitude bound (see
+        // its own doc comment below), not by this threshold, and 3000ft was far too high for GA
+        // flights that may never exceed ~1000ft AGL all flight (issue #68) -- the latch, and
+        // therefore routeAirport's origin->destination flip, would never fire at all. 200ft is
+        // comfortably below any real GA cruise altitude.
+        private const double TakeoffAglThresholdFeet = 200;
+
+        // Issue #68 -- how far ownship can sit from the filed origin's coordinates, while still
+        // on the ground pre-takeoff, before the loaded plan is treated as not matching where the
+        // aircraft physically is (a stale plan left over from a previous flight, wrong airport
+        // selected, etc).
+        private const double OriginSanityGateMaxNauticalMiles = 8;
 
         // Bucket 6b/6c ground-relevance radius fallback (no VATGlasses polygon coverage).
         private const double GroundDelGndTwrRadiusNm = 5;
@@ -164,6 +172,15 @@ namespace Handoff.Plugin
         private string _lastObservedDestination;
         private bool _routeInvalidatedByDiversion;
         private string _pendingDiversionDestination;
+        // Issue #68 -- last SimBrief origin/destination strings seen, to detect "a new flight
+        // plan was loaded" (as opposed to a re-fetch of the same plan, or the Waypoints list
+        // reference merely changing) and reset _hasTakenOffThisSession for a same-session GA
+        // leg change. Deliberately the raw SimBrief plan, not the vatsimPilot-enriched
+        // origin/destination locals in Recompute() -- those track the VATSIM feed, not a fresh
+        // SimBrief fetch.
+        private string _lastObservedSimbriefOrigin;
+        private string _lastObservedSimbriefDestination;
+        private bool _isOriginMismatched;
 
         // Abeam-point waypoint sequencing state (issue #22) -- see SequenceRemainingWaypoints.
         // _routeAnchor is the geographic point the active leg's course is measured from, frozen
@@ -314,6 +331,17 @@ namespace Handoff.Plugin
             get { lock (_gate) { return _pendingDiversionDestination; } }
         }
 
+        /// <summary>Issue #68 -- true when, on the ground pre-takeoff, ownship's position is more
+        /// than OriginSanityGateMaxNauticalMiles from the filed origin's coordinates: a stale plan
+        /// (left over from a previous flight) or the wrong airport clearly doesn't match where the
+        /// aircraft is physically sitting. A per-tick check, not a latch -- clears the instant the
+        /// plan is refreshed to match reality or the aircraft is repositioned. See docs/protocol.md's
+        /// flightPlan message originMismatch field.</summary>
+        public bool IsOriginMismatched
+        {
+            get { lock (_gate) { return _isOriginMismatched; } }
+        }
+
         /// <summary>Pilot confirmed the pending destination change is a real diversion -- drops the
         /// filed route from approach prediction, same as the old unconditional behavior did.</summary>
         public void ConfirmDiversion()
@@ -349,10 +377,38 @@ namespace Handoff.Plugin
             var flightPlan = _flightPlanState.Current;
             var enrichment = _vatsimFeed.Controllers;
 
+            var isOnGround = telemetry.AltitudeAboveGroundFeet.HasValue
+                ? telemetry.AltitudeAboveGroundFeet.Value < OnGroundMaxAglFeet
+                : telemetry.OnGround.GetValueOrDefault(true);
+
             if (telemetry.OnGround == false && telemetry.AltitudeAboveGroundFeet.GetValueOrDefault() > TakeoffAglThresholdFeet)
             {
                 _hasTakenOffThisSession = true;
             }
+
+            // Issue #68 -- "a new flight plan means a new flight": a real SimBrief origin/destination
+            // change (not a re-fetch of the same plan) while on the ground resets the latch, so a GA
+            // flight's second leg in the same plugin session starts back at origin-route logic
+            // instead of immediately resolving to the previous leg's destination.
+            if (isOnGround &&
+                flightPlan.Origin != null && flightPlan.Destination != null &&
+                _lastObservedSimbriefOrigin != null && _lastObservedSimbriefDestination != null &&
+                (!string.Equals(_lastObservedSimbriefOrigin, flightPlan.Origin, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(_lastObservedSimbriefDestination, flightPlan.Destination, StringComparison.OrdinalIgnoreCase)))
+            {
+                _hasTakenOffThisSession = false;
+                Log("SimBrief plan changed from " + _lastObservedSimbriefOrigin + "->" + _lastObservedSimbriefDestination +
+                    " to " + flightPlan.Origin + "->" + flightPlan.Destination + " while on the ground -- treating as a new flight.");
+            }
+            if (flightPlan.Origin != null) _lastObservedSimbriefOrigin = flightPlan.Origin;
+            if (flightPlan.Destination != null) _lastObservedSimbriefDestination = flightPlan.Destination;
+
+            // Issue #68 flight-test feedback: a destination change spotted while still on the
+            // ground pre-departure this leg can't be a real in-flight diversion -- either it's a
+            // brand new SimBrief plan for a different flight entirely (the reset case just above),
+            // or the pilot/ATC amended the filed destination before ever leaving the gate. Either
+            // way it shouldn't pop the diversion-confirmation prompt below.
+            var preDepartureOnGround = isOnGround && !_hasTakenOffThisSession;
 
             var tunedFrequencies = new HashSet<int>();
             if (radio.Com1Frequency.HasValue) tunedFrequencies.Add(radio.Com1Frequency.Value);
@@ -379,12 +435,29 @@ namespace Handoff.Plugin
                 !string.Equals(_lastObservedDestination, destination, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(_pendingDiversionDestination, destination, StringComparison.OrdinalIgnoreCase))
             {
-                _pendingDiversionDestination = destination;
-                Log("Destination changed from " + _lastObservedDestination + " to " + destination + " -- awaiting pilot confirmation before dropping the filed route for approach prediction.");
+                if (preDepartureOnGround)
+                {
+                    Log("Destination changed from " + _lastObservedDestination + " to " + destination + " while still on the ground pre-departure -- treating as a new/updated plan, not a diversion.");
+                }
+                else
+                {
+                    _pendingDiversionDestination = destination;
+                    Log("Destination changed from " + _lastObservedDestination + " to " + destination + " -- awaiting pilot confirmation before dropping the filed route for approach prediction.");
+                }
             }
             if (destination != null) _lastObservedDestination = destination;
 
-            var remainingWaypoints = _routeInvalidatedByDiversion || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue
+            // Issue #68 -- on-ground, pre-takeoff sanity gate: if ownship is nowhere near the
+            // filed origin's coordinates, the loaded plan clearly doesn't match where the aircraft
+            // is physically sitting (a stale plan from a previous flight, wrong airport picked,
+            // etc). A per-tick check, not a latch -- self-clears the instant the plan is refreshed
+            // to match reality or the aircraft is repositioned to the correct ramp.
+            _isOriginMismatched = !_hasTakenOffThisSession && isOnGround &&
+                telemetry.Latitude.HasValue && telemetry.Longitude.HasValue &&
+                flightPlan.OriginLatitude.HasValue && flightPlan.OriginLongitude.HasValue &&
+                GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, flightPlan.OriginLatitude.Value, flightPlan.OriginLongitude.Value) > OriginSanityGateMaxNauticalMiles;
+
+            var remainingWaypoints = _routeInvalidatedByDiversion || _isOriginMismatched || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue
                 ? new List<FlightPlanWaypoint>()
                 : SequenceRemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
 
@@ -394,10 +467,6 @@ namespace Handoff.Plugin
             var qnhTrueAltitudeFl = telemetry.PressureAltitudeFeet.HasValue && telemetry.SeaLevelPressureHpa.HasValue
                 ? PressureAltitude.QnhTrueAltitudeFeet(telemetry.PressureAltitudeFeet.Value, telemetry.SeaLevelPressureHpa.Value) / 100.0
                 : (double?)null;
-
-            var isOnGround = telemetry.AltitudeAboveGroundFeet.HasValue
-                ? telemetry.AltitudeAboveGroundFeet.Value < OnGroundMaxAglFeet
-                : telemetry.OnGround.GetValueOrDefault(true);
 
             var remaining = controllers.Where(c => !currentCallsigns.Contains(c.Callsign)).ToList();
 
@@ -638,6 +707,7 @@ namespace Handoff.Plugin
             {
                 int bucket;
                 string bucketName;
+                string subBucket = null;
                 string reason;
                 double? distanceNm = null;
                 var vatGlassesMatch = false;
@@ -700,6 +770,7 @@ namespace Handoff.Plugin
 
                         var isNext = owningBlock.NextCallsigns.Contains(c.Callsign);
                         var isLikelyNext = owningBlock.LikelyNextCallsigns.Contains(c.Callsign);
+                        subBucket = ResolveSubBucket(bucket, c.Callsign.ParseControllerTier(), routeMatch, isNext, isLikelyNext);
                         var sourceLabel = vatGlassesMatch ? "VATGlasses sector containment"
                             : vatSpyMatch ? "vatspy FIR polygon containment"
                             : routeMatch ? "flight-plan route match"
@@ -707,7 +778,7 @@ namespace Handoff.Plugin
                         var statusLabel = isNext ? "confident IsNext (single qualifying candidate)"
                             : isLikelyNext ? "IsLikelyNext (tied with other qualifying candidates, or route-relevance unconfirmed)"
                             : "IsHighlighted only";
-                        reason = $"Bucket {bucket} ({bucketName}): {sourceLabel}" +
+                        reason = $"Bucket {subBucket ?? bucket.ToString()} ({bucketName}): {sourceLabel}" +
                             (distanceNm.HasValue ? $", {distanceNm.Value:0.0}nm" : "") +
                             $" -- {statusLabel}.";
 
@@ -766,13 +837,51 @@ namespace Handoff.Plugin
                 }
 
                 result[c.Callsign] = new ControllerDebugExplain(
-                    bucket, bucketName, reason, distanceNm,
+                    bucket, bucketName, subBucket, reason, distanceNm,
                     vatGlassesMatch, vatSpyMatch, routeMatch,
                     hysteresisState, hysteresisPendingBucket, hysteresisPendingSince,
                     candidateRank);
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// docs/controller-ranking.md's table splits buckets 6/7/8 into lettered sub-rows
+        /// (6a-6e, 7a-7c, 8a-8c) -- this maps a candidate's already-resolved bucket/tier/match
+        /// data back onto the specific row(s) that produced it, so the debug window/snapshot can
+        /// show e.g. "6c" or "6a, 6e" instead of just "6". Two independent axes per bucket: which
+        /// row explains IsHighlighted (6a-6d, 7a-7b, 8a -- tier/route-match-dependent), and which
+        /// row explains IsNext/IsLikelyNext (6e, 7c, 8b -- the chain-walk/tie-band result, can
+        /// combine with the highlight row above since they're not mutually exclusive). Buckets
+        /// 1-5 and 9 aren't subdivided in the table, so this is never called for them.
+        /// </summary>
+        private static string ResolveSubBucket(int bucket, ControllerTier tier, bool routeMatch, bool isNext, bool isLikelyNext)
+        {
+            string highlightRow;
+            string nextRow;
+            switch (bucket)
+            {
+                case 6:
+                    highlightRow = routeMatch ? "6a"
+                        : tier == ControllerTier.AppDep ? "6c"
+                        : tier == ControllerTier.Center ? "6d"
+                        : "6b"; // Delivery/Ground/Tower, and Other as a defensive fallback
+                    nextRow = "6e";
+                    break;
+                case 7:
+                    highlightRow = tier == ControllerTier.AppDep ? "7b" : "7a";
+                    nextRow = "7c";
+                    break;
+                case 8:
+                    highlightRow = "8a";
+                    nextRow = "8b";
+                    break;
+                default:
+                    return null;
+            }
+
+            return (isNext || isLikelyNext) ? $"{highlightRow}, {nextRow}" : highlightRow;
         }
 
         /// <summary>Bucket 1 -- COM1's match (if any) always ordered ahead of COM2's.</summary>

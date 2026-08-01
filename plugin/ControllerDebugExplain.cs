@@ -14,6 +14,14 @@ namespace Handoff.Plugin
     {
         public int Bucket { get; }
         public string BucketName { get; }
+        // Issue #68 flight-test feedback -- docs/controller-ranking.md's table splits buckets 6/7/8
+        // into lettered sub-rows (6a-6e, 7a-7c, 8a-8c); this is the corresponding designator(s) for
+        // whichever specific row(s) actually produced this controller's flags, e.g. "6c" (APP
+        // radius/polygon match) or "6a, 6e" (flight-plan match that's also the chain-walk's next
+        // candidate) -- so a pilot cross-referencing the debug window against that table doesn't
+        // have to re-derive which row applied from the tier/reason text alone. Null for buckets
+        // 1-5 and 9, which the table doesn't subdivide.
+        public string SubBucket { get; }
         public string Reason { get; }
         public double? DistanceNm { get; }
         public bool VatGlassesSectorMatch { get; }
@@ -25,13 +33,14 @@ namespace Handoff.Plugin
         public int? CandidateRank { get; }
 
         public ControllerDebugExplain(
-            int bucket, string bucketName, string reason, double? distanceNm,
+            int bucket, string bucketName, string subBucket, string reason, double? distanceNm,
             bool vatGlassesSectorMatch, bool vatSpyPolygonMatch, bool routeMatch,
             string hysteresisState, int? hysteresisPendingBucket, DateTimeOffset? hysteresisPendingSince,
             int? candidateRank)
         {
             Bucket = bucket;
             BucketName = bucketName;
+            SubBucket = subBucket;
             Reason = reason;
             DistanceNm = distanceNm;
             VatGlassesSectorMatch = vatGlassesSectorMatch;

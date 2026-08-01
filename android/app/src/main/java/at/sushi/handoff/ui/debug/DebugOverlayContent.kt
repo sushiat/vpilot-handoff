@@ -166,7 +166,8 @@ private fun DebugControllerRow(controller: Controller) {
     val colors = LocalHandoffColors.current
     val debug = controller.debug ?: return
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text("${controller.callsign} -- bucket ${debug.bucket} (${debug.bucketName})", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
+        val bucketLabel = debug.subBucket ?: debug.bucket.toString()
+        Text("${controller.callsign} -- bucket $bucketLabel (${debug.bucketName})", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
         Text(debug.reason, fontSize = 13.sp, color = colors.textMuted)
     }
 }

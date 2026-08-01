@@ -111,7 +111,7 @@ class MessagesTest {
             },"controllers":[
               {"callsign":"EGKK_APP","frequency":12345,"latitude":51.1,"longitude":-0.2,
                "debug":{
-                 "bucket":8,"bucketName":"Airborne CTR relevance",
+                 "bucket":8,"bucketName":"Airborne CTR relevance","subBucket":"8a",
                  "reason":"test reason","distanceNm":47.2,
                  "vatGlassesSectorMatch":false,"vatSpyPolygonMatch":false,"routeMatch":false,
                  "hysteresisState":"stable","hysteresisPendingBucket":null,"hysteresisPendingSince":null,
@@ -130,6 +130,7 @@ class MessagesTest {
         val controllerDebug = message.controllers.single().debug!!
         assertEquals(8, controllerDebug.bucket)
         assertEquals("Airborne CTR relevance", controllerDebug.bucketName)
+        assertEquals("8a", controllerDebug.subBucket)
         assertEquals(47.2, controllerDebug.distanceNm)
         assertEquals("stable", controllerDebug.hysteresisState)
         assertNull(controllerDebug.candidateRank)
@@ -269,6 +270,22 @@ class MessagesTest {
         assertEquals("BAW123", message.vatsimCallsign)
         assertNull(message.vatsimOrigin)
         assertNull(message.vatsimDestination)
+    }
+
+    @Test
+    fun decodesFlightPlanMessage_OriginMismatchTrue() {
+        val json = """{"type":"flightPlan","simbriefCallsign":null,"simbriefOrigin":null,"simbriefDestination":null,"simbriefAlternate":null,"vatsimCallsign":null,"vatsimOrigin":null,"vatsimDestination":null,"originMismatch":true}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals(true, message.originMismatch)
+    }
+
+    @Test
+    fun decodesFlightPlanMessage_OriginMismatchOmitted_DefaultsFalse() {
+        val json = """{"type":"flightPlan","simbriefCallsign":null,"simbriefOrigin":null,"simbriefDestination":null,"simbriefAlternate":null,"vatsimCallsign":null,"vatsimOrigin":null,"vatsimDestination":null}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals(false, message.originMismatch)
     }
 
     @Test

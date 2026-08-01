@@ -318,7 +318,8 @@ Per controller:
   "debug": {
     "bucket": 8,
     "bucketName": "Airborne CTR relevance",
-    "reason": "Bucket 8 (Airborne CTR relevance): VATGlasses sector containment, 47.2nm -- IsHighlighted only.",
+    "subBucket": "8a",
+    "reason": "Bucket 8a (Airborne CTR relevance): VATGlasses sector containment, 47.2nm -- IsHighlighted only.",
     "distanceNm": 47.2,
     "vatGlassesSectorMatch": true,
     "vatSpyPolygonMatch": false,
@@ -437,7 +438,8 @@ feed's next poll (~15s interval) lands.
   "simbriefAlternate": "KBOS",
   "vatsimCallsign": "BAW123",
   "vatsimOrigin": "EGLL",
-  "vatsimDestination": "KJFK"
+  "vatsimDestination": "KJFK",
+  "originMismatch": false
 }
 ```
 
@@ -453,6 +455,17 @@ of this (past the transient poll-lag window) as worth flagging -- forgetting to 
 recurring mistake ("sorry, but you didn't file a flight plan" from Delivery), not just a stale
 feed. A mismatch between `simbrief*` and `vatsim*` (once both are known) is also worth flagging --
 it means the SimBrief OFP and what's actually filed on the network have diverged.
+
+`originMismatch` (issue #68) is a distinct, narrower warning from the SimBrief/VATSIM disagreement
+above -- it's the plugin's own on-ground sanity gate: while the aircraft is on the ground and
+hasn't yet taken off this session, if ownship's position is more than ~8nm from the *filed origin's
+own coordinates*, the loaded plan clearly doesn't match where the aircraft is physically sitting (a
+stale plan left over from a previous flight, wrong airport picked, etc). This can be `true` even
+when `simbrief*` and `vatsim*` fully agree with each other -- both sides can confidently agree on
+the wrong airport. It's a per-tick condition, not a latch: it clears the instant the plan is
+refreshed to match reality, the aircraft is repositioned, or the aircraft takes off. Resent on the
+same periodic cadence as `diversionPending` (not just on the three `flightPlan`-triggering
+`Changed` events above), since it can flip every tick as telemetry updates.
 
 ### `diversionPending`
 
