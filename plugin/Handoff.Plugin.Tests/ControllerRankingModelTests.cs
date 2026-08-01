@@ -173,6 +173,27 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void OffListContactMe_FromUntrackedCallsign_SurfacesAsContactMeRow()
+        {
+            // The station is on a frequency no data source exposes, so it never came in via
+            // ControllerAdded -- only the "contact me" private message ever mentions it. Before the
+            // off-list synthesis it was dropped entirely; now it must reach the pilot as a normal
+            // contact-me row, ranked in the contact-me bucket just like a tracked one.
+            AddController("EGLL_TWR", 23725);
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            var model = CreateModel();
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me on 128.950"));
+
+            var ranked = model.Current;
+            Assert.Equal("EGLL_TWR", ranked[0].Callsign);
+            var offList = ranked.Single(c => c.Callsign == "EDDF_R_APP");
+            Assert.True(offList.IsContactMe);
+            Assert.True(offList.RequestsContactMe);
+            Assert.Equal(28950, offList.Frequency);
+        }
+
+        [Fact]
         public void SelcalActiveController_RanksJustBelowContactMe_AboveEverythingElse()
         {
             AddController("EGLL_TWR", 23725);

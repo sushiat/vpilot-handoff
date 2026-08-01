@@ -106,5 +106,79 @@ namespace Handoff.Plugin.Tests
 
             Assert.Null(model.Controllers.Single().ContactMeExpiresAtUtc);
         }
+
+        [Fact]
+        public void OffListContactMe_SynthesizesRow_WithParsedFrequencyAndContactMe()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+
+            // Never seen via ControllerAdded -- a station on a frequency no data source exposes.
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "please contact me on 128.950"));
+
+            var synth = model.Controllers.Single();
+            Assert.Equal("EDDF_R_APP", synth.Callsign);
+            Assert.True(synth.IsOffList);
+            Assert.NotNull(synth.ContactMeExpiresAtUtc);
+            Assert.Equal(28950, synth.Frequency); // 128.950 in vPilot's compressed-integer format
+        }
+
+        [Fact]
+        public void OffListContactMe_WithNoFrequencyInText_UsesZeroSentinel()
+        {
+            var model = CreateModel();
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me"));
+
+            var synth = model.Controllers.Single();
+            Assert.True(synth.IsOffList);
+            Assert.Equal(0, synth.Frequency);
+        }
+
+        [Fact]
+        public void OffListContactMe_PromotedWhenRealControllerAdded_KeepsContactMeDropsSyntheticMarker()
+        {
+            var model = CreateModel();
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me on 128.950"));
+
+            // The station finally shows up on the network for real.
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EDDF_R_APP", 12345, 50.0, 8.5));
+
+            var promoted = model.Controllers.Single();
+            Assert.False(promoted.IsOffList);
+            Assert.Equal(12345, promoted.Frequency); // real telemetry, not the parsed 28950
+            Assert.Equal(50.0, promoted.Latitude);
+            Assert.NotNull(promoted.ContactMeExpiresAtUtc); // outstanding contact-me survives the promotion
+        }
+
+        [Fact]
+        public void OffListContactMe_DroppedEntirelyOnExpiry_NotLeftAsInertRow()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me on 128.950"));
+            Assert.Single(model.Controllers);
+
+            now = now.AddMinutes(6); // past the contact-me expiry window
+
+            // No ControllerDeleted ever arrives for a synthetic row, so this only prunes if the
+            // off-list-specific removal path fires -- otherwise it would linger forever.
+            Assert.Empty(model.Controllers);
+        }
+
+        [Fact]
+        public void OffListContactMe_RepeatMessage_RenewsExpiryAndStaysOffList()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me"));
+
+            now = now.AddMinutes(4); // still within the window
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me"));
+
+            var synth = model.Controllers.Single();
+            Assert.True(synth.IsOffList);
+            Assert.Equal(now + TimeSpan.FromMinutes(5), synth.ContactMeExpiresAtUtc);
+        }
     }
 }
