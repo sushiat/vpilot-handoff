@@ -119,6 +119,19 @@ namespace Handoff.Plugin
         // percentage against here, just an edge.
         private const double PolygonContainmentDeadbandMarginNm = 1.0;
 
+        // Issue #72: dead-band for the "entering"/"converging" route/heading-projected match set
+        // (bucket 7c APP/DEP, bucket 8a CTR) -- a flat cross-track margin, not ownship's raw
+        // distance to the polygon (which can't tell "the polygon is still ahead but the ray just
+        // missed it by a hair" from "the polygon is nearby but now behind, genuinely bypassed" --
+        // see AbeamSequencing_DirectToPastAWaypoint_ExcludesItOnlyAfterSustainedCrossing, which
+        // needs the latter to still drop even though ownship stays close to the bypassed
+        // waypoint's sector). VatGlassesSectorLookup.NearestApproachAlongRouteNm/AlongHeadingNm
+        // already gate on "ahead of ownship along this specific path," so this only needs to
+        // budget for how far off the ray's *lateral* miss was, same scale as
+        // PolygonContainmentDeadbandMarginNm's boundary-edge margin, not the approach-search
+        // radius (RouteApproachMaxNauticalMiles/LateralApproachMaxNauticalMiles).
+        private const double EnteringNearMissMarginNm = 3.0;
+
         // SequenceRemainingWaypoints' proximity catch-up (issue #66) -- ownship within this
         // radius of a waypoint is treated as proof of overflight regardless of what the
         // anchor-relative along-track sweep says, which is what lets sequencing recover after a
@@ -153,6 +166,16 @@ namespace Handoff.Plugin
         // parallel to the VATGlasses ones above, at every site that chain applies (6d, 8a, 9).
         private readonly HashSet<string> _groundVatSpyContainmentCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _ctrVatSpySatisfiedCommitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Issue #72: dead-band for the route/heading-projected "entering"/"converging" match set
+        // itself (bucket 7c APP/DEP, bucket 8a CTR) -- see PassesEnteringDeadband/
+        // PassesVatSpyEnteringDeadband for why this needs a direction-aware near-miss check
+        // (EnteringNearMissMarginNm) rather than a plain distance-to-ownship margin. Values are
+        // the last-known along-route/heading crossing distance (nm), reused for display on ticks
+        // where the candidate is dead-band-retained rather than freshly matched.
+        private readonly Dictionary<string, double> _appDepEnteringCommitted = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, double> _ctrEnteringCommitted = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, double> _ctrVatSpyEnteringCommitted = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<ControllerTier, string> _committedLeader = new Dictionary<ControllerTier, string>();
         private readonly Dictionary<ControllerTier, string> _pendingChallenger = new Dictionary<ControllerTier, string>();
@@ -1095,6 +1118,90 @@ namespace Handoff.Plugin
             committed.RemoveWhere(cs => !current.Contains(cs));
         }
 
+        /// <summary>Dictionary-keyed sibling of PruneDeadbandCommitted, for the entering/converging dead-bands below which also carry a last-known distance value per callsign.</summary>
+        private static void PruneDeadbandCommitted(Dictionary<string, double> committed, IEnumerable<string> currentCandidateCallsigns)
+        {
+            var current = new HashSet<string>(currentCandidateCallsigns, StringComparer.OrdinalIgnoreCase);
+            foreach (var callsign in committed.Keys.Where(cs => !current.Contains(cs)).ToList()) committed.Remove(callsign);
+        }
+
+        /// <summary>
+        /// Issue #72: dead-band for the "entering"/"converging" route/heading-projected match set
+        /// (bucket 7c APP/DEP, bucket 8a CTR VatGlasses) -- entry requires a genuine match this
+        /// tick; once committed, stays included as long as the same path (remaining-waypoint route
+        /// if any, else current heading) still passes within EnteringNearMissMarginNm of the
+        /// polygon, even if it no longer registers a true crossing -- guards against the leg-vector
+        /// discontinuity at a waypoint-sequencing advance (issue #22) flipping the match on a
+        /// single tick. Deliberately direction-aware (VatGlassesSectorLookup.
+        /// NearestApproachAlongRouteNm/AlongHeadingNm only consider polygon points ahead of
+        /// ownship along that path) rather than a raw distance-to-ownship check, so a genuinely
+        /// bypassed waypoint's polygon still drops even while ownship stays physically nearby. No
+        /// owning sector level, or nothing to project against (no route and no heading) -- treated
+        /// as genuinely out of range, exits immediately regardless of prior commitment.
+        /// </summary>
+        private static bool PassesEnteringDeadband(
+            Dictionary<string, double> committed,
+            string callsign,
+            bool matchedNow,
+            double matchedDistanceNm,
+            VatGlassesSectorLevel level,
+            OwnshipTelemetry telemetry,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
+            out double distanceNm)
+        {
+            if (matchedNow)
+            {
+                committed[callsign] = matchedDistanceNm;
+                distanceNm = matchedDistanceNm;
+                return true;
+            }
+
+            if (!committed.TryGetValue(callsign, out distanceNm)) return false;
+            if (level == null) { committed.Remove(callsign); return false; }
+
+            var nearMissNm = remainingWaypoints.Count > 0
+                ? VatGlassesSectorLookup.NearestApproachAlongRouteNm(telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, level)
+                : telemetry.HeadingDegrees.HasValue
+                    ? VatGlassesSectorLookup.NearestApproachAlongHeadingNm(telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, level)
+                    : (double?)null;
+
+            var staysIn = nearMissNm.HasValue && nearMissNm.Value <= EnteringNearMissMarginNm;
+            if (!staysIn) committed.Remove(callsign);
+            return staysIn;
+        }
+
+        /// <summary>Issue #72: vatspy-boundary sibling of PassesEnteringDeadband, for bucket 8a's CTR-only vatspy "converging" fallback.</summary>
+        private static bool PassesVatSpyEnteringDeadband(
+            Dictionary<string, double> committed,
+            string callsign,
+            bool matchedNow,
+            double matchedDistanceNm,
+            VatSpyFirBoundary boundary,
+            OwnshipTelemetry telemetry,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
+            out double distanceNm)
+        {
+            if (matchedNow)
+            {
+                committed[callsign] = matchedDistanceNm;
+                distanceNm = matchedDistanceNm;
+                return true;
+            }
+
+            if (!committed.TryGetValue(callsign, out distanceNm)) return false;
+            if (boundary == null) { committed.Remove(callsign); return false; }
+
+            var nearMissNm = remainingWaypoints.Count > 0
+                ? VatSpyBoundaryLookup.NearestApproachAlongRouteNm(telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, boundary)
+                : telemetry.HeadingDegrees.HasValue
+                    ? VatSpyBoundaryLookup.NearestApproachAlongHeadingNm(telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, boundary)
+                    : (double?)null;
+
+            var staysIn = nearMissNm.HasValue && nearMissNm.Value <= EnteringNearMissMarginNm;
+            if (!staysIn) committed.Remove(callsign);
+            return staysIn;
+        }
+
         /// <summary>
         /// Polygon-containment spatial dead-band: entry requires genuine containment this tick;
         /// once committed, stays included as long as it's either still genuinely contained, or
@@ -1378,6 +1485,9 @@ namespace Handoff.Plugin
         {
             var result = new HighlightResult { Candidates = candidates };
             PruneDeadbandCommitted(_appRadiusCommitted, candidates.Select(c => c.Callsign));
+            // Pruned against every online controller, not just this bucket's candidates -- same
+            // reasoning as bucket 8a's satisfied/converging prunes below.
+            PruneDeadbandCommitted(_appDepEnteringCommitted, allOnlineControllers.Select(c => c.Callsign));
             if (candidates.Count == 0 || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             var agl = telemetry.AltitudeAboveGroundFeet;
@@ -1429,18 +1539,43 @@ namespace Handoff.Plugin
             // 7c (APP/DEP) -- entering is independent of the 30nm highlight radius (a route/heading
             // convergence match can exist well beyond it), so a genuinely entering candidate is
             // added to IsHighlighted here too if it wasn't already.
-            var entering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
+            var rawEntering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
                 .GroupBy(x => x.Owner.Callsign, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.OrderBy(x => x.Match.DistanceNauticalMiles).First())
-                .OrderBy(x => x.Match.DistanceNauticalMiles)
                 .ToList();
+
+            // Issue #72: lateral dead-band on the match set itself -- a candidate that matched once
+            // stays included until the route/heading path is clearly no longer passing near it,
+            // not the instant a single tick's projection stops crossing it (see the waypoint-
+            // sequencing leg-vector jump, issue #22).
+            var rawEnteringCallsigns = new HashSet<string>(rawEntering.Select(x => x.Owner.Callsign), StringComparer.OrdinalIgnoreCase);
+            var entering = new List<(HandoffController Owner, double DistanceNm)>();
+
+            foreach (var (owner, match) in rawEntering)
+            {
+                PassesEnteringDeadband(_appDepEnteringCommitted, owner.Callsign, true, match.DistanceNauticalMiles, match.Match.Level, telemetry, remainingWaypoints, out var distanceNm);
+                entering.Add((owner, distanceNm));
+            }
+
+            foreach (var callsign in _appDepEnteringCommitted.Keys.Where(cs => !rawEnteringCallsigns.Contains(cs)).ToList())
+            {
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) { _appDepEnteringCommitted.Remove(callsign); continue; }
+                var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
+                if (PassesEnteringDeadband(_appDepEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var distanceNm))
+                {
+                    entering.Add((owner, distanceNm));
+                }
+            }
+
+            entering = entering.OrderBy(x => x.DistanceNm).ToList();
 
             if (entering.Count > 0)
             {
-                foreach (var (owner, match) in entering)
+                foreach (var (owner, distanceNm) in entering)
                 {
                     result.HighlightedCallsigns.Add(owner.Callsign);
-                    result.DistanceNm[owner.Callsign] = match.DistanceNauticalMiles;
+                    result.DistanceNm[owner.Callsign] = distanceNm;
                     result.VatGlassesMatched.Add(owner.Callsign);
                 }
 
@@ -1615,6 +1750,8 @@ namespace Handoff.Plugin
             // once it's genuinely offline, not merely excluded from this tick's candidate list.
             PruneDeadbandCommitted(_ctrSatisfiedCommitted, allOnlineControllers.Select(c => c.Callsign));
             PruneDeadbandCommitted(_ctrVatSpySatisfiedCommitted, allOnlineControllers.Select(c => c.Callsign));
+            PruneDeadbandCommitted(_ctrEnteringCommitted, allOnlineControllers.Select(c => c.Callsign));
+            PruneDeadbandCommitted(_ctrVatSpyEnteringCommitted, allOnlineControllers.Select(c => c.Callsign));
             if (!telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue) return result;
 
             int verticalTrendSign;
@@ -1677,26 +1814,69 @@ namespace Handoff.Plugin
                 if (staysIn) { combined.Add((owner, 0)); result.VatSpyMatched.Add(owner.Callsign); } else _ctrVatSpySatisfiedCommitted.Remove(callsign);
             }
 
+            // Issue #72: lateral dead-band for both "converging" loops below -- a candidate that
+            // matched once stays included until the route/heading path is clearly no longer
+            // passing near it, not the instant a single tick's projection stops crossing it (see
+            // the waypoint-sequencing leg-vector jump, issue #22).
+
             // "Converging" -- lateral entering AND vertical satisfied-or-converging.
+            var ctrEnteringMatchedNow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (owner, approach) in FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.Center, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
             {
                 if (currentCallsigns.Contains(owner.Callsign)) continue;
                 if (containingMatches.Any(m => ReferenceEquals(m.Level, approach.Match.Level))) continue; // already counted as "satisfied" above
                 if (!IsVerticallySatisfiedOrConverging(approach.Match.Level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend)) continue;
-                combined.Add((owner, approach.DistanceNauticalMiles));
+                ctrEnteringMatchedNow.Add(owner.Callsign);
+                PassesEnteringDeadband(_ctrEnteringCommitted, owner.Callsign, true, approach.DistanceNauticalMiles, approach.Match.Level, telemetry, remainingWaypoints, out var matchDistanceNm);
+                combined.Add((owner, matchDistanceNm));
                 result.VatGlassesMatched.Add(owner.Callsign);
+            }
+
+            foreach (var callsign in _ctrEnteringCommitted.Keys.Where(cs => !ctrEnteringMatchedNow.Contains(cs)).ToList())
+            {
+                if (currentCallsigns.Contains(callsign)) { _ctrEnteringCommitted.Remove(callsign); continue; }
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) { _ctrEnteringCommitted.Remove(callsign); continue; }
+                var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
+                if (level == null || !IsVerticallySatisfiedOrConverging(level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend))
+                {
+                    _ctrEnteringCommitted.Remove(callsign);
+                    continue;
+                }
+                if (PassesEnteringDeadband(_ctrEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var retainedDistanceNm))
+                {
+                    combined.Add((owner, retainedDistanceNm));
+                    result.VatGlassesMatched.Add(owner.Callsign);
+                }
             }
 
             // Issue #11: vatspy "converging" fallback, same VATGlasses-has-no-data precedence gate
             // as the satisfied fallback above. Vertical is trivially satisfied -- no band data to
             // check against at all.
+            var ctrVatSpyEnteringMatchedNow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (owner, approach) in FindVatSpyEnteringOwnerMatches(telemetry, remainingWaypoints, vatSpyBoundaries, allOnlineControllers, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles))
             {
                 if (currentCallsigns.Contains(owner.Callsign)) continue;
                 if (containedCallsigns.Contains(owner.Callsign) || vatSpyContainedCallsigns.Contains(owner.Callsign)) continue; // already counted as "satisfied"
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
-                combined.Add((owner, approach.DistanceNauticalMiles));
+                ctrVatSpyEnteringMatchedNow.Add(owner.Callsign);
+                PassesVatSpyEnteringDeadband(_ctrVatSpyEnteringCommitted, owner.Callsign, true, approach.DistanceNauticalMiles, approach.Boundary, telemetry, remainingWaypoints, out var matchDistanceNm);
+                combined.Add((owner, matchDistanceNm));
                 result.VatSpyMatched.Add(owner.Callsign);
+            }
+
+            foreach (var callsign in _ctrVatSpyEnteringCommitted.Keys.Where(cs => !ctrVatSpyEnteringMatchedNow.Contains(cs)).ToList())
+            {
+                if (currentCallsigns.Contains(callsign)) { _ctrVatSpyEnteringCommitted.Remove(callsign); continue; }
+                var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) { _ctrVatSpyEnteringCommitted.Remove(callsign); continue; }
+                if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) { _ctrVatSpyEnteringCommitted.Remove(callsign); continue; }
+                var boundary = FindAnyVatSpyBoundaryForController(owner, vatSpyBoundaries);
+                if (PassesVatSpyEnteringDeadband(_ctrVatSpyEnteringCommitted, callsign, false, 0, boundary, telemetry, remainingWaypoints, out var retainedDistanceNm))
+                {
+                    combined.Add((owner, retainedDistanceNm));
+                    result.VatSpyMatched.Add(owner.Callsign);
+                }
             }
 
             var deduped = combined

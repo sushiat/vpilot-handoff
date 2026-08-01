@@ -251,6 +251,84 @@ namespace Handoff.Plugin
         }
 
         /// <summary>
+        /// Issue #72: "how close was this near-miss" -- along-heading counterpart to
+        /// DistanceToPolygonAlongHeadingNm, but for paths that don't actually cross the polygon.
+        /// Returns the smallest perpendicular (cross-track) distance in nm from the heading ray to
+        /// any of level's polygon vertices, considering only vertices that project ahead of
+        /// ownship along that ray (behind-ownship vertices don't count as "close," no matter how
+        /// near the ray's infinite line passes to them) -- or null if every vertex projects behind.
+        /// A vertex-only approximation (not true point-to-edge distance), good enough for a
+        /// smoothing heuristic: is the leg vector that just flipped this match still passing near
+        /// the polygon it used to cross.
+        /// </summary>
+        public static double? NearestApproachAlongHeadingNm(double lat, double lon, double headingDegrees, VatGlassesSectorLevel level)
+        {
+            if (level.Points.Count < 3) return null;
+
+            var headingRad = headingDegrees * Math.PI / 180.0;
+            var dx = Math.Sin(headingRad);
+            var dy = Math.Cos(headingRad);
+
+            return NearestApproachNm(lat, lon, 0, 0, dx, dy, 0, double.PositiveInfinity, level);
+        }
+
+        /// <summary>Issue #72: route counterpart to NearestApproachAlongHeadingNm -- smallest cross-track distance (nm) from level's polygon to any remaining-waypoint leg, restricted to vertices that project within that specific leg's own span (not behind its start or past its end).</summary>
+        public static double? NearestApproachAlongRouteNm(double lat, double lon, IReadOnlyList<FlightPlanWaypoint> remainingWaypoints, VatGlassesSectorLevel level)
+        {
+            if (remainingWaypoints == null || remainingWaypoints.Count == 0) return null;
+            if (level.Points.Count < 3) return null;
+
+            var legStartX = 0.0;
+            var legStartY = 0.0;
+            double? nearest = null;
+
+            foreach (var legEnd in remainingWaypoints.Select(wp => Project(lat, lon, wp.Latitude, wp.Longitude)))
+            {
+                var dx = legEnd.X - legStartX;
+                var dy = legEnd.Y - legStartY;
+                var legLength = Math.Sqrt(dx * dx + dy * dy);
+
+                if (legLength > 1e-9)
+                {
+                    var approach = NearestApproachNm(lat, lon, legStartX, legStartY, dx, dy, 0, 1, level);
+                    if (approach.HasValue && (!nearest.HasValue || approach.Value < nearest.Value)) nearest = approach.Value;
+                }
+
+                legStartX = legEnd.X;
+                legStartY = legEnd.Y;
+            }
+
+            return nearest;
+        }
+
+        /// <summary>
+        /// Shared near-miss core for NearestApproachAlongHeadingNm/AlongRouteNm -- for each of
+        /// level's polygon vertices, projects it onto the path origin+t*dir, keeps only vertices
+        /// whose t falls within [tMin, tMax] (i.e. genuinely ahead along this specific path/leg,
+        /// same directional gate NearestEdgeIntersectionNm's SegmentIntersectionT applies to real
+        /// crossings), and returns the smallest perpendicular distance among those.
+        /// </summary>
+        private static double? NearestApproachNm(double originLat, double originLon, double originX, double originY, double dirX, double dirY, double tMin, double tMax, VatGlassesSectorLevel level)
+        {
+            var dirLength = Math.Sqrt(dirX * dirX + dirY * dirY);
+            if (dirLength < 1e-9) return null;
+
+            double? nearestCrossTrackNm = null;
+            foreach (var point in level.Points)
+            {
+                var p = Project(originLat, originLon, point.Latitude, point.Longitude);
+                var relX = p.X - originX;
+                var relY = p.Y - originY;
+                var t = (relX * dirX + relY * dirY) / (dirLength * dirLength);
+                if (t < tMin || t > tMax) continue;
+
+                var crossTrackNm = Math.Abs(relX * dirY - relY * dirX) / dirLength;
+                if (!nearestCrossTrackNm.HasValue || crossTrackNm < nearestCrossTrackNm.Value) nearestCrossTrackNm = crossTrackNm;
+            }
+            return nearestCrossTrackNm;
+        }
+
+        /// <summary>
         /// Shared ray/segment-vs-polygon-edge intersection core. (originX, originY) + t*(dirX,
         /// dirY) for t in [tMin, tMax] against every edge of level's ring; returns the smallest
         /// valid t*|dir| (i.e. actual nm distance along the path), or null if nothing intersects.

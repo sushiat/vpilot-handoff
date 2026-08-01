@@ -793,6 +793,43 @@ namespace Handoff.Plugin.Tests
             Assert.True(model.Current.Single().IsNext);
         }
 
+        // ---- Issue #72: lateral dead-band on the entering/converging match set ----------------
+
+        [Fact]
+        public void Bucket8a_Ctr_Converging_HeadingNearMiss_StaysHighlightedThroughOneTickFlip()
+        {
+            // Small box, 90nm north of ownship (within the 100nm heading cap) -- a 1deg heading
+            // nudge shifts the aim point by ~1.6nm, past the box's own ~0.6nm radius (a miss) but
+            // still inside EnteringNearMissMarginNm (3nm), so this counts as a near miss.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single().IsHighlighted); // genuine intersection
+
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 1, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // 1deg off -- near miss
+            _radio.RaiseChanged();
+
+            Assert.True(model.Current.Single().IsHighlighted); // dead-band retains it
+        }
+
+        [Fact]
+        public void Bucket8a_Ctr_Converging_HeadingGenuinelyDiverges_EventuallyDrops()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single().IsHighlighted); // genuine intersection
+
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 5, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // well off -- no longer a near miss
+            _radio.RaiseChanged();
+
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
         [Fact]
         public void Bucket8a_Ctr_LevelFlightOutsideBand_NeverConverges()
         {

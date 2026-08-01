@@ -172,6 +172,68 @@ namespace Handoff.Plugin
             return results;
         }
 
+        /// <summary>Issue #72: vatspy-boundary sibling of VatGlassesSectorLookup.NearestApproachAlongHeadingNm.</summary>
+        public static double? NearestApproachAlongHeadingNm(double lat, double lon, double headingDegrees, VatSpyFirBoundary boundary)
+        {
+            if (boundary.Points.Count < 3) return null;
+
+            var headingRad = headingDegrees * Math.PI / 180.0;
+            var dx = Math.Sin(headingRad);
+            var dy = Math.Cos(headingRad);
+
+            return NearestApproachNm(lat, lon, 0, 0, dx, dy, 0, double.PositiveInfinity, boundary);
+        }
+
+        /// <summary>Issue #72: vatspy-boundary sibling of VatGlassesSectorLookup.NearestApproachAlongRouteNm.</summary>
+        public static double? NearestApproachAlongRouteNm(double lat, double lon, IReadOnlyList<FlightPlanWaypoint> remainingWaypoints, VatSpyFirBoundary boundary)
+        {
+            if (remainingWaypoints == null || remainingWaypoints.Count == 0) return null;
+            if (boundary.Points.Count < 3) return null;
+
+            var legStartX = 0.0;
+            var legStartY = 0.0;
+            double? nearest = null;
+
+            foreach (var legEnd in remainingWaypoints.Select(wp => Project(lat, lon, wp.Latitude, wp.Longitude)))
+            {
+                var dx = legEnd.X - legStartX;
+                var dy = legEnd.Y - legStartY;
+                var legLength = Math.Sqrt(dx * dx + dy * dy);
+
+                if (legLength > 1e-9)
+                {
+                    var approach = NearestApproachNm(lat, lon, legStartX, legStartY, dx, dy, 0, 1, boundary);
+                    if (approach.HasValue && (!nearest.HasValue || approach.Value < nearest.Value)) nearest = approach.Value;
+                }
+
+                legStartX = legEnd.X;
+                legStartY = legEnd.Y;
+            }
+
+            return nearest;
+        }
+
+        /// <summary>Issue #72: vatspy-boundary sibling of VatGlassesSectorLookup.NearestApproachNm.</summary>
+        private static double? NearestApproachNm(double originLat, double originLon, double originX, double originY, double dirX, double dirY, double tMin, double tMax, VatSpyFirBoundary boundary)
+        {
+            var dirLength = Math.Sqrt(dirX * dirX + dirY * dirY);
+            if (dirLength < 1e-9) return null;
+
+            double? nearestCrossTrackNm = null;
+            foreach (var point in boundary.Points)
+            {
+                var p = Project(originLat, originLon, point.Latitude, point.Longitude);
+                var relX = p.X - originX;
+                var relY = p.Y - originY;
+                var t = (relX * dirX + relY * dirY) / (dirLength * dirLength);
+                if (t < tMin || t > tMax) continue;
+
+                var crossTrackNm = Math.Abs(relX * dirY - relY * dirX) / dirLength;
+                if (!nearestCrossTrackNm.HasValue || crossTrackNm < nearestCrossTrackNm.Value) nearestCrossTrackNm = crossTrackNm;
+            }
+            return nearestCrossTrackNm;
+        }
+
         private static double? NearestEdgeIntersectionNm(double originLat, double originLon, double originX, double originY, double dirX, double dirY, double tMin, double tMax, VatSpyFirBoundary boundary)
         {
             var dirLength = Math.Sqrt(dirX * dirX + dirY * dirY);
