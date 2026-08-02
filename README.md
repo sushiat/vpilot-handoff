@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/github/license/sushiat/vpilot-handoff)](LICENSE)
 [![AI Assisted: Yes](https://img.shields.io/badge/AI%20Assisted-Yes-green)](https://github.com/mefengl/made-by-ai)
 [![Commit Messages by AI](https://img.shields.io/badge/Commit%20Messages%20by-AI-green)](https://github.com/mefengl/made-by-ai)
+[![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
+
 
 A companion app for [vPilot](https://vpilot.rosscarlson.dev/) that puts the online
 VATSIM controller list and two-way chat on a second screen - built to run as an
