@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android: a bidirectional plugin/app version-mismatch dialog (issue #87). On
+  every connect, the app compares the plugin's reported version
+  (`subsystemStatus.pluginVersion`) against its own, in both directions, and
+  — if they differ — shows resolution steps tailored to which side is behind:
+  restart vPilot to apply an already-downloaded plugin update (or wait for
+  the auto-updater), or re-sideload/update via Obtainium for a stale app.
+  Dismiss is remembered per exact version pair, so it stays quiet until
+  either side actually changes.
+
 - Plugin: the auto-update flow now gives the pilot visible feedback inside vPilot
   (issue #85). The silent installer runs with `/SILENT` instead of `/VERYSILENT`,
   so Inno Setup's install progress window is shown while it waits for vPilot to
