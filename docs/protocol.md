@@ -558,7 +558,7 @@ drawer (issue #13). Resent whenever any of the underlying signals change.
   "simulatorConnected": true,
   "vatsimDataFeedConnected": true,
   "simbriefFetched": false,
-  "pluginVersion": "0.1.0",
+  "pluginVersion": "0.2.0",
   "systemsDebug": null
 }
 ```
@@ -569,7 +569,10 @@ state this session -- an approximation (it can lag a real sim disconnect until t
 `NetworkDisconnected`/`SessionEnded` reset), good enough for a status indicator, not meant as a
 hard guarantee. `vatsimDataFeedConnected` reflects the most recent VATSIM data feed poll.
 `simbriefFetched` is whether a SimBrief fetch has ever succeeded this session. `pluginVersion`
-is a static string for now (`"0.1.0"`) until the plugin has a real versioning scheme.
+is the installed plugin's version, read at runtime from the plugin assembly's
+`AssemblyInformationalVersion` (auto-populated from `Handoff.Plugin.csproj`'s `<Version>` at
+build time), so it stays in sync with releases automatically. Any `+<git-sha>` build-metadata
+suffix is stripped, leaving a plain semver string (e.g. `"0.2.0"`).
 
 `systemsDebug` (issue #65) is `null` unless debug mode is on -- the debug overlay's "Systems"
 section, one plain-language health line per non-ranking subsystem (radio/SimConnect, VATSIM
