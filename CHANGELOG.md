@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin installer (issue #95): `BouncyCastle.Crypto.dll` -- a hard runtime dependency for
+  `HandoffCertificateStore`'s TLS cert generation -- was missing from the installer's
+  `[Files]` list entirely, so a genuinely fresh install never actually got it. Uninstall
+  also left an empty `RadioHost\` subfolder behind in the Plugins folder. Both fixed:
+  the DLL is now installed and tracked, and `RadioHost\` is removed on uninstall.
+
 ## [0.3.0] - 2026-08-02
 
 ### Added

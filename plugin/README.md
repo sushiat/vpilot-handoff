@@ -103,10 +103,11 @@ For iterating without building an installer every time, two things still need co
 `%LOCALAPPDATA%\vPilot\Plugins` (or wherever `HKCU\Software\vPilot\Install_Dir` actually points —
 see above):
 
-1. `Handoff.Plugin.dll` **and its dependency DLLs** (`Newtonsoft.Json.dll`, `Fleck.dll`) —
-   no longer single-file since Costura.Fody was dropped (it existed only to bundle
-   SimConnect's native DLL, which now lives entirely in `Handoff.RadioHost` instead). vPilot's
-   plugin-folder scan is fine with extra non-plugin DLLs sitting alongside
+1. `Handoff.Plugin.dll` **and its dependency DLLs** (`Newtonsoft.Json.dll`, `Fleck.dll`,
+   `BouncyCastle.Crypto.dll` — the last one backs `HandoffCertificateStore`'s TLS cert
+   generation) — no longer single-file since Costura.Fody was dropped (it existed only to
+   bundle SimConnect's native DLL, which now lives entirely in `Handoff.RadioHost` instead).
+   vPilot's plugin-folder scan is fine with extra non-plugin DLLs sitting alongside
    `Handoff.Plugin.dll` directly (it just skips ones with no `IPlugin` type, same as it
    already does for its own dependencies) — no subfolder needed here, unlike RadioHost below.
 2. `Handoff.RadioHost`'s whole build output folder, into a `RadioHost\` subfolder — as a
