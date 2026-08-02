@@ -60,11 +60,15 @@ dotnet build Handoff.RadioHost/Handoff.RadioHost.csproj
 ## Install (end users)
 
 Download `Handoff-Setup-vX.Y.Z.exe` from the [latest release](../../releases/latest) and run it —
-no options to pick, no admin prompt (`PrivilegesRequired=lowest` — the install target is a
-per-user folder, same as the `HKCU\Software\vPilot\Install_Dir` registry key it reads to find that
-folder). See `plugin/installer/Handoff-Setup.iss` for the full install logic (Pascal Script:
-resolve `Install_Dir`, wait for vPilot to exit if it's running, copy files, write the auto-update
-marker).
+in non-silent mode it shows the current version's changelog on one page, then installs on Install;
+no options to pick, no admin prompt (`PrivilegesRequired=lowest` — the install target is a per-user
+folder, same as the `HKCU\Software\vPilot\Install_Dir` registry key it reads to find that folder).
+The plugin files themselves go into that Plugins folder; the installer's own bookkeeping (the
+`unins000.exe`/`unins000.dat` uninstaller and the display icon) lives in a separate
+`%LOCALAPPDATA%\Handoff` folder instead, so the Plugins folder stays clean of anything but the
+plugin (issue #79). See `plugin/installer/Handoff-Setup.iss` for the full install logic (Pascal
+Script: resolve `Install_Dir`, wait for vPilot to exit if it's running, copy files, write the
+auto-update marker next to the plugin DLL).
 
 ## Auto-update (issue #34)
 
@@ -127,6 +131,13 @@ dotnet build Handoff.Plugin.csproj -c Release -o publish/plugin
 dotnet build Handoff.RadioHost/Handoff.RadioHost.csproj -c Release -o publish/plugin/RadioHost
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.1.0 /DSourceDir=publish\plugin installer\Handoff-Setup.iss
 ```
+
+`release.yml` also passes `/DChangelogFile=<path to a .txt/.rtf>` to fill the installer's changelog
+page with the release's notes — in CI an RTF pandoc-renders from the extracted release notes so the
+page shows real headings/bullets; a local build without it falls back to the plain-text
+`installer\changelog-fallback.txt` (Inno's `InfoBeforeFile` auto-detects RTF vs plain text). The setup/uninstall icon comes from `Assets\handoff.ico`
+(rasterized from `Assets\handoff.svg` via Inkscape — regenerate with `inkscape handoff.svg
+--export-type=png -w N -h N -o icon_N.png` per size, then repack the `.ico`).
 
 ## VATGlasses sector-ranking replay tool (dev-only, not deployed)
 

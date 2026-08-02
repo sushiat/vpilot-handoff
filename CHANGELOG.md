@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Plugin installer refinements (issue #79): the setup `.exe` and the Windows
+  Apps/Add-Remove-Programs entry now carry the Handoff icon
+  (`plugin/Assets/handoff.ico`, rasterized from a new committed
+  `handoff.svg`); the installer's own uninstaller (`unins000.exe`/`.dat`) and
+  icon now live in a dedicated `%LOCALAPPDATA%\Handoff` folder instead of the
+  vPilot Plugins folder, keeping the latter clean of everything but the plugin
+  (the auto-update marker still lands next to the plugin DLL, and a stale
+  pre-0.1.1 `unins000.*` left in the Plugins folder is cleaned up on upgrade);
+  and non-silent installs now show the release's changelog on the previously
+  blank wizard page (`InfoBeforeFile`, fed by the extracted release notes
+  pandoc-rendered to RTF in CI, a plain-text fallback locally). Silent
+  auto-updates are unaffected.
+
 - Android: a fresh install now defaults to 8.33 kHz channel spacing instead of
   25 kHz (issue #80) — the modern European standard, so a new user no longer has
   to change it by hand. Only seeds a never-configured install; any existing saved

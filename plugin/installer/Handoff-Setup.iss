@@ -10,8 +10,16 @@
 ; HKCU\Software\vPilot registry key and the per-user Plugins folder it points at are per-user,
 ; see CLAUDE.md's "vPilot install location is user-configurable" note.
 ;
-; Built via: ISCC.exe /DMyAppVersion=<version> /DSourceDir=<path to plugin\publish\plugin> Handoff-Setup.iss
-; (release.yml passes both; local double-click compiles from the IDE default below instead.)
+; {app} is our own %LOCALAPPDATA%\Handoff folder (holding just the uninstaller + icon), NOT the
+; vPilot Plugins folder -- the plugin files themselves are placed into the Plugins folder directly
+; (DestDir: {code:GetPluginsDir}) so it stays clean of unins000.exe/.dat (issue #79).
+;
+; Built via: ISCC.exe /DMyAppVersion=<version> /DSourceDir=<path to plugin\publish\plugin>
+;   [/DChangelogFile=<path to a .txt/.rtf shown on the install page>] Handoff-Setup.iss
+; (release.yml passes MyAppVersion+SourceDir+ChangelogFile -- an RTF pandoc-rendered from this
+; version's release notes; a local double-click compiles from the IDE defaults below instead,
+; falling back to the plain-text changelog-fallback.txt for the install page. Inno's InfoBeforeFile
+; auto-detects RTF vs plain text from the content, so either works.)
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0-dev"
@@ -19,13 +27,21 @@
 #ifndef SourceDir
   #define SourceDir "..\publish\plugin"
 #endif
+#ifndef ChangelogFile
+  #define ChangelogFile "changelog-fallback.txt"
+#endif
 
 [Setup]
 AppId={{2072C121-51A1-4693-AACE-32D25495E96F}
 AppName=Handoff Plugin
 AppVersion={#MyAppVersion}
 AppPublisher=sushi.at
-DefaultDirName={code:GetPluginsDir}
+; {app} is our own folder for the uninstaller + icon, not the vPilot Plugins dir (see header and
+; the [Files] section, which places the plugin itself into {code:GetPluginsDir} directly).
+DefaultDirName={localappdata}\Handoff
+; The install location is fixed (our own folder); never reuse a previous install's dir -- a 0.1.0
+; install used the Plugins folder as {app}, and we deliberately move off it here (issue #79).
+UsePreviousAppDir=no
 DisableDirPage=yes
 DisableWelcomePage=yes
 DisableReadyPage=yes
@@ -38,14 +54,26 @@ Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=Handoff Plugin
+; Icon for the setup .exe itself and for the Windows Apps/Add-Remove-Programs entry (issue #79).
+SetupIconFile=..\Assets\handoff.ico
+UninstallDisplayIcon={app}\handoff.ico
+; Shown on the one visible wizard page in non-silent mode -- the current version's changelog
+; (release.yml passes the extracted release notes; local builds get changelog-fallback.txt).
+; Silent installs (/VERYSILENT, the auto-updater) skip this page entirely.
+InfoBeforeFile={#ChangelogFile}
 WizardStyle=modern
 SetupLogging=yes
 
 [Files]
-Source: "{#SourceDir}\Handoff.Plugin.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\Newtonsoft.Json.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\Fleck.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\RadioHost\*"; DestDir: "{app}\RadioHost"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The plugin itself goes into the vPilot Plugins folder (resolved from the registry), NOT {app} --
+; that's what vPilot loads. Inno still records these in {app}'s unins000.dat regardless of DestDir,
+; so uninstall removes them from the Plugins folder correctly.
+Source: "{#SourceDir}\Handoff.Plugin.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
+Source: "{#SourceDir}\Newtonsoft.Json.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
+Source: "{#SourceDir}\Fleck.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
+Source: "{#SourceDir}\RadioHost\*"; DestDir: "{code:GetPluginsDir}\RadioHost"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Into {app} (our own folder) alongside the uninstaller -- referenced by UninstallDisplayIcon.
+Source: "..\Assets\handoff.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Code]
 var
@@ -125,19 +153,39 @@ begin
   Result := '';
 end;
 
+// A 0.1.0 install used the Plugins folder as {app}, so its unins000.exe/.dat landed there. We now
+// install to our own {app} (%LOCALAPPDATA%\Handoff) and leave the Plugins folder holding only the
+// plugin files, so those orphaned uninstaller files would just sit there forever -- clean them up
+// once, on upgrade. Best-effort: a leftover file isn't worth failing the install over.
+procedure RemoveStalePluginsUninstaller();
+var
+  PluginsDir: String;
+begin
+  PluginsDir := GetPluginsDir('');
+  if PluginsDir = '' then Exit;
+  DeleteFile(AddBackslash(PluginsDir) + 'unins000.exe');
+  DeleteFile(AddBackslash(PluginsDir) + 'unins000.dat');
+end;
+
 // One-shot marker PluginUpdateModel.cs reads on next plugin load to report the update through
 // operationProgress -- see docs/protocol.md. Only written on an upgrade, not a fresh install
-// (nothing to report "updated from" in that case).
+// (nothing to report "updated from" in that case). Written into the Plugins folder (next to the
+// plugin DLL), where CheckMarker reads it from -- {app} is our own folder now, not the Plugins dir.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   MarkerPath: String;
   JsonContent: String;
 begin
-  if (CurStep = ssPostInstall) and WasAlreadyInstalled then
+  if CurStep = ssPostInstall then
   begin
-    JsonContent := '{"version":"' + '{#MyAppVersion}' + '","installedAt":"' +
-      GetDateTimeString('yyyy-mm-dd"T"hh:nn:ss', #0, #0) + '"}';
-    MarkerPath := ExpandConstant('{app}') + '\update-applied.json';
-    SaveStringToFile(MarkerPath, JsonContent, False);
+    RemoveStalePluginsUninstaller();
+
+    if WasAlreadyInstalled then
+    begin
+      JsonContent := '{"version":"' + '{#MyAppVersion}' + '","installedAt":"' +
+        GetDateTimeString('yyyy-mm-dd"T"hh:nn:ss', #0, #0) + '"}';
+      MarkerPath := AddBackslash(GetPluginsDir('')) + 'update-applied.json';
+      SaveStringToFile(MarkerPath, JsonContent, False);
+    end;
   end;
 end;

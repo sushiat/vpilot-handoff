@@ -1,0 +1,8 @@
+Handoff Plugin
+
+This is a local or development build of the installer.
+
+Release builds show the current version's changelog here instead; see
+CHANGELOG.md in the repository for the full change history.
+
+Click Install to continue.
