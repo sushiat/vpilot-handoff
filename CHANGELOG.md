@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Plugin: the auto-update flow now gives the pilot visible feedback inside vPilot
+  (issue #85). The silent installer runs with `/SILENT` instead of `/VERYSILENT`,
+  so Inno Setup's install progress window is shown while it waits for vPilot to
+  close and applies the update — still zero clicks and no wizard pages (the
+  changelog `InfoBeforeFile` page stays suppressed). And the first plugin load
+  after an update shows a branded "Handoff updated to {version}" confirmation
+  (a modeless window in the same style as the pairing/update-prompt dialogs),
+  driven off the existing `update-applied.json` marker — previously that update
+  detection was reported only to the Android app and vPilot's `/dbgwin`, invisible
+  during a normal startup. The install-confirm dialog's copy now also explains
+  that the update finishes once vPilot is closed.
+
 ### Fixed
 
 - Plugin: `pluginVersion` sent to the Android client was a hardcoded `"0.1.0"`

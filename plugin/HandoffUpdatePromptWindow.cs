@@ -66,7 +66,9 @@ namespace Handoff.Plugin
             var messageLabel = new Label
             {
                 Text = $"A new Handoff plugin version is available: {version}.\n\n" +
-                    "Install it now? If vPilot is still connected, the installer will wait for it to close first.",
+                    "Install it now? The installer will open and finish automatically once you " +
+                    "close vPilot -- you can keep flying until then, and Handoff will confirm the " +
+                    "update the next time it loads.",
                 AutoSize = false,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,

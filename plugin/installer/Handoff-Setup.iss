@@ -3,7 +3,9 @@
 ; Serves two purposes with the same compiled EXE:
 ;  - First-time manual install: pilot downloads Handoff-Setup-vX.Y.Z.exe and double-clicks it.
 ;  - Auto-update: the plugin (PluginUpdateModel.cs) downloads and sha256-verifies this same EXE,
-;    then launches it with /VERYSILENT /SUPPRESSMSGBOXES /NORESTART.
+;    then launches it with /SILENT /SUPPRESSMSGBOXES /NORESTART -- /SILENT (not /VERYSILENT) so the
+;    pilot sees Inno's install progress window, while every wizard page/button stays suppressed
+;    (issue #85).
 ;
 ; No options to pick (no components/tasks pages, no directory page -- the install location is
 ; resolved from the registry, not chosen by the user) and no admin rights required: both the
@@ -59,7 +61,9 @@ SetupIconFile=..\Assets\handoff.ico
 UninstallDisplayIcon={app}\handoff.ico
 ; Shown on the one visible wizard page in non-silent mode -- the current version's changelog
 ; (release.yml passes the extracted release notes; local builds get changelog-fallback.txt).
-; Silent installs (/VERYSILENT, the auto-updater) skip this page entirely.
+; Silent installs skip this page entirely -- both /VERYSILENT and the auto-updater's /SILENT
+; suppress all wizard pages (the InfoBeforeFile page included); /SILENT only adds back the
+; install *progress* window, not any page the pilot has to click through (issue #85).
 InfoBeforeFile={#ChangelogFile}
 WizardStyle=modern
 SetupLogging=yes
