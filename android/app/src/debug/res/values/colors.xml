@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug-only override of the launcher background so the debug icon is visually
+         distinct from the release one at a glance (see src/main/res/values/colors.xml). -->
+    <color name="ic_launcher_background">#FFD32F2F</color>
+</resources>

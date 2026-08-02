@@ -52,6 +52,12 @@ android {
             isMinifyEnabled = false
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
+        debug {
+            // Distinct applicationId so a locally-built debug APK installs alongside the
+            // release build from GitHub instead of colliding on signature mismatch.
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "Handoff (Debug)")
+        }
     }
 
     compileOptions {
@@ -61,6 +67,7 @@ android {
 
     buildFeatures {
         compose = true
+        resValues = true
     }
 }
 
