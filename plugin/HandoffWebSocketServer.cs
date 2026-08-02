@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -24,8 +25,22 @@ namespace Handoff.Plugin
         public const int Port = 48765;
         private const string Address = "wss://0.0.0.0:48765";
 
-        // Static until the plugin has a real versioning scheme -- see docs/protocol.md.
-        private const string PluginVersion = "0.1.0";
+        // Read from the assembly at runtime so it stays in sync with Handoff.Plugin.csproj's
+        // <Version> automatically -- the SDK-style csproj auto-populates
+        // AssemblyInformationalVersion from <Version> at build time. See docs/protocol.md.
+        private static readonly string PluginVersion = ResolvePluginVersion();
+
+        private static string ResolvePluginVersion()
+        {
+            var informational = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+            if (string.IsNullOrEmpty(informational)) return "0.0.0";
+            // Strip any "+<git-sha>" build-metadata suffix the SDK may append, keeping the clean
+            // semver string the protocol expects (e.g. "0.2.0", not "0.2.0+abc1234").
+            var plus = informational.IndexOf('+');
+            return plus >= 0 ? informational.Substring(0, plus) : informational;
+        }
 
         private readonly object _gate = new object();
         // Only ever holds sockets that have completed device authorization (issue #15) --
