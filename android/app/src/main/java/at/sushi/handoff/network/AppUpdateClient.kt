@@ -31,6 +31,11 @@ private const val ObtainiumPackageName = "dev.imranr.obtainium"
 object AppUpdateClient {
     private const val Endpoint = "https://api.github.com/repos/sushiat/vpilot-handoff/releases/latest"
 
+    /** Human-facing latest-release page, for the "View release" action in the app-behind
+     *  version-mismatch dialog (issue #87) -- no API call needed there since the skew is already
+     *  known from the plugin's WebSocket message. */
+    const val LatestReleasePageUrl = "https://github.com/sushiat/vpilot-handoff/releases/latest"
+
     /** Returns null on any failure, or if already up to date -- never throws. */
     suspend fun checkForUpdate(currentVersion: String): AppUpdateInfo? = withContext(Dispatchers.IO) {
         try {
@@ -67,6 +72,22 @@ object AppUpdateClient {
         }
         return false
     }
+}
+
+/** Direction of a plugin/app version skew (issue #87). Plugin and app update independently at
+ *  runtime (docs/protocol.md §Compatibility), so either can end up behind the other. Null when the
+ *  versions match or the plugin version isn't known yet. */
+enum class VersionSkew { PLUGIN_BEHIND, APP_BEHIND }
+
+/** Compares the plugin's reported version (subsystemStatus.pluginVersion) against this app's own
+ *  version, reusing [AppUpdateClient.isNewer] for both directions. Returns null when they match, or
+ *  when [pluginVersion] is null (an old pre-#86 plugin that never reports its version, or before the
+ *  first subsystemStatus has arrived) -- both cases mean "don't surface a mismatch dialog". */
+fun versionSkew(pluginVersion: String?, appVersion: String): VersionSkew? = when {
+    pluginVersion == null -> null
+    AppUpdateClient.isNewer(appVersion, pluginVersion) -> VersionSkew.PLUGIN_BEHIND
+    AppUpdateClient.isNewer(pluginVersion, appVersion) -> VersionSkew.APP_BEHIND
+    else -> null
 }
 
 /** True if this APK was installed by Obtainium, which already checks/prompts for updates on its

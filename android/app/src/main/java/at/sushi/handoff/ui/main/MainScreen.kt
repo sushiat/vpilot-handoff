@@ -34,13 +34,17 @@ import android.net.Uri
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.core.content.edit
+import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.LayoutMode
+import at.sushi.handoff.VersionMismatch
 import at.sushi.handoff.network.AppUpdateClient
 import at.sushi.handoff.network.AppUpdateDismissStore
 import at.sushi.handoff.network.IgnoredDeviceStore
+import at.sushi.handoff.network.VersionMismatchDismissStore
 import at.sushi.handoff.network.isInstalledViaObtainium
+import at.sushi.handoff.network.versionSkew
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
 import at.sushi.handoff.protocol.ConfirmDiversionCommand
 import at.sushi.handoff.protocol.DismissDiversionCommand
@@ -66,6 +70,7 @@ import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.chat.RADIO_TAB
 import at.sushi.handoff.ui.chat.mentionsCallsign
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
+import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.DiversionConfirmDialog
@@ -77,6 +82,7 @@ import at.sushi.handoff.ui.theme.HandoffTheme
 import at.sushi.handoff.ui.theme.DefaultRowColorPalette
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import at.sushi.handoff.ui.theme.SavedRowColorTheme
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 
 /** True only once [condition] has held continuously for [delayMs] -- used to distinguish "this
@@ -205,6 +211,32 @@ private fun MainScreenContent() {
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
+
+    // One-shot-on-connect plugin/app version-skew check (issue #87). Re-arms on every (re)connect
+    // via the connectionStatus key; on reaching CONNECTED it waits for the first subsystemStatus
+    // that actually carries a plugin version (an old pre-#86 plugin never sends one, so this simply
+    // never fires), compares it against this app's own version, and -- if they differ and the pilot
+    // hasn't already dismissed this exact skew -- surfaces VersionMismatchDialog. Soft/informational
+    // per docs/protocol.md, not a connect-time gate.
+    LaunchedEffect(connectionStatus) {
+        if (connectionStatus != ConnectionStatus.CONNECTED) return@LaunchedEffect
+        val appVersion = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: return@LaunchedEffect
+
+        val pluginVersion = HandoffState.subsystemStatus.first { it.pluginVersion != null }.pluginVersion!!
+        val skew = versionSkew(pluginVersion, appVersion) ?: return@LaunchedEffect
+        if (VersionMismatchDismissStore.isDismissed(prefs, pluginVersion, appVersion)) return@LaunchedEffect
+        HandoffState.setVersionMismatch(
+            VersionMismatch(
+                skew = skew,
+                pluginVersion = pluginVersion,
+                appVersion = appVersion,
+                viaObtainium = isInstalledViaObtainium(context)
+            )
+        )
+    }
+
     // The VATSIM-filed plan (docs/protocol.md's flightPlan message) is the more authoritative
     // source once it exists -- SimBrief is just whatever was typed when the OFP was generated,
     // available pre-connection but with no guarantee it matches what's actually filed. Route
@@ -250,6 +282,7 @@ private fun MainScreenContent() {
     val pendingPairing by HandoffState.pendingPairing.collectAsState()
     val diversionPending by HandoffState.diversionPending.collectAsState()
     val updateAvailable by HandoffState.updateAvailable.collectAsState()
+    val versionMismatch by HandoffState.versionMismatch.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
     val operationIndicator = combineOperationIndicator(visibleOperations)
 
@@ -672,6 +705,24 @@ private fun MainScreenContent() {
             onDismiss = {
                 AppUpdateDismissStore.saveDismissedVersion(prefs, update.version)
                 HandoffState.setUpdateAvailable(null)
+            }
+        )
+    }
+
+    // Driven by HandoffState.versionMismatch rather than a locally-owned open/closed flag, same
+    // reasoning as updateAvailable above -- the one-shot-on-connect check (see LaunchedEffect
+    // (connectionStatus) further up) decides when this needs showing. Dismiss is remembered per
+    // exact skew, so it won't re-nag until a version actually changes on either side (issue #87).
+    versionMismatch?.let { mismatch ->
+        VersionMismatchDialog(
+            mismatch = mismatch,
+            onViewRelease = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdateClient.LatestReleasePageUrl)))
+                HandoffState.setVersionMismatch(null)
+            },
+            onDismiss = {
+                VersionMismatchDismissStore.saveDismissed(prefs, mismatch.pluginVersion, mismatch.appVersion)
+                HandoffState.setVersionMismatch(null)
             }
         )
     }

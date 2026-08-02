@@ -1,6 +1,7 @@
 package at.sushi.handoff
 
 import at.sushi.handoff.network.AppUpdateInfo
+import at.sushi.handoff.network.VersionSkew
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
@@ -18,6 +19,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class ConnectionStatus { DISCONNECTED, CONNECTING, CONNECTED }
+
+/** A detected plugin/app version skew (issue #87), surfaced by VersionMismatchDialog. Carries both
+ *  versions (for the dialog body) and, for the app-behind case, whether the app was installed via
+ *  Obtainium (which resolves differently than a manual sideload -- see
+ *  [at.sushi.handoff.network.isInstalledViaObtainium]). */
+data class VersionMismatch(
+    val skew: VersionSkew,
+    val pluginVersion: String,
+    val appVersion: String,
+    val viaObtainium: Boolean
+)
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM }
 
@@ -182,6 +194,9 @@ object HandoffState {
     private val _updateAvailable = MutableStateFlow<AppUpdateInfo?>(null)
     val updateAvailable: StateFlow<AppUpdateInfo?> = _updateAvailable.asStateFlow()
 
+    private val _versionMismatch = MutableStateFlow<VersionMismatch?>(null)
+    val versionMismatch: StateFlow<VersionMismatch?> = _versionMismatch.asStateFlow()
+
     // Issue #65 -- session-only debug mode (7-tap on the Settings dialog's title). Not persisted
     // across an app restart, matching the plugin's own session-only debug flag: this is a
     // diagnostic mode turned on while actively chasing something, not a standing setting. Since
@@ -241,6 +256,10 @@ object HandoffState {
         // makes any pending pairing prompt stale -- the next connection attempt will re-present
         // it fresh if still relevant.
         _pendingPairing.value = null
+        // A version-mismatch notice is tied to the connected plugin's reported version; once the
+        // connection drops it's stale, and the one-shot check re-arms on the next connect (issue
+        // #87).
+        _versionMismatch.value = null
     }
 
     fun update(message: ControllersMessage) {
@@ -365,5 +384,9 @@ object HandoffState {
 
     fun setUpdateAvailable(info: AppUpdateInfo?) {
         _updateAvailable.value = info
+    }
+
+    fun setVersionMismatch(mismatch: VersionMismatch?) {
+        _versionMismatch.value = mismatch
     }
 }
