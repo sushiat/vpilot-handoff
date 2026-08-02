@@ -138,6 +138,27 @@ jobs:
         run: choco install innosetup --no-progress -y
         shell: pwsh
 
+      - name: Download release notes
+        # Produced by the validate job's "Extract changelog entry" step -- the installer shows this
+        # version's changelog on its one visible wizard page in non-silent mode (issue #79).
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: release-notes
+
+      - name: Render release notes to RTF
+        # The extracted notes are Markdown; convert to RTF so Inno's InfoBeforeFile page renders real
+        # headings/bullets instead of literal '##'/'-'/backtick noise. pandoc is preinstalled on the
+        # GitHub windows runner image (guarded install only as a belt-and-suspenders). Only runs on a
+        # release, so the extra step's cost doesn't matter. Local builds keep the plain-text fallback.
+        shell: pwsh
+        run: |
+          if (-not (Get-Command pandoc -ErrorAction SilentlyContinue)) {
+            choco install pandoc --no-progress -y
+          }
+          pandoc "release-notes/release-notes.md" -f gfm -t rtf -s -o "release-notes/release-notes.rtf"
+          if ($LASTEXITCODE -ne 0) { throw "pandoc failed with exit code $LASTEXITCODE" }
+
       - name: Build installer
         # Sources directly from the Release build output (plugin/publish/plugin) -- the .iss
         # script's own [Files] section already picks out exactly Handoff.Plugin.dll,
@@ -148,7 +169,8 @@ jobs:
         run: |
           $version = "${{ needs.validate.outputs.version }}"
           $sourceDir = Join-Path $pwd "plugin\publish\plugin"
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version /DSourceDir="$sourceDir" plugin/installer/Handoff-Setup.iss
+          $changelogFile = Join-Path $pwd "release-notes\release-notes.rtf"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version /DSourceDir="$sourceDir" /DChangelogFile="$changelogFile" plugin/installer/Handoff-Setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC.exe failed with exit code $LASTEXITCODE" }
 
           $installer = "plugin/installer/Handoff-Setup-v$version.exe"
