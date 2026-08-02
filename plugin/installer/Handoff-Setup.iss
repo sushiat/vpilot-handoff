@@ -75,9 +75,19 @@ SetupLogging=yes
 Source: "{#SourceDir}\Handoff.Plugin.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
 Source: "{#SourceDir}\Newtonsoft.Json.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
 Source: "{#SourceDir}\Fleck.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
+; HandoffCertificateStore.cs's TLS cert generation (Portable.BouncyCastle package) -- was
+; missing here entirely, so it was never actually installed/uninstalled by this script; any
+; copy on a dev machine's Plugins folder got there via a manual deploy, not this installer.
+Source: "{#SourceDir}\BouncyCastle.Crypto.dll"; DestDir: "{code:GetPluginsDir}"; Flags: ignoreversion
 Source: "{#SourceDir}\RadioHost\*"; DestDir: "{code:GetPluginsDir}\RadioHost"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Into {app} (our own folder) alongside the uninstaller -- referenced by UninstallDisplayIcon.
 Source: "..\Assets\handoff.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+[UninstallDelete]
+; Inno only removes the individual files it tracked installing, not the RadioHost subfolder
+; itself (even though [Files] above creates it with createallsubdirs) -- without this, an
+; empty RadioHost\ directory is left behind in the Plugins folder after uninstall.
+Type: filesandordirs; Name: "{code:GetPluginsDir}\RadioHost"
 
 [Code]
 var
