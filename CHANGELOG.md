@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin: `pluginVersion` sent to the Android client was a hardcoded `"0.1.0"`
+  literal, disconnected from `Handoff.Plugin.csproj`'s `<Version>` — it stayed
+  stuck at `"0.1.0"` even after the 0.2.0 release, misleading the app's
+  bottom-drawer version display (issue #86). Now read at runtime from the
+  plugin assembly's `AssemblyInformationalVersion` (auto-populated from
+  `<Version>` at build time), so it stays in sync with releases automatically.
+
 ## [0.2.0] - 2026-08-02
 
 ### Changed
