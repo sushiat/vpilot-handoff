@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detection was reported only to the Android app and vPilot's `/dbgwin`, invisible
   during a normal startup. The install-confirm dialog's copy now also explains
   that the update finishes once vPilot is closed.
+- An adjustable update-interval setting (Fast/Normal/Slow, issue #88) for the
+  plugin's radio/telemetry SimConnect poll cadences and the WebSocket
+  broadcast to the Android app. Persisted plugin-side and applied live (no
+  restart), edited from a new "Update interval" selector in the Android
+  Settings dialog — same save/persist pattern as the existing SimBrief
+  credentials setting. The SimBrief user ID and username fields in Settings
+  now sit side by side to make room for the new selector without introducing
+  scroll on typical tablet widths.
 
 ### Fixed
 
