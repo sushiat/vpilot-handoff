@@ -41,6 +41,7 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
+        /// <summary>Loads the persisted update-interval tier from disk, defaulting to Normal.</summary>
         /// <param name="configPath">
         /// Overridable only for tests, so they don't read/write the real
         /// %LOCALAPPDATA%\Handoff\updateInterval.json on the dev machine.
