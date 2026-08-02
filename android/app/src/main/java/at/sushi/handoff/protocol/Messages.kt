@@ -314,7 +314,12 @@ data class AuthResultMessage(
     val type: String = "authResult",
     val success: Boolean,
     val token: String? = null,
-    val reason: String? = null
+    val reason: String? = null,
+    // Issue #80 -- the plugin's currently-persisted SimBrief credentials, sent only on a fresh
+    // pairing-code success (never the token reconnect path), so a freshly-paired client can adopt
+    // them without the pilot re-typing them. Both null on every other authResult.
+    val simbriefUserId: String? = null,
+    val simbriefUsername: String? = null
 ) : ServerMessage
 
 private val json = Json {

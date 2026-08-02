@@ -138,7 +138,10 @@ object HandoffState {
     private val _rowColorPalette = MutableStateFlow(DefaultRowColorPalette)
     val rowColorPalette: StateFlow<RowColorPalette> = _rowColorPalette.asStateFlow()
 
-    private val _defaultChannelSpacing = MutableStateFlow(ChannelSpacing.KHZ_25)
+    // Defaults to 8.33 kHz -- the current European standard (issue #80). Only the seed for a
+    // fresh/never-configured install; loadPersistedUiSettings() overrides it whenever the pilot
+    // has actually saved a choice, so this never clobbers an existing preference.
+    private val _defaultChannelSpacing = MutableStateFlow(ChannelSpacing.KHZ_8_33)
     val defaultChannelSpacing: StateFlow<ChannelSpacing> = _defaultChannelSpacing.asStateFlow()
 
     // "Hide tuned" controller-list filter -- once a station is actually tuned (isCurrent), chat

@@ -142,16 +142,26 @@ business asking for, and aren't actually more correct here than an app-generated
 The plugin replies with `authResult`:
 
 ```json
-{"type": "authResult", "success": true, "token": "<newly-issued bearer token>"}
+{"type": "authResult", "success": true, "token": "<newly-issued bearer token>", "simbriefUserId": "123456", "simbriefUsername": null}
+{"type": "authResult", "success": true}
 {"type": "authResult", "success": false, "reason": "pairingRequired"}
 {"type": "authResult", "success": false, "reason": "invalidCode"}
 ```
 
-- `success: true` — the socket is now authenticated. A fresh bearer token accompanies it; the
-  plugin persists a hash of that token (not the plaintext) against a list of paired clients —
-  multiple devices can be paired to one plugin at once, there's no hard single-device limit.
-  The client should persist this token and send it on every future connection instead of
-  re-pairing.
+- `success: true` — the socket is now authenticated. On a **pairing-code** success a fresh bearer
+  token accompanies it; the plugin persists a hash of that token (not the plaintext) against a
+  list of paired clients — multiple devices can be paired to one plugin at once, there's no hard
+  single-device limit. The client should persist this token and send it on every future
+  connection instead of re-pairing. A **token** (routine reconnect) success has no `token` field —
+  nothing new to persist.
+- `simbriefUserId` / `simbriefUsername` — the plugin's currently-persisted SimBrief credentials
+  (see `setSimbriefCredentials`), included **only on a pairing-code success**, never on the token
+  path or a failure. This lets a freshly-paired client adopt them without the pilot re-typing what
+  the PC already has. Either may be `null` (or absent) when the plugin has none. On receipt the
+  client reconciles against its own stored credentials: adopt these when it has none; do nothing
+  when they already match; keep its own and push them back up (`setSimbriefCredentials` +
+  `refreshFlightPlan`) when it holds different ones, so the two sides converge on the tablet's
+  values rather than silently diverging.
 - `reason: "pairingRequired"` — the plugin doesn't recognize the presented token (missing,
   unknown, or revoked). It now displays a short-lived numeric pairing code in a small on-screen
   window (so a pilot who's never heard of a debug console can still see it); the client should

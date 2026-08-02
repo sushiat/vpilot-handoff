@@ -13,9 +13,11 @@ import android.content.pm.ServiceInfo
 import android.os.BatteryManager
 import android.os.IBinder
 import android.os.Process
+import android.content.SharedPreferences
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import androidx.core.app.ServiceCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -40,8 +42,10 @@ import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.PingCommand
 import at.sushi.handoff.protocol.PongMessage
 import at.sushi.handoff.protocol.RadioStateMessage
+import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.ServerMessage
 import at.sushi.handoff.protocol.SetDebugModeCommand
+import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import kotlinx.coroutines.CoroutineScope
@@ -401,6 +405,7 @@ class HandoffConnectionService : Service() {
             val prefs = getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
             pendingAuthFingerprint?.let { CertTrustStore.savePinnedFingerprint(prefs, it) }
             message.token?.let { PairingTokenStore.saveToken(prefs, it) }
+            reconcileSimbriefCredentials(prefs, message)
             HandoffState.setPendingPairing(null)
             markConnectionTrusted()
             return
@@ -419,6 +424,45 @@ class HandoffConnectionService : Service() {
             else -> HandoffState.setPendingPairing(
                 PendingPairing(host, port, pendingAuthCommonName, certificateChanged = pendingAuthCertChanged)
             )
+        }
+    }
+
+    /** Issue #80 -- adopt the plugin's SimBrief credentials on a fresh pair. Only the pairing-code
+     *  success authResult carries these (the plugin never sends them on the token/reconnect path),
+     *  so this is intrinsically scoped to "right after pairing." Reconciles against whatever this
+     *  tablet already has:
+     *   - tablet blank -> copy the plugin's values down (persisted straight to prefs, which
+     *     SettingsDialog reads directly, so they show on its next open);
+     *   - already equal -> nothing to do;
+     *   - tablet non-empty but different -> keep the tablet's values and push them back up so the
+     *     plugin converges on them and re-fetches, rather than the two silently diverging (the
+     *     agreed mismatch rule -- the device in the pilot's hands wins).
+     *  A no-op when the plugin sent no credentials at all (nothing to copy down). */
+    private fun reconcileSimbriefCredentials(prefs: SharedPreferences, message: AuthResultMessage) {
+        val pluginUserId = message.simbriefUserId?.trim().orEmpty()
+        val pluginUsername = message.simbriefUsername?.trim().orEmpty()
+        if (pluginUserId.isEmpty() && pluginUsername.isEmpty()) return
+
+        val appUserId = prefs.getString(PrefKeySimbriefUserId, null)?.trim().orEmpty()
+        val appUsername = prefs.getString(PrefKeySimbriefUsername, null)?.trim().orEmpty()
+
+        when {
+            appUserId.isEmpty() && appUsername.isEmpty() -> {
+                prefs.edit {
+                    putString(PrefKeySimbriefUserId, pluginUserId.ifEmpty { null })
+                    putString(PrefKeySimbriefUsername, pluginUsername.ifEmpty { null })
+                }
+            }
+            appUserId == pluginUserId && appUsername == pluginUsername -> {
+                // Already in sync -- leave both sides alone.
+            }
+            else -> {
+                client.send(SetSimbriefCredentialsCommand(
+                    simbriefUserId = appUserId.ifEmpty { null },
+                    simbriefUsername = appUsername.ifEmpty { null }
+                ))
+                client.send(RefreshFlightPlanCommand())
+            }
         }
     }
 
