@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-02
+
 ### Added
 
 - Android: a bidirectional plugin/app version-mismatch dialog (issue #87). On
@@ -465,6 +467,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
   fallback — and when, surfaced in both the live view and the snapshot file.
 
-[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sushiat/vpilot-handoff/releases/tag/v0.1.0
