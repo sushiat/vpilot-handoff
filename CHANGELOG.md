@@ -426,3 +426,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which mechanism (`ControllerRankingModel.SequenceRemainingWaypoints`) last advanced the
   committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
   fallback — and when, surfaced in both the live view and the snapshot file.
+
+[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/sushiat/vpilot-handoff/releases/tag/v0.1.0
