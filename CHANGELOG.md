@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the auto-updater), or re-sideload/update via Obtainium for a stale app.
   Dismiss is remembered per exact version pair, so it stays quiet until
   either side actually changes.
-
 - Plugin: the auto-update flow now gives the pilot visible feedback inside vPilot
   (issue #85). The silent installer runs with `/SILENT` instead of `/VERYSILENT`,
   so Inno Setup's install progress window is shown while it waits for vPilot to
@@ -55,7 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blank wizard page (`InfoBeforeFile`, fed by the extracted release notes
   pandoc-rendered to RTF in CI, a plain-text fallback locally). Silent
   auto-updates are unaffected.
-
 - Android: a fresh install now defaults to 8.33 kHz channel spacing instead of
   25 kHz (issue #80) — the modern European standard, so a new user no longer has
   to change it by hand. Only seeds a never-configured install; any existing saved
