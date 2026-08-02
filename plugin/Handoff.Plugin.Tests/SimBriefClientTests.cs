@@ -59,8 +59,8 @@ namespace Handoff.Plugin.Tests
 
             Assert.NotNull(lat);
             Assert.NotNull(lon);
-            Assert.Equal(50.0379, lat.Value, 3);
-            Assert.Equal(8.5622, lon.Value, 3);
+            Assert.Equal(50.0379, lat.GetValueOrDefault(), 3);
+            Assert.Equal(8.5622, lon.GetValueOrDefault(), 3);
         }
 
         [Fact]
