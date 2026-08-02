@@ -31,6 +31,12 @@ namespace Handoff.Plugin
         public const string TypeSetCom1ReceiveEnabled = "setCom1ReceiveEnabled";
         public const string TypeSetCom2ReceiveEnabled = "setCom2ReceiveEnabled";
 
+        // Adjustable poll cadences (issue #88) -- the plugin pushes the tier-derived radio and
+        // telemetry SimConnect poll intervals down here, both when the pilot changes the setting
+        // and on every (re)connect (the RadioHost process restarts on VATSIM connect and would
+        // otherwise revert to its own defaults).
+        public const string TypeSetPollIntervals = "setPollIntervals";
+
         public string Type { get; set; }
 
         // TypeRadioState (host -> plugin)
@@ -69,5 +75,11 @@ namespace Handoff.Plugin
         // mutually exclusive with the other, nothing else to carry.
         // TypeSetCom1ReceiveEnabled / TypeSetCom2ReceiveEnabled (plugin -> host): reuses
         // Com1ReceiveEnabled/Com2ReceiveEnabled above for the desired new state.
+
+        // TypeSetPollIntervals (plugin -> host): the radio (COM freq/transponder) and ownship
+        // telemetry SimConnect poll cadences, in milliseconds. Both derived from the pilot's
+        // update-interval tier by UpdateIntervalModel; RadioHost never learns about tiers.
+        public int? PollIntervalMs { get; set; }
+        public int? TelemetryPollIntervalMs { get; set; }
     }
 }

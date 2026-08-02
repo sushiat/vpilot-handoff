@@ -12,6 +12,7 @@ namespace Handoff.Plugin
         private HandoffControllerStateModel _controllerState;
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
+        private UpdateIntervalModel _updateInterval;
         private FlightPlanModel _flightPlanState;
         private VatsimDataFeedModel _vatsimDataFeed;
         private PilotSessionModel _pilotSession;
@@ -37,10 +38,17 @@ namespace Handoff.Plugin
             // HandoffController model), not just IBroker's controller events.
             _controllerState = new HandoffControllerStateModel(_broker, _chatModel);
 
+            // Pilot-selected update-interval tier (issue #88), persisted plugin-side, edited from
+            // the Android client. Just synchronous disk-read of a tiny JSON at construction (same
+            // shape as FlightPlanModel's credential load), safe here. Injected into RadioStateModel
+            // (pushes the tier's SimConnect poll cadences down the command pipe) and the WebSocket
+            // server (drives the broadcast cadence + the setUpdateInterval command).
+            _updateInterval = new UpdateIntervalModel(_broker.PostDebugMessage);
+
             // RadioStateModel's helper process is tied to the VATSIM connection, not the
             // plugin's own load lifetime -- radio state isn't needed before connecting, and
             // IPlugin has no unload hook, so this is the only clean way to actually stop it.
-            _radioState = new RadioStateModel(_broker.PostDebugMessage);
+            _radioState = new RadioStateModel(_broker.PostDebugMessage, _updateInterval);
             _broker.NetworkConnected += (sender, e) => _radioState.Start();
             _broker.NetworkDisconnected += (sender, e) => _radioState.Stop();
             _broker.SessionEnded += (sender, e) => _radioState.Stop();
@@ -125,7 +133,7 @@ namespace Handoff.Plugin
             _pairingWindow = new HandoffPairingWindow(uiContext);
             _pairingSession = new HandoffPairingSession(_pairingWindow, _broker.PostDebugMessage);
 
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _updateInterval, _broker.PostDebugMessage);
             _webSocketServer.Start();
 
             _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);

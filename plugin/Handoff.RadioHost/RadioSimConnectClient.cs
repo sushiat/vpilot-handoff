@@ -52,16 +52,23 @@ namespace Handoff.RadioHost
     /// </summary>
     internal sealed class RadioSimConnectClient
     {
-        private const int PollIntervalMs = 1000;
+        // Mutable (issue #88): the plugin pushes a tier-derived cadence down via SetPollIntervals.
+        // Both default to the "Normal" tier's values (the original hardcoded constants), so an
+        // unset setting behaves exactly as before. Read and written only on the poll-loop thread
+        // (writes arrive via _commandQueue), so no volatility/locking needed -- same discipline as
+        // every other SimConnect touch in this class.
+        private int _pollIntervalMs = 1000;
 
         // Slower than the radio poll -- phase-of-flight/CTR-proximity logic downstream
         // doesn't need sub-second updates the way "did the tuned frequency just change"
         // does. Independent SimConnect data definition/request below, not baked into
         // RadioSimVars, precisely so this cadence can move independently of the radio poll.
-        private const int TelemetryPollIntervalMs = 3000;
+        private int _telemetryPollIntervalMs = 3000;
 
-        // Exceeds PollIntervalMs so a fresh reading is available when verifying a write took
-        // effect.
+        // Tuned just above the default radio poll so a fresh reading is available when verifying a
+        // write took effect. Left fixed rather than tier-scaled -- at the Slow tier (2s radio poll)
+        // the post-write "now reads X" log line may lag a tick, but that's diagnostic logging only;
+        // the SimConnect write itself is unaffected.
         private const int SettleWaitMs = 1100;
 
         // Large, arbitrary offset -- see class doc comment. Distinct from SimConnectTestTool's
@@ -339,6 +346,23 @@ namespace Handoff.RadioHost
             });
         }
 
+        /// <summary>
+        /// Applies new radio + telemetry poll cadences (issue #88). Enqueued like every other
+        /// public method so the field writes land on the poll-loop thread, never racing a read
+        /// mid-tick. Resets the telemetry accumulator so a change takes effect from a clean start
+        /// rather than carrying over a partial count against the new (possibly shorter) interval.
+        /// </summary>
+        public void SetPollIntervals(int radioPollMs, int telemetryPollMs)
+        {
+            _commandQueue.Add(() =>
+            {
+                _pollIntervalMs = radioPollMs;
+                _telemetryPollIntervalMs = telemetryPollMs;
+                _msSinceLastTelemetryPoll = 0;
+                Logger.Log("Poll intervals updated: radio=" + radioPollMs + "ms, telemetry=" + telemetryPollMs + "ms.");
+            });
+        }
+
         public void SetTransponderCode(int squawk)
         {
             Handoff.Plugin.TransponderCode.ValidateSquawkRange(squawk);
@@ -563,17 +587,17 @@ namespace Handoff.RadioHost
 
                         // One thread, two independent cadences: tick at the shorter (radio)
                         // interval and only re-request telemetry once enough ticks have
-                        // accumulated to reach TelemetryPollIntervalMs.
+                        // accumulated to reach _telemetryPollIntervalMs.
                         _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
 
-                        _msSinceLastTelemetryPoll += PollIntervalMs;
-                        if (_msSinceLastTelemetryPoll >= TelemetryPollIntervalMs)
+                        _msSinceLastTelemetryPoll += _pollIntervalMs;
+                        if (_msSinceLastTelemetryPoll >= _telemetryPollIntervalMs)
                         {
                             _fsConnect.RequestData(Requests.OwnshipTelemetrySimVars, Requests.OwnshipTelemetrySimVars);
                             _msSinceLastTelemetryPoll = 0;
                         }
 
-                        Thread.Sleep(PollIntervalMs);
+                        Thread.Sleep(_pollIntervalMs);
                     }
                     else
                     {

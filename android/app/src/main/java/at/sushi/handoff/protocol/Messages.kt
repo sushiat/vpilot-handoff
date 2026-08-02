@@ -235,6 +235,10 @@ data class SubsystemStatusMessage(
     val vatsimDataFeedConnected: Boolean = false,
     val simbriefFetched: Boolean = false,
     val pluginVersion: String? = null,
+    // Issue #88 -- the plugin's current update-interval tier ("fast"/"normal"/"slow"). Carried on
+    // every connect (and resent on change), so the Settings tier selector reflects the
+    // plugin-persisted value on every reconnect. Null from an older plugin that predates the field.
+    val updateInterval: String? = null,
     // Issue #65 -- null unless debug mode is currently on. Lean, plain-language per-subsystem
     // health lines for the debug overlay's "Systems" section -- the exhaustive per-subsystem
     // detail lives only in the debug snapshot file, not here.
@@ -476,6 +480,18 @@ data class SetSimbriefCredentialsCommand(
     val simbriefUsername: String? = null
 ) : ClientCommand {
     override fun encode() = json.encodeToString(SetSimbriefCredentialsCommand.serializer(), this)
+}
+
+/** Issue #88 -- selects the update-interval tier ("fast"/"normal"/"slow"). Persisted plugin-side
+ *  and applied live to the SimConnect polls and WebSocket broadcast cadence. The wire value is a
+ *  lowercase string (see UpdateInterval.wire), deliberately decoupled from the Kotlin enum's names.
+ *  The plugin echoes the current tier back via subsystemStatus.updateInterval. */
+@Serializable
+data class SetUpdateIntervalCommand(
+    val type: String = "setUpdateInterval",
+    val interval: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SetUpdateIntervalCommand.serializer(), this)
 }
 
 /** Carries no fields -- the plugin fetches using whatever credentials were last sent via

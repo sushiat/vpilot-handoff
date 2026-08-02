@@ -189,9 +189,17 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildSubsystemStatusMessage_NoSystemsDebugArgument_IsNull()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0"));
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0", "normal"));
 
             Assert.Equal(JTokenType.Null, json["systemsDebug"].Type);
+        }
+
+        [Fact]
+        public void BuildSubsystemStatusMessage_IncludesUpdateInterval()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0", "slow"));
+
+            Assert.Equal("slow", (string)json["updateInterval"]);
         }
 
         [Fact]
@@ -204,7 +212,7 @@ namespace Handoff.Plugin.Tests
                 vatGlassesLoadedRegionCount: 42, vatSpyBoundaryCount: 380,
                 pairedClientCount: 1, authenticatedSocketCount: 1, activeOperationCount: 0);
 
-            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, true, true, true, "0.1.0", info));
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, true, true, true, "0.1.0", "normal", info));
 
             Assert.Equal(42, (int)json["systemsDebug"]["vatGlassesLoadedRegionCount"]);
             Assert.Equal(380, (int)json["systemsDebug"]["vatSpyBoundaryCount"]);
@@ -311,6 +319,15 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(ClientCommand.TypeNameDebugSnapshot, command.Type);
             Assert.Equal("abc123", command.SnapshotId);
             Assert.Equal("sequencing lag", command.Name);
+        }
+
+        [Fact]
+        public void ParseClientCommand_SetUpdateInterval()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"setUpdateInterval\",\"interval\":\"fast\"}");
+
+            Assert.Equal(ClientCommand.TypeSetUpdateInterval, command.Type);
+            Assert.Equal("fast", command.Interval);
         }
 
         [Fact]
@@ -494,7 +511,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildSubsystemStatusMessage_IncludesAllFields()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0"));
+            var json = JObject.Parse(ProtocolMessages.BuildSubsystemStatusMessage(true, false, true, false, "0.1.0", "fast"));
 
             Assert.Equal("subsystemStatus", (string)json["type"]);
             Assert.True((bool)json["radioHostConnected"]);
@@ -502,6 +519,7 @@ namespace Handoff.Plugin.Tests
             Assert.True((bool)json["vatsimDataFeedConnected"]);
             Assert.False((bool)json["simbriefFetched"]);
             Assert.Equal("0.1.0", (string)json["pluginVersion"]);
+            Assert.Equal("fast", (string)json["updateInterval"]);
         }
 
         [Fact]

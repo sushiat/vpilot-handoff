@@ -29,6 +29,8 @@ namespace Handoff.Plugin
         public const string TypeSetCom2ReceiveEnabled = "setCom2ReceiveEnabled";
         public const string TypeSetSimbriefCredentials = "setSimbriefCredentials";
         public const string TypeRefreshFlightPlan = "refreshFlightPlan";
+        // Issue #88 -- update-interval tier (Fast/Normal/Slow), persisted plugin-side, edited here.
+        public const string TypeSetUpdateInterval = "setUpdateInterval";
         public const string TypePinController = "pinController";
         public const string TypeClearPinnedController = "clearPinnedController";
         public const string TypeDismissSelcal = "dismissSelcal";
@@ -85,6 +87,12 @@ namespace Handoff.Plugin
         // just fetches with whatever is currently persisted.
         public string SimbriefUserId { get; set; }
         public string SimbriefUsername { get; set; }
+
+        // setUpdateInterval -- the update-interval tier as a lowercase wire string
+        // ("fast"/"normal"/"slow"), persisted by the plugin (overwriting whatever was persisted
+        // before) and applied live to the SimConnect polls and the WS broadcast cadence. An
+        // unrecognized value is ignored, leaving the current tier untouched. See docs/protocol.md.
+        public string Interval { get; set; }
 
         // ping -- client-supplied timestamp (epoch milliseconds), echoed back unchanged on the
         // pong reply so the client can measure round-trip latency itself; the plugin does not

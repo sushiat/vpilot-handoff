@@ -41,6 +41,7 @@ import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.KeypadBlockMode
 import at.sushi.handoff.ThemeMode
+import at.sushi.handoff.UpdateInterval
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.ui.theme.HandoffTextField
@@ -90,6 +91,7 @@ fun SettingsDialog(
     initialTheme: ThemeMode,
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
+    initialUpdateInterval: UpdateInterval,
     initialIgnoredDeviceCount: Int,
     onClearIgnoredDevices: () -> Unit,
     onDismiss: () -> Unit,
@@ -100,7 +102,8 @@ fun SettingsDialog(
         simbriefUsername: String?,
         theme: ThemeMode,
         channelSpacing: ChannelSpacing,
-        keypadBlockMode: KeypadBlockMode
+        keypadBlockMode: KeypadBlockMode,
+        updateInterval: UpdateInterval
     ) -> Unit
 ) {
     val colors = LocalHandoffColors.current
@@ -111,6 +114,7 @@ fun SettingsDialog(
     var theme by remember { mutableStateOf(initialTheme) }
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
+    var updateInterval by remember { mutableStateOf(initialUpdateInterval) }
     var discoveryStatus by remember { mutableStateOf("") }
     var ignoredDeviceCount by remember { mutableStateOf(initialIgnoredDeviceCount) }
     val scope = rememberCoroutineScope()
@@ -150,7 +154,8 @@ fun SettingsDialog(
             simbriefUsername.ifBlank { null },
             theme,
             channelSpacing,
-            keypadBlockMode
+            keypadBlockMode,
+            updateInterval
         )
         onDismiss()
     }
@@ -214,12 +219,16 @@ fun SettingsDialog(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                         Column(if (singleColumn) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
                             SectionLabel("SIMBRIEF", topPadding = 0.dp)
-                            FieldLabel("SimBrief user ID")
-                            HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
-                            Box(Modifier.padding(top = 10.dp)) {
-                                FieldLabel("SimBrief username (fallback)")
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.weight(1f)) {
+                                    FieldLabel("User ID")
+                                    HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    FieldLabel("Username (fallback)")
+                                    HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
+                                }
                             }
-                            HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
 
                             SectionLabel("APPEARANCE")
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -340,6 +349,20 @@ fun SettingsDialog(
                                 ),
                                 keypadBlockMode
                             ) { keypadBlockMode = it }
+
+                            // Issue #88 -- how often the plugin polls the sim and broadcasts to us.
+                            // The plugin owns the actual cadences each tier maps to and is the
+                            // authoritative source of the current value (echoed via
+                            // subsystemStatus); this just picks the tier and sends it down.
+                            SectionLabel("UPDATE INTERVAL")
+                            ToggleRow(
+                                listOf(
+                                    ToggleOption(UpdateInterval.FAST, "Fast"),
+                                    ToggleOption(UpdateInterval.NORMAL, "Normal"),
+                                    ToggleOption(UpdateInterval.SLOW, "Slow")
+                                ),
+                                updateInterval
+                            ) { updateInterval = it }
                         }
 
                         if (!singleColumn) {

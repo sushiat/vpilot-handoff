@@ -40,6 +40,12 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #88 -- adjustable update interval. New client→server `setUpdateInterval` (tier
+`fast`/`normal`/`slow`, persisted plugin-side, edited from the client). New field `updateInterval`
+on `subsystemStatus` reflecting the plugin's current tier -- carried on every per-connect snapshot
+and resent on change, so the client's selection stays correct on every reconnect. `normal`
+reproduces the plugin's original hardcoded cadences exactly, so an unset tier changes nothing.
+
 Issue #73 -- debug window refinements. New client→server `nameDebugSnapshot`. New server→client
 `debugSnapshotNamed`. New nullable fields on the top-level `debug` object:
 `lastWaypointAdvanceMechanism`, `lastWaypointAdvanceAt`, null unless debug mode is on (same
@@ -559,6 +565,7 @@ drawer (issue #13). Resent whenever any of the underlying signals change.
   "vatsimDataFeedConnected": true,
   "simbriefFetched": false,
   "pluginVersion": "0.2.0",
+  "updateInterval": "normal",
   "systemsDebug": null
 }
 ```
@@ -573,6 +580,14 @@ is the installed plugin's version, read at runtime from the plugin assembly's
 `AssemblyInformationalVersion` (auto-populated from `Handoff.Plugin.csproj`'s `<Version>` at
 build time), so it stays in sync with releases automatically. Any `+<git-sha>` build-metadata
 suffix is stripped, leaving a plain semver string (e.g. `"0.2.0"`).
+
+`updateInterval` (issue #88) is the pilot's current update-interval tier -- `"fast"`, `"normal"`,
+or `"slow"` -- persisted plugin-side and set via `setUpdateInterval` (below). It's carried here,
+rather than only echoed on pairing the way SimBrief credentials are, precisely because this
+message is part of every per-connect snapshot **and** is resent on change: that's what lets the
+client's tier selector show the plugin-persisted value on every reconnect, not just first pairing.
+`"normal"` reproduces the plugin's original hardcoded cadences, so a client that has never set the
+tier sees `"normal"` and nothing behaves differently.
 
 `systemsDebug` (issue #65) is `null` unless debug mode is on -- the debug overlay's "Systems"
 section, one plain-language health line per non-ranking subsystem (radio/SimConnect, VATSIM
@@ -796,6 +811,37 @@ before the Android app has necessarily connected.
 
 ```json
 {"type": "setSimbriefCredentials", "simbriefUserId": "123456", "simbriefUsername": null}
+```
+
+### `setUpdateInterval`
+
+Selects the update-interval tier -- `"fast"`, `"normal"`, or `"slow"` -- that drives the plugin's
+poll/broadcast cadences. Persisted plugin-side (a full overwrite of whatever was persisted before)
+and applied live -- no plugin restart -- to both the SimConnect polls (radio + ownship telemetry,
+in `Handoff.RadioHost`) and the WebSocket broadcast cadence. Persisting here (rather than holding
+it only in memory) is what lets the plugin restore the tier on its own next startup and re-apply it
+to `Handoff.RadioHost` whenever that helper process restarts.
+
+Same persist-plugin-side / edit-from-client model as `setSimbriefCredentials`, with one difference:
+the plugin echoes the current tier back on **every** connect via `subsystemStatus.updateInterval`
+(not only on a pairing-code exchange), so the client always renders the plugin-persisted selection.
+The plugin is authoritative -- the client displays whatever `subsystemStatus` reports and overwrites
+it by sending this command; there is no client-pushes-its-own-value-up reconciliation.
+
+The three tiers map to these cadences (`normal` matches the plugin's original hardcoded values, so
+leaving the tier unset changes nothing):
+
+| Tier     | Radio SimConnect poll | Telemetry SimConnect poll | WebSocket broadcast |
+|----------|-----------------------|---------------------------|---------------------|
+| `fast`   | 0.5 s                 | 1 s                       | 0.5 s               |
+| `normal` | 1 s                   | 3 s                       | 1 s                 |
+| `slow`   | 2 s                   | 5 s                       | 2 s                 |
+
+The VATSIM data feed poll (15 s) is fixed -- it hits a third-party public feed and isn't part of
+this setting. An unrecognized tier value is ignored (the current tier is left untouched).
+
+```json
+{"type": "setUpdateInterval", "interval": "fast"}
 ```
 
 ### `refreshFlightPlan`
