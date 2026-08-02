@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Android: a fresh install now defaults to 8.33 kHz channel spacing instead of
+  25 kHz (issue #80) — the modern European standard, so a new user no longer has
+  to change it by hand. Only seeds a never-configured install; any existing saved
+  channel-spacing preference is left untouched.
+
+### Added
+
+- Plugin/Android: a freshly-paired tablet auto-adopts the plugin's already-stored
+  SimBrief credentials instead of making the pilot re-type them (issue #80). The
+  plugin includes its persisted `simbriefUserId`/`simbriefUsername` in the
+  `authResult` message **only on the pairing-code success path** — never the token
+  (routine reconnect) path or any failure path, so credentials are pushed down
+  exactly once, right after pairing. The client then reconciles: adopt the
+  plugin's values when the tablet has none, no-op when they already match, and
+  when the tablet holds *different* credentials keep the tablet's and push them
+  back up (`setSimbriefCredentials` + `refreshFlightPlan`) so both sides converge
+  on the tablet's value with no silent data loss.
+
 ## [0.1.0] - 2026-08-01
 
 ### Added

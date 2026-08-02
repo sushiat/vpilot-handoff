@@ -212,6 +212,39 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildAuthResultMessage_NoSimbriefArguments_FieldsAreNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildAuthResultMessage(success: true, token: "tok"));
+
+            Assert.Equal("authResult", (string)json["type"]);
+            Assert.True((bool)json["success"]);
+            Assert.Equal("tok", (string)json["token"]);
+            Assert.Equal(JTokenType.Null, json["simbriefUserId"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefUsername"].Type);
+        }
+
+        [Fact]
+        public void BuildAuthResultMessage_WithSimbriefCredentials_IncludesFields()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildAuthResultMessage(
+                success: true, token: "tok", simbriefUserId: "12345", simbriefUsername: "someuser"));
+
+            Assert.Equal("12345", (string)json["simbriefUserId"]);
+            Assert.Equal("someuser", (string)json["simbriefUsername"]);
+        }
+
+        [Fact]
+        public void BuildAuthResultMessage_Failure_IncludesReason()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildAuthResultMessage(success: false, reason: "Invalid pairing code."));
+
+            Assert.False((bool)json["success"]);
+            Assert.Equal("Invalid pairing code.", (string)json["reason"]);
+            Assert.Equal(JTokenType.Null, json["simbriefUserId"].Type);
+            Assert.Equal(JTokenType.Null, json["simbriefUsername"].Type);
+        }
+
+        [Fact]
         public void BuildDebugSnapshotSavedMessage_IncludesSnapshotIdAndPath()
         {
             var json = JObject.Parse(ProtocolMessages.BuildDebugSnapshotSavedMessage("abc123", "C:\\path\\to\\snapshot.json"));

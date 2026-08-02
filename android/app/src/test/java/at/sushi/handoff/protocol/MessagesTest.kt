@@ -369,6 +369,30 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesAuthResultMessage_WithSimbriefCredentials() {
+        // Issue #80 -- a pairing-code success carries the plugin's persisted SimBrief credentials
+        // down so a freshly-paired client can adopt them without the pilot re-typing.
+        val json = """{"type":"authResult","success":true,"token":"tok","reason":null,"simbriefUserId":"12345","simbriefUsername":"someuser"}"""
+
+        val message = decodeServerMessage(json) as AuthResultMessage
+        assertEquals(true, message.success)
+        assertEquals("tok", message.token)
+        assertEquals("12345", message.simbriefUserId)
+        assertEquals("someuser", message.simbriefUsername)
+    }
+
+    @Test
+    fun decodesAuthResultMessage_NoSimbriefFields_DefaultToNull() {
+        // The token (routine reconnect) path and every failure path omit the credentials entirely.
+        val json = """{"type":"authResult","success":true,"token":"tok"}"""
+
+        val message = decodeServerMessage(json) as AuthResultMessage
+        assertEquals(true, message.success)
+        assertNull(message.simbriefUserId)
+        assertNull(message.simbriefUsername)
+    }
+
+    @Test
     fun returnsNullForUnrecognizedType() {
         assertNull(decodeServerMessage("""{"type":"somethingElse"}"""))
     }

@@ -365,7 +365,15 @@ namespace Handoff.Plugin
                     var token = _pairedClients.IssueToken(command.DeviceId);
                     lock (_gate) { _authenticatedSockets.Add(socket); }
                     Log("Client paired via code: " + socket.ConnectionInfo.ClientIpAddress);
-                    socket.Send(ProtocolMessages.BuildAuthResultMessage(success: true, token: token));
+                    // Only this fresh-pairing path carries the SimBrief credentials down (issue
+                    // #80) -- the token (routine reconnect) path above deliberately does not, so a
+                    // freshly-paired client adopts them once, without every later reconnect
+                    // re-pushing them.
+                    socket.Send(ProtocolMessages.BuildAuthResultMessage(
+                        success: true,
+                        token: token,
+                        simbriefUserId: _flightPlanState.SimbriefUserId,
+                        simbriefUsername: _flightPlanState.SimbriefUsername));
                     SendSnapshotTo(socket);
                     return;
                 }

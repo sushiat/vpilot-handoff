@@ -36,6 +36,26 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void SimbriefCredentialGetters_BeforeAnySet_AreNull()
+        {
+            var model = new FlightPlanModel(new OperationProgressModel(), configPath: _configPath);
+
+            Assert.Null(model.SimbriefUserId);
+            Assert.Null(model.SimbriefUsername);
+        }
+
+        [Fact]
+        public void SimbriefCredentialGetters_ReturnWhatSetSimbriefCredentialsStored()
+        {
+            var model = new FlightPlanModel(new OperationProgressModel(), configPath: _configPath);
+
+            model.SetSimbriefCredentials("12345", "someuser");
+
+            Assert.Equal("12345", model.SimbriefUserId);
+            Assert.Equal("someuser", model.SimbriefUsername);
+        }
+
+        [Fact]
         public void HasFetchedSuccessfully_BeforeAnyFetch_IsFalse()
         {
             var model = new FlightPlanModel(new OperationProgressModel(), configPath: _configPath);

@@ -53,6 +53,19 @@ namespace Handoff.Plugin
             get { lock (_gate) { return _current; } }
         }
 
+        /// <summary>The currently-persisted SimBrief user ID / username (issue #80) -- sent down
+        /// to a freshly-paired Android client so it can adopt the plugin's credentials without the
+        /// pilot re-typing them. Read under the same lock the credentials are written under.</summary>
+        public string SimbriefUserId
+        {
+            get { lock (_gate) { return _userId; } }
+        }
+
+        public string SimbriefUsername
+        {
+            get { lock (_gate) { return _username; } }
+        }
+
         /// <summary>Whether a SimBrief fetch has ever succeeded this session.</summary>
         public bool HasFetchedSuccessfully
         {

@@ -280,15 +280,22 @@ namespace Handoff.Plugin
         /// only present when a *new* token was just issued (a successful pairing-code exchange) --
         /// a returning client validating an already-known token gets success with no token field,
         /// nothing new to persist. `reason` is only meaningful when success is false.
+        ///
+        /// `simbriefUserId`/`simbriefUsername` (issue #80) carry the plugin's currently-persisted
+        /// SimBrief credentials, populated *only* on the pairing-code success path (never the token
+        /// path or a failure), so a freshly-paired client can adopt them without the pilot
+        /// re-typing them. Both null on every other path.
         /// </summary>
-        public static string BuildAuthResultMessage(bool success, string token = null, string reason = null)
+        public static string BuildAuthResultMessage(bool success, string token = null, string reason = null, string simbriefUserId = null, string simbriefUsername = null)
         {
             var payload = new
             {
                 type = "authResult",
                 success,
                 token,
-                reason
+                reason,
+                simbriefUserId,
+                simbriefUsername
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
