@@ -27,7 +27,7 @@ namespace Handoff.Plugin.Tests
         // (Assembly.GetExecutingAssembly().Location); under test that's the test output dir, where
         // Handoff.Plugin.dll is copied. Compute the same path so the test writes where it reads.
         private static string MarkerPath =>
-            Path.Combine(
+            PathJoin.Combine(
                 Path.GetDirectoryName(typeof(PluginUpdateModel).Assembly.Location),
                 "update-applied.json");
 
