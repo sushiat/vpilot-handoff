@@ -12,7 +12,8 @@ namespace Handoff.Plugin
     /// <summary>
     /// Checks this repo's GitHub releases for a newer plugin version and, if found, downloads and
     /// sha256-verifies the Handoff-Setup installer, asks the pilot to confirm (see
-    /// IHandoffUpdatePromptDisplay), and if accepted launches it silently (issue #34). The
+    /// IHandoffUpdatePromptDisplay), and if accepted launches it unattended -- /SILENT, so Inno's
+    /// install progress window is visible but no wizard page or button is (issue #34, #85). The
     /// installer itself (plugin/installer/Handoff-Setup.iss) owns everything past that point --
     /// waiting for vPilot to exit, resolving the install folder from the registry, and copying
     /// files -- so this class's job ends at "hand off a verified, trusted binary."
@@ -38,12 +39,14 @@ namespace Handoff.Plugin
 
         private readonly OperationProgressModel _operationProgress;
         private readonly IHandoffUpdatePromptDisplay _promptDisplay;
+        private readonly IHandoffUpdateAppliedDisplay _appliedDisplay;
         private readonly Action<string> _logDebug;
 
-        public PluginUpdateModel(OperationProgressModel operationProgress, IHandoffUpdatePromptDisplay promptDisplay, Action<string> logDebug)
+        public PluginUpdateModel(OperationProgressModel operationProgress, IHandoffUpdatePromptDisplay promptDisplay, IHandoffUpdateAppliedDisplay appliedDisplay, Action<string> logDebug)
         {
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
             _promptDisplay = promptDisplay ?? throw new ArgumentNullException(nameof(promptDisplay));
+            _appliedDisplay = appliedDisplay ?? throw new ArgumentNullException(nameof(appliedDisplay));
             _logDebug = logDebug;
         }
 
@@ -113,10 +116,19 @@ namespace Handoff.Plugin
                 }
 
                 _operationProgress.Report(operationId, "Installing update...");
+                // /SILENT (not /VERYSILENT): show Inno Setup's own install progress window so the
+                // pilot can actually SEE the update running -- it still suppresses every wizard
+                // page and button click (welcome/dir/ready/finished and the InfoBeforeFile
+                // changelog), so it stays fully unattended, just no longer invisible (issue #85).
+                // The window appears at "Preparing to install..." while the installer waits for
+                // vPilot to exit (see Handoff-Setup.iss WaitForVPilotToExit), then completes and
+                // closes itself once vPilot is closed. /SUPPRESSMSGBOXES keeps error dialogs from
+                // needing a click; /NORESTART leaves reboot handling to us (there's nothing to
+                // reboot for anyway). CreateNoWindow only hides the console host, not Inno's GUI.
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = installerPath,
-                    Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+                    Arguments = "/SILENT /SUPPRESSMSGBOXES /NORESTART",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 });
@@ -193,6 +205,11 @@ namespace Handoff.Plugin
                 _operationProgress.Report(operationId, status);
                 _operationProgress.Finish(operationId, status, success: true);
                 _logDebug?.Invoke("PluginUpdateModel: " + status);
+
+                // The visible, once-only confirmation the pilot actually sees in vPilot (issue
+                // #85) -- the reports above only reach the Android app and /dbgwin. Modeless, so it
+                // won't block CheckMarker's caller (HandoffPlugin.Initialize's own thread).
+                _appliedDisplay.ShowUpdated(version);
 
                 File.Delete(markerPath);
             }

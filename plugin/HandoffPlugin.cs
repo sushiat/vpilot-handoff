@@ -138,7 +138,7 @@ namespace Handoff.Plugin
             // sync above -- network I/O (and now a blocking confirmation prompt) must never touch
             // vPilot's own Initialize-calling thread. CheckMarker (a prior update having just been
             // applied) is cheap local-disk-only, safe to run inline first.
-            _pluginUpdate = new PluginUpdateModel(_operationProgress, new HandoffUpdatePromptWindow(uiContext), _broker.PostDebugMessage);
+            _pluginUpdate = new PluginUpdateModel(_operationProgress, new HandoffUpdatePromptWindow(uiContext), new HandoffUpdateAppliedWindow(uiContext), _broker.PostDebugMessage);
             _pluginUpdate.CheckMarker();
             new Thread(() => _pluginUpdate.CheckAsync().GetAwaiter().GetResult())
             { Name = "PluginUpdateModel.Startup", IsBackground = true }.Start();
