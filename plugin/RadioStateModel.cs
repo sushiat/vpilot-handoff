@@ -34,6 +34,7 @@ namespace Handoff.Plugin
         private readonly object _gate = new object();
         private readonly object _lifecycleGate = new object();
         private readonly Action<string> _logDebug;
+        private readonly UpdateIntervalModel _updateInterval;
         private RadioState _current = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
         private OwnshipTelemetry _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
         private StreamWriter _writer;
@@ -51,9 +52,24 @@ namespace Handoff.Plugin
         /// debugger, which is off-limits while connected to VATSIM. Optional so this class
         /// stays usable without an IBroker (e.g. in tests) if that's ever needed.
         /// </param>
-        public RadioStateModel(Action<string> logDebug = null)
+        /// <param name="updateInterval">
+        /// The pilot-selected update-interval tier (issue #88). This class owns the command pipe,
+        /// so it's the natural place to push the tier's radio/telemetry poll cadences down to
+        /// Handoff.RadioHost -- both when the tier changes and on every (re)connect (the RadioHost
+        /// process restarts on VATSIM connect and would otherwise revert to its own defaults).
+        /// Optional so tests can construct this without one.
+        /// </param>
+        public RadioStateModel(Action<string> logDebug = null, UpdateIntervalModel updateInterval = null)
         {
             _logDebug = logDebug;
+            _updateInterval = updateInterval;
+            if (_updateInterval != null)
+            {
+                // Push live when the pilot changes the tier. SendCommand drops the message if
+                // RadioHost isn't currently connected -- harmless, the on-connect push below
+                // re-applies whatever the current tier is once it (re)connects.
+                _updateInterval.Changed += (s, e) => PushPollIntervals();
+            }
         }
 
         public RadioState Current
@@ -235,6 +251,20 @@ namespace Handoff.Plugin
             SendCommand(new RadioIpcMessage { Type = RadioIpcMessage.TypeSetCom2ReceiveEnabled, Com2ReceiveEnabled = enabled });
         }
 
+        /// <summary>Sends the current tier's radio + telemetry poll cadences down to RadioHost
+        /// (issue #88). No-ops without an UpdateIntervalModel; SendCommand itself drops the message
+        /// if RadioHost isn't connected.</summary>
+        private void PushPollIntervals()
+        {
+            if (_updateInterval == null) return;
+            SendCommand(new RadioIpcMessage
+            {
+                Type = RadioIpcMessage.TypeSetPollIntervals,
+                PollIntervalMs = _updateInterval.RadioPollMs,
+                TelemetryPollIntervalMs = _updateInterval.TelemetryPollMs
+            });
+        }
+
         private void SendCommand(RadioIpcMessage message)
         {
             lock (_gate)
@@ -318,6 +348,11 @@ namespace Handoff.Plugin
 
                         var writer = new StreamWriter(commandPipe) { AutoFlush = true };
                         lock (_gate) { _writer = writer; }
+
+                        // RadioHost starts fresh (on its own default cadences) every time it's
+                        // (re)spawned, so re-apply the current tier immediately on connect -- not
+                        // just when the pilot changes it (issue #88).
+                        PushPollIntervals();
 
                         using (var reader = new StreamReader(statePipe))
                         {

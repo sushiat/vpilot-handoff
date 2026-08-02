@@ -200,8 +200,15 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
-        /// <summary>`systemsDebug` (issue #65) is null whenever debug mode is off -- see SystemsDebugInfo's own doc comment.</summary>
-        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion, SystemsDebugInfo systemsDebug = null)
+        /// <summary>
+        /// `systemsDebug` (issue #65) is null whenever debug mode is off -- see SystemsDebugInfo's
+        /// own doc comment. `updateInterval` (issue #88) is the pilot's current update-interval
+        /// tier as a lowercase string ("fast"/"normal"/"slow") -- carried here (not only echoed on
+        /// pairing like SimBrief credentials) precisely because subsystemStatus is part of every
+        /// per-connect snapshot and is resent on change, so the client's dropdown reflects the
+        /// plugin-persisted value on every reconnect, not just first pairing.
+        /// </summary>
+        public static string BuildSubsystemStatusMessage(bool radioHostConnected, bool simulatorConnected, bool vatsimDataFeedConnected, bool simbriefFetched, string pluginVersion, string updateInterval, SystemsDebugInfo systemsDebug = null)
         {
             var payload = new
             {
@@ -211,6 +218,7 @@ namespace Handoff.Plugin
                 vatsimDataFeedConnected,
                 simbriefFetched,
                 pluginVersion,
+                updateInterval,
                 systemsDebug = systemsDebug == null ? null : new
                 {
                     radioHostConnected = systemsDebug.RadioHostConnected,

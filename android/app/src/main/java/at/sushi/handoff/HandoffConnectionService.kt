@@ -68,6 +68,9 @@ class HandoffConnectionService : Service() {
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
+        // Issue #88 -- last known update-interval tier, so the settings dialog can show a sensible
+        // choice before the plugin's subsystemStatus (the authoritative source) arrives.
+        const val PrefKeyUpdateInterval = "update_interval"
         private const val ChannelId = "handoff_connection"
         private const val NotificationId = 1
         // Handled in onStartCommand -- the notification's "Quit" action (only ever shown/tapped

@@ -165,6 +165,10 @@ namespace Handoff.RadioHost
                         case RadioIpcMessage.TypeSetCom2ReceiveEnabled:
                             if (message.Com2ReceiveEnabled.HasValue) radio.SetCom2ReceiveEnabled(message.Com2ReceiveEnabled.Value);
                             break;
+                        case RadioIpcMessage.TypeSetPollIntervals:
+                            if (message.PollIntervalMs.HasValue && message.TelemetryPollIntervalMs.HasValue)
+                                radio.SetPollIntervals(message.PollIntervalMs.Value, message.TelemetryPollIntervalMs.Value);
+                            break;
                     }
                 }
                 catch (Exception ex)

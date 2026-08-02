@@ -37,6 +37,25 @@ enum class ChannelSpacing { KHZ_25, KHZ_8_33 }
 
 enum class KeypadBlockMode { BLOCK_INVALID, ALLOW_ALL }
 
+/** Issue #88 -- update-interval tier. The plugin owns the actual poll/broadcast cadences each tier
+ *  maps to; this is just the pilot's Fast/Normal/Slow choice. The wire form is a lowercase string
+ *  ("fast"/"normal"/"slow"), kept separate from the enum names so the protocol doesn't couple to
+ *  them (mirrors the plugin's own UpdateIntervalTier). */
+enum class UpdateInterval(val wire: String) {
+    FAST("fast"),
+    NORMAL("normal"),
+    SLOW("slow");
+
+    companion object {
+        /** Maps a wire string back to a tier, defaulting to NORMAL for null/unrecognized values
+         *  (e.g. an older plugin that doesn't report the field). */
+        fun fromWire(wire: String?): UpdateInterval {
+            val normalized = wire?.trim()?.lowercase()
+            return values().firstOrNull { it.wire == normalized } ?: NORMAL
+        }
+    }
+}
+
 /** In-Activity layout mode -- whether the app currently believes it's sharing the screen with
  *  another app (split) or has the whole display (fullscreen). Real detection lives wherever
  *  MainActivity queries window bounds; this just holds the result (and lets a debug build

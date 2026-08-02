@@ -37,6 +37,7 @@ import androidx.core.content.edit
 import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
+import at.sushi.handoff.UpdateInterval
 import at.sushi.handoff.LayoutMode
 import at.sushi.handoff.VersionMismatch
 import at.sushi.handoff.network.AppUpdateClient
@@ -64,6 +65,7 @@ import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import at.sushi.handoff.protocol.SetUpdateIntervalCommand
 import at.sushi.handoff.protocol.ChatEntry
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
@@ -747,11 +749,19 @@ private fun MainScreenContent() {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
+            // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
+            // our own last-saved pref, so the dialog reflects the real live state. Falls back to
+            // the pref (then Normal) only when the plugin hasn't reported one -- an older plugin,
+            // or before the first subsystemStatus has arrived this session.
+            initialUpdateInterval = UpdateInterval.fromWire(
+                subsystemStatus.updateInterval
+                    ?: prefs.getString(HandoffConnectionService.PrefKeyUpdateInterval, null)
+            ),
             initialIgnoredDeviceCount = IgnoredDeviceStore.loadIgnored(prefs).size,
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newUpdateInterval ->
                 prefs.edit {
                     putString(HandoffConnectionService.PrefKeyHost, host)
                     putString(HandoffConnectionService.PrefKeySimbriefUserId, simbriefUserId)
@@ -759,6 +769,7 @@ private fun MainScreenContent() {
                     putString(HandoffConnectionService.PrefKeyTheme, newTheme.name)
                     putString(HandoffConnectionService.PrefKeyChannelSpacing, newSpacing.name)
                     putString(HandoffConnectionService.PrefKeyKeypadBlockMode, newKeypadMode.name)
+                    putString(HandoffConnectionService.PrefKeyUpdateInterval, newUpdateInterval.wire)
                 }
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
@@ -766,6 +777,9 @@ private fun MainScreenContent() {
                 HandoffConnectionService.instance?.reconnectNow()
                 send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
                 send(RefreshFlightPlanCommand())
+                // Plugin persists this itself (mirrors SimBrief creds), so no reconnect needed --
+                // it applies live and is re-pushed by the plugin on its next RadioHost (re)connect.
+                send(SetUpdateIntervalCommand(interval = newUpdateInterval.wire))
             }
         )
     }

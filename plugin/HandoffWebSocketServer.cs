@@ -62,6 +62,7 @@ namespace Handoff.Plugin
         private readonly HandoffPairingSession _pairingSession;
         private readonly VatGlassesDataModel _vatGlassesData;
         private readonly VatSpyDataModel _vatSpyData;
+        private readonly UpdateIntervalModel _updateInterval;
         private readonly DebugSnapshotService _debugSnapshotService;
         private readonly Action<string> _logDebug;
         private readonly X509Certificate2 _certificate;
@@ -71,10 +72,10 @@ namespace Handoff.Plugin
         // Decoupled from Recompute() -- internal ranking stays fully event-driven/reactive, but
         // diffing "did anything meaningful change" is intractable for SimConnect-driven fields
         // (distance/heading/altitude) without running the whole bucket 6-9 geometry anyway, so
-        // the wire broadcast just goes out on a fixed cadence instead.
-        private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(1);
+        // the wire broadcast just goes out on a fixed cadence instead. That cadence is the pilot's
+        // update-interval tier (issue #88), read from _updateInterval rather than a constant.
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, UpdateIntervalModel updateInterval, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -90,6 +91,7 @@ namespace Handoff.Plugin
             _pairingSession = pairingSession ?? throw new ArgumentNullException(nameof(pairingSession));
             _vatGlassesData = vatGlassesData ?? throw new ArgumentNullException(nameof(vatGlassesData));
             _vatSpyData = vatSpyData ?? throw new ArgumentNullException(nameof(vatSpyData));
+            _updateInterval = updateInterval ?? throw new ArgumentNullException(nameof(updateInterval));
             _logDebug = logDebug;
 
             _debugSnapshotService = new DebugSnapshotService(
@@ -115,6 +117,7 @@ namespace Handoff.Plugin
                     socket.OnMessage = message => OnMessage(message, socket);
                 });
 
+                var broadcastInterval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
                 _broadcastTimer = new Timer(_ =>
                 {
                     Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
@@ -124,7 +127,17 @@ namespace Handoff.Plugin
                     // below -- resent here on the same cadence as its IsOriginMismatched sibling
                     // PendingDiversionDestination above.
                     Broadcast(BuildFlightPlanMessage());
-                }, null, BroadcastInterval, BroadcastInterval);
+                }, null, broadcastInterval, broadcastInterval);
+
+                // Update-interval tier change (issue #88): re-arm the broadcast timer to the new
+                // cadence and push a fresh subsystemStatus so every connected client's dropdown
+                // reflects the newly-persisted tier (not just the one that set it).
+                _updateInterval.Changed += (s, e) =>
+                {
+                    var interval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
+                    _broadcastTimer?.Change(interval, interval);
+                    Broadcast(BuildSubsystemStatusMessage());
+                };
                 _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
                 _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
                 _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
@@ -199,6 +212,7 @@ namespace Handoff.Plugin
                 _vatsimDataFeed.IsConnected,
                 _flightPlanState.HasFetchedSuccessfully,
                 PluginVersion,
+                _updateInterval.CurrentTierWire,
                 _controllerRanking.DebugModeEnabled ? BuildSystemsDebugInfo() : null);
 
         /// <summary>Issue #65 -- the lean "Systems" section of the debug overlay, only ever built while debug mode is on (see SystemsDebugInfo's own doc comment for why this stays separate from the exhaustive per-subsystem snapshot detail).</summary>
@@ -310,6 +324,11 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeRefreshFlightPlan:
                     _ = _flightPlanState.RefreshAsync();
+                    break;
+                case ClientCommand.TypeSetUpdateInterval:
+                    // SetTier raises Changed, which re-arms the broadcast timer, pushes the new
+                    // cadence to RadioHost (via RadioStateModel), and re-broadcasts subsystemStatus.
+                    _updateInterval.TrySetTierFromWire(command.Interval);
                     break;
                 case ClientCommand.TypePinController:
                     _controllerState.SetPinnedController(command.Callsign);
