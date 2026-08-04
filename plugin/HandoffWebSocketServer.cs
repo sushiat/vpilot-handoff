@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -22,8 +23,11 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class HandoffWebSocketServer
     {
-        public const int Port = 48765;
-        private const string Address = "wss://0.0.0.0:48765";
+        /// <summary>The port actually in use, live -- either the default or a pilot-persisted
+        /// override (issue #98). No longer a compile-time constant: HandoffDiscoveryListener and
+        /// tests read this to stay in sync with whatever's currently bound.</summary>
+        public int Port => _wsPortModel.CurrentPort;
+        private string Address => "wss://0.0.0.0:" + _wsPortModel.CurrentPort;
 
         // Read from the assembly at runtime so it stays in sync with Handoff.Plugin.csproj's
         // <Version> automatically -- the SDK-style csproj auto-populates
@@ -63,6 +67,7 @@ namespace Handoff.Plugin
         private readonly VatGlassesDataModel _vatGlassesData;
         private readonly VatSpyDataModel _vatSpyData;
         private readonly UpdateIntervalModel _updateInterval;
+        private readonly WsPortModel _wsPortModel;
         private readonly DebugSnapshotService _debugSnapshotService;
         private readonly Action<string> _logDebug;
         private readonly X509Certificate2 _certificate;
@@ -75,7 +80,7 @@ namespace Handoff.Plugin
         // the wire broadcast just goes out on a fixed cadence instead. That cadence is the pilot's
         // update-interval tier (issue #88), read from _updateInterval rather than a constant.
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, UpdateIntervalModel updateInterval, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, UpdateIntervalModel updateInterval, WsPortModel wsPortModel, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -92,6 +97,7 @@ namespace Handoff.Plugin
             _vatGlassesData = vatGlassesData ?? throw new ArgumentNullException(nameof(vatGlassesData));
             _vatSpyData = vatSpyData ?? throw new ArgumentNullException(nameof(vatSpyData));
             _updateInterval = updateInterval ?? throw new ArgumentNullException(nameof(updateInterval));
+            _wsPortModel = wsPortModel ?? throw new ArgumentNullException(nameof(wsPortModel));
             _logDebug = logDebug;
 
             _debugSnapshotService = new DebugSnapshotService(
@@ -101,7 +107,66 @@ namespace Handoff.Plugin
                 PluginVersion, _logDebug);
         }
 
-        public void Start()
+        /// <summary>Wires the broadcast timer and every model's Changed subscription, then makes
+        /// the initial bind attempt. The wiring runs exactly once regardless of bind outcome --
+        /// unlike the socket bind itself (see TryBindSocket), none of this is retryable or
+        /// meaningful to redo, so a failed initial bind still leaves broadcasting ready to go the
+        /// moment RetryBindWithPort succeeds.</summary>
+        public BindOutcome Start()
+        {
+            var broadcastInterval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
+            _broadcastTimer = new Timer(_ =>
+            {
+                Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
+                Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
+                // originMismatch (issue #68) is telemetry-driven and can flip every Recompute
+                // tick, not just on the three Changed events flightPlan is otherwise wired to
+                // below -- resent here on the same cadence as its IsOriginMismatched sibling
+                // PendingDiversionDestination above.
+                Broadcast(BuildFlightPlanMessage());
+            }, null, broadcastInterval, broadcastInterval);
+
+            // Update-interval tier change (issue #88): re-arm the broadcast timer to the new
+            // cadence and push a fresh subsystemStatus so every connected client's dropdown
+            // reflects the newly-persisted tier (not just the one that set it).
+            _updateInterval.Changed += (s, e) =>
+            {
+                var interval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
+                _broadcastTimer?.Change(interval, interval);
+                Broadcast(BuildSubsystemStatusMessage());
+            };
+            _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
+            _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
+            _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
+
+            // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
+            // plan (PilotSessionModel's own callsign, cross-referenced against
+            // VatsimDataFeedModel's pilots[]), so any of the three changing needs to
+            // re-broadcast it, not just a SimBrief refetch.
+            _flightPlanState.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+            _pilotSession.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+
+            // Each of these three also feeds the subsystemStatus message, so any of them
+            // changing needs to re-broadcast it too, not just their own message type.
+            _radioState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
+            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
+            _flightPlanState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
+
+            // A stream, not a snapshot -- broadcast just the one operation that changed, not
+            // the whole set of currently-active operations (see OperationProgressModel).
+            _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished, e.Success));
+
+            return TryBindSocket();
+        }
+
+        /// <summary>Binds the Fleck socket on the current port (issue #98) -- split out from
+        /// Start() so it alone can be retried against a new port from
+        /// HandoffPortConflictWindow's "Save &amp; Restart Listening" button, without re-wiring
+        /// (and double-firing) the broadcast timer or any model's Changed subscription.
+        /// SocketException is distinguished from any other bind failure so the pilot sees "this
+        /// port's in use" rather than a generic error.</summary>
+        private BindOutcome TryBindSocket()
         {
             try
             {
@@ -117,55 +182,30 @@ namespace Handoff.Plugin
                     socket.OnMessage = message => OnMessage(message, socket);
                 });
 
-                var broadcastInterval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
-                _broadcastTimer = new Timer(_ =>
-                {
-                    Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
-                    Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
-                    // originMismatch (issue #68) is telemetry-driven and can flip every Recompute
-                    // tick, not just on the three Changed events flightPlan is otherwise wired to
-                    // below -- resent here on the same cadence as its IsOriginMismatched sibling
-                    // PendingDiversionDestination above.
-                    Broadcast(BuildFlightPlanMessage());
-                }, null, broadcastInterval, broadcastInterval);
-
-                // Update-interval tier change (issue #88): re-arm the broadcast timer to the new
-                // cadence and push a fresh subsystemStatus so every connected client's dropdown
-                // reflects the newly-persisted tier (not just the one that set it).
-                _updateInterval.Changed += (s, e) =>
-                {
-                    var interval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
-                    _broadcastTimer?.Change(interval, interval);
-                    Broadcast(BuildSubsystemStatusMessage());
-                };
-                _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
-                _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
-                _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
-
-                // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
-                // plan (PilotSessionModel's own callsign, cross-referenced against
-                // VatsimDataFeedModel's pilots[]), so any of the three changing needs to
-                // re-broadcast it, not just a SimBrief refetch.
-                _flightPlanState.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
-                _pilotSession.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
-                _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
-
-                // Each of these three also feeds the subsystemStatus message, so any of them
-                // changing needs to re-broadcast it too, not just their own message type.
-                _radioState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
-                _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
-                _flightPlanState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
-
-                // A stream, not a snapshot -- broadcast just the one operation that changed, not
-                // the whole set of currently-active operations (see OperationProgressModel).
-                _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished, e.Success));
-
                 Log("Listening on " + Address);
+                return BindOutcome.Success;
+            }
+            catch (SocketException ex)
+            {
+                var outcome = ex.SocketErrorCode == SocketError.AddressAlreadyInUse ? BindOutcome.PortConflict : BindOutcome.OtherError;
+                Log("Failed to start WebSocket server: " + ex);
+                return outcome;
             }
             catch (Exception ex)
             {
                 Log("Failed to start WebSocket server: " + ex);
+                return BindOutcome.OtherError;
             }
+        }
+
+        /// <summary>Persists <paramref name="newPort"/> and retries the bind on it (issue #98) --
+        /// called from HandoffPortConflictWindow's "Save &amp; Restart Listening" button. Only the
+        /// socket is retried; the broadcast timer and model subscriptions from the original
+        /// Start() call stay as they are.</summary>
+        public BindOutcome RetryBindWithPort(int newPort)
+        {
+            _wsPortModel.SetPort(newPort);
+            return TryBindSocket();
         }
 
         private void OnOpen(IWebSocketConnection socket)

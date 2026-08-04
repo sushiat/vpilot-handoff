@@ -13,6 +13,7 @@ namespace Handoff.Plugin
         private ChatModel _chatModel;
         private RadioStateModel _radioState;
         private UpdateIntervalModel _updateInterval;
+        private WsPortModel _wsPortModel;
         private FlightPlanModel _flightPlanState;
         private VatsimDataFeedModel _vatsimDataFeed;
         private PilotSessionModel _pilotSession;
@@ -133,11 +134,30 @@ namespace Handoff.Plugin
             _pairingWindow = new HandoffPairingWindow(uiContext);
             _pairingSession = new HandoffPairingSession(_pairingWindow, _broker.PostDebugMessage);
 
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _updateInterval, _broker.PostDebugMessage);
-            _webSocketServer.Start();
+            // Persisted TCP-port override (issue #98) -- read before HandoffWebSocketServer so a
+            // prior "Save & Restart Listening" choice is honored on this launch too.
+            _wsPortModel = new WsPortModel(_broker.PostDebugMessage);
 
-            _discoveryListener = new HandoffDiscoveryListener(_certificateStore.FingerprintHex, _broker.PostDebugMessage);
-            _discoveryListener.Start();
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _updateInterval, _wsPortModel, _broker.PostDebugMessage);
+            var tcpOutcome = _webSocketServer.Start();
+
+            // getWsPort reads HandoffWebSocketServer.Port live rather than once at construction
+            // time, so a later RetryBindWithPort call (from the conflict dialog below) is picked
+            // up automatically without restarting this listener (issue #98).
+            _discoveryListener = new HandoffDiscoveryListener(() => _webSocketServer.Port, _certificateStore.FingerprintHex, _broker.PostDebugMessage);
+            var udpOutcome = _discoveryListener.Start();
+
+            // Only a genuine port conflict is worth interrupting the pilot for -- any other bind
+            // failure (OtherError) stays log-only, same as before issue #98.
+            if (tcpOutcome == BindOutcome.PortConflict || udpOutcome == BindOutcome.PortConflict)
+            {
+                var tcpInfo = new PortConflictInfo(
+                    _webSocketServer.Port,
+                    tcpOutcome == BindOutcome.PortConflict,
+                    newPort => _webSocketServer.RetryBindWithPort(newPort) == BindOutcome.Success);
+                var udpInfo = new PortConflictInfo(HandoffDiscoveryListener.Port, udpOutcome == BindOutcome.PortConflict);
+                new HandoffPortConflictWindow(uiContext).ShowConflict(tcpInfo, udpInfo);
+            }
 
             // Checks GitHub releases once at plugin startup, not on VATSIM connect (issue #34) --
             // a pilot setting up the sim/tablet is exactly the moment they'd want to notice and

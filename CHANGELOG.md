@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Plugin: detects a real port-bind failure (issue #98) instead of failing silently --
+  previously a "tablet can't connect" report could be a firewall block or a silent bind
+  failure, and looked identical either way. A stale `vPilot.exe` or duplicate plugin
+  install holding TCP 48765 (or something else holding UDP 48766) now shows a themed
+  dialog explaining the conflict. The TCP WebSocket port is now pilot-configurable from
+  that dialog ("Save & Restart Listening", persisted across launches); the UDP discovery
+  port stays fixed since it's a rendezvous port with no other channel to announce a
+  change on. Android's manual "IP" field in Settings now accepts an optional `:port`
+  suffix to match a non-default plugin port.
+
 ### Fixed
 
 - Plugin installer (issue #95): `BouncyCastle.Crypto.dll` -- a hard runtime dependency for

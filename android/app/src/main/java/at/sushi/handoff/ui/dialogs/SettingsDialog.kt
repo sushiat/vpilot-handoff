@@ -264,7 +264,7 @@ fun SettingsDialog(
 
                             SectionLabel("PLUGIN CONNECTION")
                             FieldLabel("Manual IP (if discovery fails)")
-                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
+                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42[:port]", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
                             Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     "Status: $connectionStatus",
