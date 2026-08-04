@@ -11,7 +11,7 @@ plugins {
 // additionally checks the derived code against the latest published release before tagging (see
 // .github/workflows/release.yml) as a safety net against a version number that was never meant
 // to be lower ending up lower anyway.
-val appVersionName = "0.3.0"
+val appVersionName = "0.4.0"
 
 fun versionCodeFor(versionName: String): Int {
     val (major, minor, patch) = versionName.split(".").map { it.toInt() }
