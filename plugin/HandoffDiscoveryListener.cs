@@ -52,7 +52,7 @@ namespace Handoff.Plugin
             }
             catch (SocketException ex)
             {
-                var outcome = ex.SocketErrorCode == SocketError.AddressAlreadyInUse ? BindOutcome.PortConflict : BindOutcome.OtherError;
+                var outcome = BindOutcomeClassifier.Classify(ex);
                 Log("Failed to start discovery listener: " + ex);
                 return outcome;
             }
