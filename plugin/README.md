@@ -198,6 +198,41 @@ available to check ownership-resolution/ranking against (i.e. whether the sector
 "approaching"/"IN:" would actually have anyone online on live VATSIM, only that the
 sector/altitude-band geometry itself picks the polygon a human would expect).
 
+## Troubleshooting
+
+### Tablet can't connect: Windows Firewall
+
+The plugin opens two listeners, and Windows Firewall's default inbound rules block both
+until you explicitly allow them:
+
+- **TCP 48765** — the main WebSocket connection (`HandoffWebSocketServer`). Always required.
+- **UDP 48766** — auto-discovery (`HandoffDiscoveryListener`), used only when the tablet
+  finds the PC by broadcast. Not needed if you enter the PC's IP address manually in the
+  Handoff app's settings — the app connects straight to port 48765 in that case and never
+  sends a discovery broadcast.
+
+The installer doesn't create these firewall rules itself (it deliberately runs with
+`PrivilegesRequired=lowest`, i.e. no admin prompt — see [Install](#install-end-users) above
+— and adding a firewall rule needs elevation). You'll need to add them once, manually, on
+the PC running vPilot:
+
+1. Open **Windows Defender Firewall with Advanced Security** (search for it in the Start
+   menu, or `wf.msc`).
+2. Select **Inbound Rules** → **New Rule…** in the right-hand pane.
+3. Rule type: **Port**. Next.
+4. Protocol: **TCP**, specific local port: `48765`. Next.
+5. Action: **Allow the connection**. Next.
+6. Profile: leave all three checked (or just the one matching your home network — usually
+   **Private**). Next.
+7. Name it something like `Handoff plugin (TCP 48765)`. Finish.
+8. Repeat with **UDP** / port `48766` if you want auto-discovery instead of entering the IP
+   manually.
+
+If you'd rather not touch Advanced Security, the simpler (but coarser) alternative is
+**Control Panel → Windows Defender Firewall → Allow an app through firewall** and add
+`vPilot.exe` itself — since the plugin's listeners run inside vPilot's process, allowing the
+exe covers both ports without picking them individually.
+
 ## Debugging
 
 vPilot doesn't show plugin `PostDebugMessage` output anywhere by default. Launch it with the

@@ -83,6 +83,24 @@ From then on the plugin checks for updates itself on every vPilot startup, downl
 verifies a newer release automatically, and asks you to confirm (a small popup on the PC,
 not the tablet) before installing it - no need to repeat these steps for future releases.
 
+## Troubleshooting
+
+### Tablet won't connect to the plugin
+
+Windows Firewall blocks the plugin's connections by default, and the installer can't grant
+an exception itself (it deliberately runs without an admin prompt). You'll need to allow
+one thing through the firewall once, on the PC running vPilot:
+
+- If you type the PC's IP address into the Handoff app yourself: allow **TCP port 48765**.
+- If you use the tablet's auto-discovery instead of typing an IP: also allow **UDP port
+  48766**.
+
+Easiest way: **Control Panel → Windows Defender Firewall → Allow an app through firewall**,
+then add `vPilot.exe` (the plugin runs inside vPilot's process, so allowing vPilot itself
+covers both ports without picking them individually). See `plugin/README.md`'s
+Troubleshooting section for the more precise per-port rule steps if you'd rather not allow
+the whole app.
+
 ## Status
 
 Functional - both `plugin/` and `android/` implement the full controller list, chat,
