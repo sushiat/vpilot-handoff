@@ -330,14 +330,25 @@ class HandoffConnectionService : Service() {
         }
     }
 
-    /** Manual IP always connects on the default port -- there's no discovery reply to read a port
-     *  from in that path. Discovery's own reply carries the real port (and a fingerprint hint,
+    /** Manual IP accepts an optional ":port" suffix (issue #98) -- the plugin's TCP port is no
+     *  longer always 48765, since the pilot can change it from the Handoff plugin's port-conflict
+     *  dialog. Discovery's own reply carries the real port independently (and a fingerprint hint,
      *  see HandoffDiscoveryClient), previously parsed but unused; now both are threaded through. */
     private suspend fun resolveHost(): Pair<String, Int>? {
         val prefs = getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
-        prefs.getString(PrefKeyHost, null)?.let { return it to 48765 }
+        prefs.getString(PrefKeyHost, null)?.let { return parseManualHost(it) }
         val result = HandoffDiscoveryClient().discover() ?: return null
         return result.host to result.reply.port
+    }
+
+    /** Splits "192.168.1.42" or "192.168.1.42:48901" on the last ':' -- defaults to 48765 when
+     *  no port segment is present, so anyone who's never touched this field keeps working
+     *  exactly as before. */
+    private fun parseManualHost(raw: String): Pair<String, Int> {
+        val separatorIndex = raw.lastIndexOf(':')
+        if (separatorIndex < 0) return raw to 48765
+        val port = raw.substring(separatorIndex + 1).toIntOrNull() ?: return raw to 48765
+        return raw.substring(0, separatorIndex) to port
     }
 
     /** These are local-only UI settings (never pushed by the server) that SettingsDialog

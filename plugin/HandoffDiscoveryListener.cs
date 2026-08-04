@@ -25,31 +25,41 @@ namespace Handoff.Plugin
         public const int Port = 48766;
         private const string RequestText = "HANDOFF_DISCOVER";
 
-        private readonly string _replyJson;
+        private readonly Func<int> _getWsPort;
+        private readonly string _fingerprintHex;
         private readonly Action<string> _logDebug;
         private UdpClient _client;
 
-        public HandoffDiscoveryListener(string fingerprintHex, Action<string> logDebug = null)
+        /// <summary><paramref name="getWsPort"/> is read fresh on every reply, not once at
+        /// construction -- issue #98's WS-port override can change after this listener is already
+        /// running (HandoffWebSocketServer.RetryBindWithPort), and a reply baked in the
+        /// constructor would silently keep advertising the stale port forever.</summary>
+        public HandoffDiscoveryListener(Func<int> getWsPort, string fingerprintHex, Action<string> logDebug = null)
         {
-            _replyJson = JsonConvert.SerializeObject(new DiscoveryReply
-            {
-                Port = HandoffWebSocketServer.Port,
-                Fingerprint = fingerprintHex
-            });
+            _getWsPort = getWsPort ?? throw new ArgumentNullException(nameof(getWsPort));
+            _fingerprintHex = fingerprintHex;
             _logDebug = logDebug;
         }
 
-        public void Start()
+        public BindOutcome Start()
         {
             try
             {
                 _client = new UdpClient(Port);
                 _client.BeginReceive(OnReceive, null);
                 Log("Listening on UDP " + Port);
+                return BindOutcome.Success;
+            }
+            catch (SocketException ex)
+            {
+                var outcome = BindOutcomeClassifier.Classify(ex);
+                Log("Failed to start discovery listener: " + ex);
+                return outcome;
             }
             catch (Exception ex)
             {
                 Log("Failed to start discovery listener: " + ex);
+                return BindOutcome.OtherError;
             }
         }
 
@@ -84,7 +94,12 @@ namespace Handoff.Plugin
             {
                 if (Encoding.UTF8.GetString(data) == RequestText)
                 {
-                    var reply = Encoding.UTF8.GetBytes(_replyJson);
+                    var replyJson = JsonConvert.SerializeObject(new DiscoveryReply
+                    {
+                        Port = _getWsPort(),
+                        Fingerprint = _fingerprintHex
+                    });
+                    var reply = Encoding.UTF8.GetBytes(replyJson);
                     client.Send(reply, reply.Length, sender);
                     Log("Replied to discovery request from " + sender);
                 }

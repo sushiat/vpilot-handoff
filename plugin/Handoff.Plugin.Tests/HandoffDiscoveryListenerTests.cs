@@ -11,7 +11,7 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void RepliesToDiscoveryRequestWithPortAndFingerprint()
         {
-            var listener = new HandoffDiscoveryListener("AB:12:CD:34");
+            var listener = new HandoffDiscoveryListener(() => 48765, "AB:12:CD:34");
             listener.Start();
             try
             {
@@ -34,9 +34,39 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void RepliesWithTheCurrentPortFromTheGetterNotAConstructionTimeSnapshot()
+        {
+            var currentPort = 48765;
+            var listener = new HandoffDiscoveryListener(() => currentPort, "AB:12:CD:34");
+            listener.Start();
+            try
+            {
+                // Simulates issue #98's "Save & Restart Listening" changing the WS port after
+                // this listener already started -- the next discovery reply must reflect it.
+                currentPort = 48901;
+
+                using (var client = new UdpClient())
+                {
+                    client.Client.ReceiveTimeout = 2000;
+                    var request = Encoding.UTF8.GetBytes("HANDOFF_DISCOVER");
+                    client.Send(request, request.Length, new IPEndPoint(IPAddress.Loopback, HandoffDiscoveryListener.Port));
+
+                    var remote = new IPEndPoint(IPAddress.Any, 0);
+                    var reply = client.Receive(ref remote);
+
+                    Assert.Equal("{\"port\":48901,\"fingerprint\":\"AB:12:CD:34\"}", Encoding.UTF8.GetString(reply));
+                }
+            }
+            finally
+            {
+                listener.Stop();
+            }
+        }
+
+        [Fact]
         public void IgnoresUnrecognizedRequests()
         {
-            var listener = new HandoffDiscoveryListener("AB:12:CD:34");
+            var listener = new HandoffDiscoveryListener(() => 48765, "AB:12:CD:34");
             listener.Start();
             try
             {
