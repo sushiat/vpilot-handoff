@@ -63,7 +63,8 @@ private val credits = listOf(
     CreditRow("Sector boundaries", "CC BY-NC-SA 4.0", "VatGlasses", "https://github.com/lennycolton/vatglasses-data"),
     CreditRow("Live network data", null, "VATSIM Data Feed", "https://vatsim.dev"),
     CreditRow("Flight plan data", null, "SimBrief by Navigraph", "https://www.simbrief.com"),
-    CreditRow("Pilot client", null, "vPilot", "https://vpilot.rosscarlson.dev")
+    CreditRow("Pilot client", null, "vPilot", "https://vpilot.rosscarlson.dev"),
+    CreditRow("UI font", "OFL 1.1", "Roboto Mono", "https://fonts.google.com/specimen/Roboto+Mono")
 )
 
 private val contributeRows = listOf(
