@@ -126,6 +126,8 @@ Handoff's controller ranking and flight-plan awareness depend on data from:
 - [SimBrief](https://www.simbrief.com) by Navigraph (flight plan data)
 - [vPilot](https://vpilot.rosscarlson.dev) (the pilot client this plugin runs inside)
 
+The Android app's UI font is [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) - [![License: OFL 1.1](https://img.shields.io/badge/License-OFL%201.1-lightgrey.svg)](https://scripts.sil.org/OFL)
+
 Many aspects of the implementation in this repo were performed or assisted by
 [Claude Code](https://claude.com/claude-code).
 
@@ -136,4 +138,9 @@ for how to build both components and what to include in a PR.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+Code is licensed under the [MIT License](LICENSE).
+
+The Handoff logo (`plugin/Assets/handoff.svg` and its derived icons/images throughout
+the repo) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+You're welcome to use it for ports, forks, or related projects - attribution to Handoff
+appreciated.
