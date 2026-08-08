@@ -69,7 +69,8 @@ private val credits = listOf(
 
 private val contributeRows = listOf(
     CreditRow("GitHub", null, "sushi.at/vpilot-handoff", "https://github.com/sushiat/vpilot-handoff"),
-    CreditRow("Flightsim.to", null, "sushiat", "https://flightsim.to/profile/sushiat")
+    CreditRow("Flightsim.to", null, "sushiat", "https://flightsim.to/profile/sushiat"),
+    CreditRow("iOS client", null, "MANFahrer-GF/vpilot-handoff-ios", "https://github.com/MANFahrer-GF/vpilot-handoff-ios")
 )
 
 /** Settings dialog -- redesigned per the updated `design_handoff_vatsim_companion` reference
