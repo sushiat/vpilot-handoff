@@ -8,8 +8,8 @@
 [![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
 
 > [!IMPORTANT]
-> An independent native **iOS/iPadOS client** built by [Thomas](https://github.com/MANFahrer-GF)
-> is now available: [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
+> An independent native **iOS/iPadOS client** built by Thomas
+> is now available: [MANFahrer-GF/vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
 
 A companion app for [vPilot](https://vpilot.rosscarlson.dev/) that puts the online
 VATSIM controller list and two-way chat on a second screen - built to run as an
