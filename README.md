@@ -7,7 +7,7 @@
 [![Commit Messages by AI](https://img.shields.io/badge/Commit%20Messages%20by-AI-green)](https://github.com/mefengl/made-by-ai)
 [![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
 
-> [!TIP]
+> [!IMPORTANT]
 > An independent native **iOS/iPadOS client** built by [Thomas](https://github.com/MANFahrer-GF)
 > is now available: [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
 
