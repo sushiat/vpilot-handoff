@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An independent third-party iOS/iPadOS client, [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios)
+  by Thomas, now exists for this project's protocol -- see README Credits.
+
 ## [0.4.0] - 2026-08-04
 
 ### Added

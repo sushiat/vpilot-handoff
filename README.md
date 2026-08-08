@@ -7,6 +7,9 @@
 [![Commit Messages by AI](https://img.shields.io/badge/Commit%20Messages%20by-AI-green)](https://github.com/mefengl/made-by-ai)
 [![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
 
+> [!TIP]
+> An independent native **iOS/iPadOS client** built by [Thomas](https://github.com/MANFahrer-GF)
+> is now available: [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
 
 A companion app for [vPilot](https://vpilot.rosscarlson.dev/) that puts the online
 VATSIM controller list and two-way chat on a second screen - built to run as an
@@ -114,9 +117,13 @@ and ranking flow described above. Still early: expect rough edges, and see
 - `android/` - native Kotlin Android app, WebSocket client + foreground service +
   floating overlay for glanceable alerts
 - `docs/protocol.md` - the WebSocket API contract between plugin and client(s); treat
-  this as the source of truth if you're building an alternate client (e.g. iOS)
+  this as the source of truth for any alternate client -- an independent iOS/iPadOS one,
+  [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios), already exists
 
 ## Credits
+
+An independent native iOS/iPadOS client, [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios),
+has also been built against this project's protocol.
 
 Handoff's controller ranking and flight-plan awareness depend on data from:
 
@@ -125,8 +132,7 @@ Handoff's controller ranking and flight-plan awareness depend on data from:
 - [VATSIM Data Feed](https://vatsim.dev) (live network data)
 - [SimBrief](https://www.simbrief.com) by Navigraph (flight plan data)
 - [vPilot](https://vpilot.rosscarlson.dev) (the pilot client this plugin runs inside)
-
-The Android app's UI font is [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) - [![License: OFL 1.1](https://img.shields.io/badge/License-OFL%201.1-lightgrey.svg)](https://scripts.sil.org/OFL)
+- [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) (Android app UI font) - [![License: OFL 1.1](https://img.shields.io/badge/License-OFL%201.1-lightgrey.svg)](https://scripts.sil.org/OFL)
 
 Many aspects of the implementation in this repo were performed or assisted by
 [Claude Code](https://claude.com/claude-code).
