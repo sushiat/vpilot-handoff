@@ -3,6 +3,17 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Issue #123 follow-up: Android's Local Network Permission restriction. Android 17
+         (targetSdk 37, which this app already targets) blocks a TCP connect to any RFC1918
+         address, and UDP discovery, unless this is granted, silently: a blocked TCP connect
+         just hangs until connectTimeout (no exception distinguishing it from a genuine network
+         failure), and blocked UDP sendto returns EPERM (this is almost certainly what issue #116
+         actually hit, worked around there as a generic "discovery didn't work" fallback without
+         anyone recognizing the real cause). Android 16 used NEARBY_WIFI_DEVICES as this same
+         restriction's temporary permission before ACCESS_LOCAL_NETWORK became the permanent one
+         on 17, so both are declared here to satisfy either OS version's gate. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Issue #73a: the opt in full-device debug snapshot screenshot. Android 14+ requires a

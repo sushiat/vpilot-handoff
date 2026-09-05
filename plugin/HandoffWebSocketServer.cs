@@ -173,7 +173,13 @@ namespace Handoff.Plugin
                 _server = new WebSocketServer(Address)
                 {
                     Certificate = _certificate,
-                    EnabledSslProtocols = SslProtocols.Tls12
+                    // Widened from Tls12-only while chasing issue #123's Pixel connection failure --
+                    // that turned out to be Android's Local Network Permission restriction instead
+                    // (see MainActivity.kt's requestLocalNetworkPermissionThenStart), not a TLS
+                    // negotiation problem, so this change alone didn't fix it. Kept anyway: allowing
+                    // 1.3 in addition to the 1.2 floor is strictly more compatible with modern
+                    // clients that prefer it, with no downside.
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
                 };
                 _server.Start(socket =>
                 {

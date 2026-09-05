@@ -15,6 +15,14 @@ import at.sushi.handoff.ui.main.MainScreen
 
 class MainActivity : ComponentActivity() {
     private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { requestLocalNetworkPermissionThenStart() }
+
+    // Issue #123 follow-up -- Android's Local Network Permission restriction (see
+    // requestLocalNetworkPermissionThenStart's doc comment). Result is ignored here the same way
+    // requestNotificationPermission's is: startConnectionService() runs either way, since a denial
+    // here means connect attempts keep failing/retrying exactly as they already do for any other
+    // reason the plugin isn't reachable, not a case worth a different code path.
+    private val requestLocalNetworkPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { startConnectionService() }
 
     // Issue #73a -- MediaProjection consent must be requested via an Activity; DebugOverlayHost's
@@ -33,7 +41,7 @@ class MainActivity : ComponentActivity() {
         ) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            startConnectionService()
+            requestLocalNetworkPermissionThenStart()
         }
 
         // Issue #123 -- a phone-class screen doesn't have room for the tablet-focused two-pane
@@ -51,6 +59,31 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MainScreen()
+        }
+    }
+
+    /** Issue #123 follow-up -- Android's Local Network Permission restriction silently blocks any
+     *  TCP connect to an RFC1918 address (this app's entire reason for existing) and all UDP
+     *  discovery traffic unless granted: a blocked TCP connect just hangs until connectTimeout
+     *  with no distinguishing exception, and a blocked UDP sendto returns EPERM -- almost
+     *  certainly the real cause behind issue #116, which only ever saw the EPERM symptom and
+     *  worked around it generically rather than recognizing this permission was the reason.
+     *  Android 17 (this app's targetSdk) made it `ACCESS_LOCAL_NETWORK`; Android 16 gated the same
+     *  restriction behind `NEARBY_WIFI_DEVICES` as a temporary permission first, so devices still
+     *  on 16 need that one requested instead. Below 13 (TIRAMISU) neither permission exists and
+     *  the restriction doesn't apply at all. */
+    private fun requestLocalNetworkPermissionThenStart() {
+        val localNetworkPermission = when {
+            Build.VERSION.SDK_INT >= 37 -> Manifest.permission.ACCESS_LOCAL_NETWORK
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> Manifest.permission.NEARBY_WIFI_DEVICES
+            else -> null
+        }
+        if (localNetworkPermission != null &&
+            ContextCompat.checkSelfPermission(this, localNetworkPermission) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestLocalNetworkPermission.launch(localNetworkPermission)
+        } else {
+            startConnectionService()
         }
     }
 
