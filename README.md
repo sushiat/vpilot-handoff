@@ -40,6 +40,10 @@ plugin process and talks to a native Android client over your LAN. That gets you
   controller list and its button panel adapt continuously as you drag the split wider
   or narrower, from a generous 500dp down to an unobtrusive 266dp, rather than being
   designed for one fixed width.
+- **Works on a phone too**, if that's what you've got - built and tested for tablet-sized
+  cockpit screens, but a phone-sized screen gets a single-pane layout instead (chat
+  replaces the controller list via the same MSG button) and locks to portrait, since
+  landscape wouldn't leave enough room for the list to be useful.
 
 ## Screenshots
 
