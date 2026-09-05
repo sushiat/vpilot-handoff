@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ever used by the split-screen chat overlay -- was requested unconditionally on every first
   launch regardless of whether the device would ever use split-screen. Now requested lazily,
   only the first time real split-screen is actually detected and not yet granted.
+- Android (issue #123 follow-up): on a Pixel running a new-enough Android build, the app could
+  never connect to the plugin at all -- every attempt silently timed out with nothing reaching
+  the plugin's log, even with a manually-entered IP (so not a discovery problem) and with the raw
+  TCP port itself reachable (so not a firewall problem either). Root cause: Android's Local
+  Network Permission restriction, which blocks a TCP connect to any local/private-network address
+  entirely -- hanging until timeout with no distinguishing exception, silently -- unless the app
+  holds `ACCESS_LOCAL_NETWORK` (or `NEARBY_WIFI_DEVICES` on the OS version that gated the same
+  restriction behind that permission first). Both are now requested at startup. This is almost
+  certainly what issue #116's original `EPERM` symptom actually was, misread at the time as a
+  generic discovery I/O failure -- the permission's UDP-side enforcement returns exactly that
+  error code.
 
 ## [0.4.0] - 2026-08-04
 
