@@ -4,10 +4,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
-import java.net.SocketTimeoutException
 
 /** The plugin's discovery reply body (HandoffDiscoveryListener, issue #15) -- port to connect on,
  *  plus the TLS certificate's fingerprint as a discovery-time hint. The hint isn't itself the
@@ -49,7 +49,12 @@ class HandoffDiscoveryClient {
                 if (parsed == null || host == null) return@use null
                 DiscoveryResult(host, parsed)
             }
-        } catch (e: SocketTimeoutException) {
+        } catch (e: IOException) {
+            // Covers both a plain reply timeout and lower-level send failures -- e.g. `sendto`
+            // can throw EPERM instead of just timing out when the broadcast has nowhere to go
+            // (no active network route yet, such as right after a fresh install/first launch).
+            // Either way this is exactly the "discovery didn't work" case the class doc already
+            // calls for falling back to a manual IP on, not a crash.
             null
         }
     }

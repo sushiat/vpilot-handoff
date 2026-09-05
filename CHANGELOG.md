@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An independent third-party iOS/iPadOS client, [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios)
   by Thomas, now exists for this project's protocol -- see README Credits.
 
+### Fixed
+
+- Android (issue #116): a UDP discovery send failure (`sendto` returning `EPERM`, e.g. with no
+  active network route yet right after a fresh install) crashed the whole app instead of falling
+  back to manual IP entry like a discovery timeout already did -- `HandoffDiscoveryClient` now
+  treats any discovery I/O failure the same way.
+
 ## [0.4.0] - 2026-08-04
 
 ### Added
