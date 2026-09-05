@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   active network route yet right after a fresh install) crashed the whole app instead of falling
   back to manual IP entry like a discovery timeout already did -- `HandoffDiscoveryClient` now
   treats any discovery I/O failure the same way.
+- Android (issue #123): phone-class screens (validated so far only on tablet, but issue #116
+  already showed phone sideloads happening) had chat unreachable in portrait -- the MSG button
+  toggled state but nothing was gated on it, since the fixed-width fullscreen layout always
+  squeezed both panels side by side regardless of available width. Below the tablet/phone
+  breakpoint (`smallestScreenWidthDp` < 600), chat now replaces the controller list instead
+  (tab-switched by the same MSG button), and the app locks to portrait -- a landscape phone
+  doesn't have enough height left for the list once the top bar and footer take their share,
+  and it'd be too small to be useful even if squeezed in. Tablets are unaffected: free rotation
+  and the existing side-by-side layout are unchanged in both orientations.
+- Android (issue #123): the `SYSTEM_ALERT_WINDOW` ("draw over other apps") permission -- only
+  ever used by the split-screen chat overlay -- was requested unconditionally on every first
+  launch regardless of whether the device would ever use split-screen. Now requested lazily,
+  only the first time real split-screen is actually detected and not yet granted.
 
 ## [0.4.0] - 2026-08-04
 

@@ -184,11 +184,22 @@ private fun MainScreenContent() {
     val prefs = remember { context.getSharedPreferences(HandoffConnectionService.PrefsName, android.content.Context.MODE_PRIVATE) }
 
     val configuration = LocalConfiguration.current
+    // Issue #123 -- requested lazily, only the first time real split-screen is actually detected
+    // and not yet granted, rather than unconditionally at every app launch (MainActivity used to
+    // do this eagerly regardless of whether the device would ever use ChatOverlayWindow at all).
+    // This flag is per-Activity-lifetime, not persisted -- MainActivity already re-runs its own
+    // onCreate-time setup on every relaunch (rotation, split-screen resize), so re-asking once per
+    // recreation while still ungranted is consistent with that existing tolerance, not a new nag.
+    var overlayPermissionRequested by remember { mutableStateOf(false) }
     LaunchedEffect(configuration) {
         val split = isSplitScreen(context, configuration)
         HandoffState.setLayoutMode(if (split) LayoutMode.SPLIT else LayoutMode.FULLSCREEN)
         if (split) {
             HandoffState.setSplitSide(detectSplitSide(context))
+            if (!overlayPermissionRequested && !ChatOverlayWindow.hasOverlayPermission(context)) {
+                overlayPermissionRequested = true
+                context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
+            }
         }
     }
 
@@ -275,6 +286,13 @@ private fun MainScreenContent() {
     val theme by HandoffState.theme.collectAsState()
     val layoutMode by HandoffState.layoutMode.collectAsState()
     val splitSide by HandoffState.splitSide.collectAsState()
+    // Issue #123 -- phones are portrait-locked (MainActivity), so "phone-class" alone (no width
+    // arithmetic) is enough to decide fullscreen needs a single-pane, tab-switched layout instead
+    // of today's tablet-focused side-by-side one: there's no longer a landscape-phone case to
+    // separate out. See HandoffState.PhoneClassMaxSmallestWidthDp's doc for why
+    // smallestScreenWidthDp, not screenWidthDp, is the right classifier here.
+    val isPhoneClass = configuration.smallestScreenWidthDp < at.sushi.handoff.PhoneClassMaxSmallestWidthDp
+    val narrowFullscreen = layoutMode == LayoutMode.FULLSCREEN && isPhoneClass
     val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
     val resolvedHost by HandoffState.resolvedHost.collectAsState()
@@ -364,11 +382,13 @@ private fun MainScreenContent() {
                 tab = RADIO_TAB
                 directed = mentionsCallsign(entry.text, flightPlan.vatsimCallsign)
             }
-            // In fullscreen the chat panel is always on screen (chatOpen only gates the split-
-            // screen overlay's own visibility -- see the onToggleChat comment below), so a tab
-            // sitting in plain sight there must never be flagged unread just because chatOpen
-            // itself never flips true in that layout.
-            val chatPanelVisible = layoutMode == LayoutMode.FULLSCREEN || chatOpen
+            // In wide fullscreen the chat panel is always on screen (chatOpen only gates the
+            // split-screen overlay's/narrow-fullscreen's own visibility -- see the onToggleChat
+            // comment below), so a tab sitting in plain sight there must never be flagged unread
+            // just because chatOpen itself never flips true in that layout. Narrow (phone-class)
+            // fullscreen behaves like split here: chat only counts as "on screen" while its tab is
+            // the active one (see issue #123's narrowFullscreen).
+            val chatPanelVisible = if (layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) true else chatOpen
             val currentlyViewing = chatPanelVisible && (activeChatTab == tab || (tab == RADIO_TAB && activeChatTab == null))
             if (currentlyViewing) continue
             unreadByTab = unreadByTab + (tab to ((unreadByTab[tab] ?: 0) + 1))
@@ -405,9 +425,19 @@ private fun MainScreenContent() {
                     if (activeChatTab == peer) activeChatTab = null
                 },
                 onOpenNearbyDialog = { nearbyDialogOpen = true },
-                onCollapse = if (layoutMode == LayoutMode.SPLIT) {
+                // Split's overlay and narrow (phone-class) fullscreen both need a way back to the
+                // controller list -- wide fullscreen's persistent side panel never does (issue
+                // #123). isFloatingOverlay below is what actually distinguishes the two visually;
+                // this only controls whether the button exists at all.
+                onCollapse = if (layoutMode == LayoutMode.SPLIT || narrowFullscreen) {
                     { chatOpen = false }
                 } else null,
+                // Only split's chat is a genuinely separate WindowManager window with its own
+                // OS-rounded corners (see ChatPanelContent's outerCornerShape) -- narrow
+                // fullscreen's collapse button is ordinary in-Activity content, same as wide
+                // fullscreen's persistent side panel, and must not get that overlay-specific
+                // rounding just because it also has a collapse button.
+                isFloatingOverlay = layoutMode == LayoutMode.SPLIT,
                 onSend = { text ->
                     val tab = activeChatTab
                     if (tab == null) {
@@ -480,13 +510,20 @@ private fun MainScreenContent() {
         // physically cover it. This margin is what makes that safe: guaranteed empty, so the
         // overlap can never land on a real control.
         val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT) 8.dp else 0.dp
+        // Issue #123 -- narrow (phone-class) fullscreen is single-pane: the main panel is hidden
+        // entirely while chat is the active tab, instead of squeezing beside it (there's no room
+        // for both at a usable size on a phone-width screen).
+        val mainPanelVisible = !narrowFullscreen || !chatOpen
+        if (mainPanelVisible) {
         Row(
             Modifier
                 .fillMaxHeight()
                 // Bumped from 440dp -- long real-world callsigns (e.g. "EDMM_ALB_CTR") were
                 // pushing frequency/badges/icons out of the fixed-width fullscreen panel. Widens
-                // at the chat space's expense, which has the room to spare.
-                .let { if (layoutMode == LayoutMode.FULLSCREEN) it.width(500.dp) else it.fillMaxSize() }
+                // at the chat space's expense, which has the room to spare. Narrow fullscreen has
+                // no chat sharing this space at all (single-pane, see mainPanelVisible above), so
+                // it fills the width like split already does.
+                .let { if (layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) it.width(500.dp) else it.fillMaxSize() }
                 .clip(mainPanelShape)
                 .background(colors.panel)
         ) {
@@ -635,9 +672,13 @@ private fun MainScreenContent() {
                 Box(Modifier.width(touchingMarginDp).fillMaxHeight())
             }
         }
+        }
 
-        if (layoutMode == LayoutMode.FULLSCREEN) {
-            Column(Modifier.fillMaxHeight().fillMaxSize()) {
+        // Wide fullscreen: chat is always on screen, persistent side panel (unchanged). Narrow
+        // (phone-class) fullscreen: chat is the other half of the single-pane tab switch, shown
+        // only while it's the active tab -- see mainPanelVisible above for the list's own half.
+        if ((layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) || (narrowFullscreen && chatOpen)) {
+            Column(Modifier.fillMaxSize()) {
                 chatContent()
             }
         }

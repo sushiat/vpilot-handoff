@@ -91,6 +91,11 @@ fun ChatPanelContent(
     onCloseTab: (String) -> Unit,
     onOpenNearbyDialog: () -> Unit,
     onCollapse: (() -> Unit)?,
+    // True only when this content is hosted as ChatOverlayWindow's separate WindowManager window
+    // (split-screen) -- distinct from onCollapse's presence, which also gates narrow-fullscreen's
+    // own back-to-list button (issue #123) despite that being ordinary in-Activity content with no
+    // separate window of its own. Controls outerCornerShape below, nothing else.
+    isFloatingOverlay: Boolean = false,
     onSend: (String) -> Unit,
     borderSide: ChatPanelBorderSide? = null
 ) {
@@ -111,11 +116,12 @@ fun ChatPanelContent(
     // SOFT_INPUT_ADJUST_RESIZE (see ChatOverlayWindow.kt) -- without that, the window doesn't
     // report a live/accurate IME inset to begin with, regardless of this modifier.
     // Mirrors MainScreen.kt's mainPanelShape: this panel is only a separate WindowManager window
-    // (with its own OS-rounded corners) while hosted as the split-screen overlay (onCollapse !=
-    // null is exactly that case -- fullscreen's persistent side panel never needs this). The edge
-    // touching the main app pane stays straight (borderSide's line already draws there); the
-    // opposite, screen-facing edge rounds to match.
-    val outerCornerShape = if (onCollapse != null && borderSide != null) {
+    // (with its own OS-rounded corners) while hosted as the split-screen overlay -- isFloatingOverlay
+    // is exactly that case; neither fullscreen's persistent side panel nor narrow-fullscreen's
+    // single-pane tab (issue #123, which also has a collapse button but is ordinary in-Activity
+    // content) needs this. The edge touching the main app pane stays straight (borderSide's line
+    // already draws there); the opposite, screen-facing edge rounds to match.
+    val outerCornerShape = if (isFloatingOverlay && borderSide != null) {
         if (borderSide == ChatPanelBorderSide.START) {
             RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 16.dp)
         } else {

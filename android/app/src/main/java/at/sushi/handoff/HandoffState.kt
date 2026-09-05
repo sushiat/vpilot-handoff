@@ -62,6 +62,17 @@ enum class UpdateInterval(val wire: String) {
  *  override it for testing, mirroring the design doc's own demo toggle). */
 enum class LayoutMode { SPLIT, FULLSCREEN }
 
+/** Issue #123 -- the phone/tablet classifier shared by MainActivity (portrait-lock) and
+ *  MainScreen.kt (single-pane "chat replaces list" fullscreen mode). Uses
+ *  Configuration.smallestScreenWidthDp rather than screenWidthDp/screenHeightDp: that value is a
+ *  fixed per-device property (doesn't flip with rotation the way width/height do), the same one
+ *  Android's own values-sw600dp resource-qualifier convention uses for this exact phone/tablet
+ *  split. 600dp is Android's own standard breakpoint for it -- found (empirically, via adb) to
+ *  cleanly separate a real phone (~411dp) from the project's tablet (~900dp), unlike comparing raw
+ *  current-orientation widths, which nearly collide (a phone in landscape and this tablet in
+ *  portrait both measure ~890-900dp wide). */
+const val PhoneClassMaxSmallestWidthDp = 600
+
 enum class SplitSide { LEFT, RIGHT }
 
 /** One tracked operation's latest message plus the wall-clock time it was received, so the UI can
