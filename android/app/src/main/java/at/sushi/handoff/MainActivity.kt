@@ -28,6 +28,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         MediaProjectionRequester.bind { intent -> requestMediaProjection.launch(intent) }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            startConnectionService()
+        }
+
         // Issue #123 -- a phone-class screen doesn't have room for the tablet-focused two-pane
         // layout in landscape (TopBar+Footer alone eat most of a phone's short landscape height,
         // squeezing the controller list to near-nothing); rather than build a second, shrunken
@@ -39,14 +47,6 @@ class MainActivity : ComponentActivity() {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            startConnectionService()
         }
 
         setContent {
