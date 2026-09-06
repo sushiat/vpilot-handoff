@@ -1978,9 +1978,8 @@ namespace Handoff.Plugin
             var groundSpeed = telemetry.GroundSpeedKnots;
             if (!groundSpeed.HasValue || groundSpeed.Value <= 1) return result;
 
-            foreach (var entry in bucket8Result.DistanceNm)
+            foreach (var entry in bucket8Result.DistanceNm.Where(kvp => !bucket8Result.SatisfiedCallsigns.Contains(kvp.Key)))
             {
-                if (bucket8Result.SatisfiedCallsigns.Contains(entry.Key)) continue;
                 result[entry.Key] = entry.Value / groundSpeed.Value * 60.0;
             }
             return result;
