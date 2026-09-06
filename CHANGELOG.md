@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android (issue #128): the MSG button badge kept blinking after tuning a "contact me"
+  controller's frequency, even though tuning is exactly what a contact-me request is asking
+  for — the row's own contact-me flash already correctly stopped on tune, but the badge blink
+  was driven by separate, disconnected unread-tab bookkeeping with no notion of "resolved."
+  `MainScreen` now tracks which directed-unread tabs are still explained purely by an
+  outstanding contact-me and relaxes the blink for those once every pending sender is tuned
+  (or otherwise no longer flagged), while any tab with an unrelated directed message (a private
+  message, or a non-contact-me radio call mentioning the pilot's callsign) keeps blinking as
+  before. The unread count itself is untouched — it still stays at 1 until chat is opened.
 - Plugin/Android (issue #127): the CTR ETA badge (issue #71) could read "ETA 0m" while
   genuinely mid-sector, not near any boundary — a controller whose sector already
   contained ownship's position (a "satisfied" bucket-8 match, e.g. an overlapping/
