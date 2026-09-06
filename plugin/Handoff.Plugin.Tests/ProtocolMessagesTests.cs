@@ -110,17 +110,36 @@ namespace Handoff.Plugin.Tests
         [Fact]
         public void BuildControllersMessage_EtaMinutes_NullByDefault()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<RankedController>()));
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_CTR", 13350, 51.4775, -0.4614, null, null, null, null,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: true, isNext: true, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false)
+            };
 
-            Assert.Equal(JTokenType.Null, json["etaMinutes"].Type);
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+
+            Assert.Equal(JTokenType.Null, json["controllers"][0]["etaMinutes"].Type);
         }
 
         [Fact]
-        public void BuildControllersMessage_EtaMinutes_IncludedWhenProvided()
+        public void BuildControllersMessage_EtaMinutes_IncludedPerControllerWhenProvided()
         {
-            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(new List<RankedController>(), etaMinutes: 12.5));
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_CTR", 13350, 51.4775, -0.4614, null, null, null, null,
+                    requestsContactMe: false, isCurrent: false, isContactMe: false,
+                    isHighlighted: true, isNext: true, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    etaMinutes: 12.5)
+            };
 
-            Assert.Equal(12.5, (double)json["etaMinutes"]);
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+
+            Assert.Equal(12.5, (double)json["controllers"][0]["etaMinutes"]);
         }
 
         [Fact]

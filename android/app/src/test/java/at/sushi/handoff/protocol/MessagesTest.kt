@@ -35,7 +35,7 @@ class MessagesTest {
         assertEquals(false, controller.isSelcalActive)
         assertNull(controller.stationName)
         assertNull(controller.textAtis)
-        assertNull(message.etaMinutes)
+        assertNull(controller.etaMinutes)
     }
 
     @Test
@@ -55,19 +55,18 @@ class MessagesTest {
     @Test
     fun decodesControllersMessage_FullyEnriched_PreservesSortOrderAndFlags() {
         val json = """
-            {"type":"controllers","etaMinutes":4.5,"controllers":[
+            {"type":"controllers","controllers":[
               {"callsign":"EGLL_TWR","frequency":23725,"latitude":51.4775,"longitude":-0.4614,
                "cid":1234567,"name":"John Smith","facility":4,"rating":5,
                "requestsContactMe":false,"isCurrent":true,"isContactMe":false,"isHighlighted":false,"isNext":false,"isLikelyNext":false,"isPinned":false,"isStandbyTuned":false,"isSelcalActive":false},
               {"callsign":"EGLL_APP","frequency":12900,"latitude":51.5,"longitude":-0.46,
                "cid":null,"name":null,"facility":null,"rating":null,
-               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isHighlighted":true,"isNext":false,"isLikelyNext":true,"isPinned":false,"isStandbyTuned":false,"isSelcalActive":false}
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"isHighlighted":true,"isNext":false,"isLikelyNext":true,"isPinned":false,"isStandbyTuned":false,"isSelcalActive":false,"etaMinutes":4.5}
             ]}
         """.trimIndent()
 
         val message = decodeServerMessage(json) as ControllersMessage
         assertEquals(listOf("EGLL_TWR", "EGLL_APP"), message.controllers.map { it.callsign })
-        assertEquals(4.5, message.etaMinutes)
 
         val current = message.controllers[0]
         assertEquals(1234567, current.cid)
@@ -76,12 +75,14 @@ class MessagesTest {
         assertEquals(5, current.rating)
         assertEquals(true, current.isCurrent)
         assertEquals(false, current.isLikelyNext)
+        assertNull(current.etaMinutes)
 
         val contactMe = message.controllers[1]
         assertNull(contactMe.cid)
         assertEquals(true, contactMe.requestsContactMe)
         assertEquals(true, contactMe.isContactMe)
         assertEquals(true, contactMe.isLikelyNext)
+        assertEquals(4.5, contactMe.etaMinutes)
     }
 
     @Test

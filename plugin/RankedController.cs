@@ -75,6 +75,16 @@ namespace Handoff.Plugin
         // NOT clear this -- only an explicit dismissSelcal command or the alert's own expiry does.
         public bool IsSelcalActive { get; }
 
+        // Bucket 8c -- minutes remaining to this controller's sector, computed from this
+        // controller's own entering distance (never from a "satisfied"/already-inside sentinel
+        // distance -- see ControllerRankingModel.ComputeEtaMinutesByCallsign). Per-controller
+        // rather than a single ownship-level value (issue #71's original design, revisited after
+        // issue #127): with tied bucket-8 candidates, each gets its own genuine ETA instead of an
+        // arbitrary one of them borrowing a shared number. Null whenever this controller has no
+        // qualifying entering distance, or ETA isn't currently available at all (on ground, below
+        // the climb/descend eligibility floor, etc).
+        public double? EtaMinutes { get; }
+
         // Issue #65 -- null unless ControllerRankingModel.DebugModeEnabled is on. See
         // ControllerDebugExplain's own doc comment for why this stays a plain-language summary
         // rather than exposing ranking internals.
@@ -87,7 +97,7 @@ namespace Handoff.Plugin
             bool isHighlighted, bool isNext, bool isLikelyNext,
             bool isPinned, bool isStandbyTuned, bool isSelcalActive,
             string stationName = null, IReadOnlyList<string> textAtis = null,
-            ControllerDebugExplain debugExplain = null)
+            ControllerDebugExplain debugExplain = null, double? etaMinutes = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -109,6 +119,7 @@ namespace Handoff.Plugin
             StationName = stationName;
             TextAtis = textAtis != null && textAtis.Count > 0 ? textAtis : null;
             DebugExplain = debugExplain;
+            EtaMinutes = etaMinutes;
         }
     }
 }

@@ -607,7 +607,6 @@ private fun MainScreenContent() {
             ControllerList(
                 modifier = Modifier.weight(1f),
                 controllers = controllers.controllers,
-                etaMinutes = controllers.etaMinutes,
                 com1Active = radioState.com1Frequency,
                 com2Active = radioState.com2Frequency,
                 com1Standby = radioState.com1StandbyFrequency,

@@ -63,7 +63,7 @@ namespace Handoff.Plugin
         public bool RouteInvalidatedByDiversion { get; }
         public string PendingDiversionDestination { get; }
         public IReadOnlyList<RankingSnapshotHysteresisEntry> TierChainHysteresis { get; }
-        public double? EtaMinutes { get; }
+        public IReadOnlyDictionary<string, double> EtaMinutesByCallsign { get; }
         public string EtaCalculationDetail { get; }
         // Issue #73c -- mirrors RankingDebugExplain.LastWaypointAdvanceMechanism/At (see
         // ControllerRankingModel's WaypointAdvanceMechanism* constants); the live-view and
@@ -77,7 +77,7 @@ namespace Handoff.Plugin
             int naturalWaypointIndex, IReadOnlyList<RankingSnapshotWaypoint> remainingWaypointProjection,
             bool routeInvalidatedByDiversion, string pendingDiversionDestination,
             IReadOnlyList<RankingSnapshotHysteresisEntry> tierChainHysteresis,
-            double? etaMinutes, string etaCalculationDetail,
+            IReadOnlyDictionary<string, double> etaMinutesByCallsign, string etaCalculationDetail,
             string lastWaypointAdvanceMechanism, DateTimeOffset? lastWaypointAdvanceAt)
         {
             RouteAnchorLatitude = routeAnchorLatitude;
@@ -91,7 +91,7 @@ namespace Handoff.Plugin
             RouteInvalidatedByDiversion = routeInvalidatedByDiversion;
             PendingDiversionDestination = pendingDiversionDestination;
             TierChainHysteresis = tierChainHysteresis;
-            EtaMinutes = etaMinutes;
+            EtaMinutesByCallsign = etaMinutesByCallsign;
             EtaCalculationDetail = etaCalculationDetail;
             LastWaypointAdvanceMechanism = lastWaypointAdvanceMechanism;
             LastWaypointAdvanceAt = lastWaypointAdvanceAt;

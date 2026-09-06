@@ -23,12 +23,11 @@ namespace Handoff.Plugin
         /// <summary>`debug` (issue #65) is null whenever debug mode is off -- both the top-level
         /// plugin-wide context and every per-controller entry's own debug object, matching the
         /// rest of this protocol's additive/nullable compatibility rule.</summary>
-        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers, double? etaMinutes = null, RankingDebugExplain debug = null)
+        public static string BuildControllersMessage(IReadOnlyList<RankedController> controllers, RankingDebugExplain debug = null)
         {
             var payload = new
             {
                 type = "controllers",
-                etaMinutes,
                 debug = debug == null ? null : new
                 {
                     phaseOfFlight = debug.PhaseOfFlight,
@@ -73,6 +72,7 @@ namespace Handoff.Plugin
                     isPinned = c.IsPinned,
                     isStandbyTuned = c.IsStandbyTuned,
                     isSelcalActive = c.IsSelcalActive,
+                    etaMinutes = c.EtaMinutes,
                     debug = c.DebugExplain == null ? null : new
                     {
                         bucket = c.DebugExplain.Bucket,
