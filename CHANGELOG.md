@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin/Android (issue #127): the CTR ETA badge (issue #71) could read "ETA 0m" while
+  genuinely mid-sector, not near any boundary — a controller whose sector already
+  contained ownship's position (a "satisfied" bucket-8 match, e.g. an overlapping/
+  adjacent sector, or the current controller's own sector as it went offline) was
+  contributing its 0nm containment sentinel to the ETA distance pool instead of only
+  genuine "entering"/approaching distances. The badge's own text could also render as
+  vertically-stacked individual characters instead of a normal horizontal pill —
+  `BadgePill` was the one `Text` in `ControllerList.kt` missing the `maxLines`/
+  `softWrap` guard every other row Text already has, so it wrapped character-by-
+  character once multiple badges shared the row's width. ETA is now computed and sent
+  per controller (`controllers[].etaMinutes`, replacing the old ownship-level
+  `etaMinutes` field) rather than one shared value attached to whichever NEXT/NEXT? row
+  happened to sort first — when two CTR sectors tie, each now shows its own genuine
+  distance instead of an arbitrary one borrowing the other's number.
+
 ## [0.5.0] - 2026-09-05
 
 ### Fixed

@@ -62,7 +62,6 @@ import at.sushi.handoff.ui.theme.LocalRowColorPalette
 import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.controllerRowGroup
-import at.sushi.handoff.ui.theme.etaBadgeCallsign
 import at.sushi.handoff.ui.theme.facilitySuffixName
 import at.sushi.handoff.ui.theme.oklch
 import at.sushi.handoff.ui.theme.rememberFlashPhaseA
@@ -92,7 +91,6 @@ private val badgeLabels = mapOf(
 @Composable
 fun ControllerList(
     controllers: List<Controller>,
-    etaMinutes: Double?,
     com1Active: Int?,
     com2Active: Int?,
     com1Standby: Int?,
@@ -128,10 +126,6 @@ fun ControllerList(
     } else {
         controllers
     }
-    // Computed against the full (unfiltered) list -- the NEXT/NEXT? row this attaches to could be
-    // hidden by "hide tuned" in principle, though isNext/isLikelyNext and isCurrent/isStandbyTuned
-    // shouldn't coincide in practice.
-    val etaBadgeCallsign = remember(controllers, etaMinutes) { etaBadgeCallsign(controllers, etaMinutes) }
 
     Column(modifier.fillMaxWidth().background(colors.panel)) {
         Row(
@@ -246,7 +240,7 @@ fun ControllerList(
                 }
                 ControllerRow(
                     controller = controller,
-                    etaMinutes = if (controller.callsign == etaBadgeCallsign) etaMinutes else null,
+                    etaMinutes = controller.etaMinutes,
                     callsignColWidth = callsignColWidth,
                     frequencyTextWidth = frequencyTextWidth,
                     com1Active = com1Active,
@@ -574,6 +568,9 @@ private fun BadgePill(label: String, contentColor: Color, background: Color) {
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
             color = contentColor,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
             style = androidx.compose.ui.text.TextStyle(
                 platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
             )

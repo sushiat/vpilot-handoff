@@ -195,7 +195,6 @@ namespace Handoff.Plugin
         private IReadOnlyList<RankedController> _current = new List<RankedController>();
         private bool _debugModeEnabled;
         private RankingDebugExplain _lastRankingExplain;
-        private double? _etaMinutes;
         private bool _hasTakenOffThisSession;
         private string _lastObservedDestination;
         private bool _routeInvalidatedByDiversion;
@@ -257,12 +256,6 @@ namespace Handoff.Plugin
         public IReadOnlyList<RankedController> Current
         {
             get { lock (_gate) { return _current; } }
-        }
-
-        /// <summary>Bucket 8c -- minutes remaining to the closest bucket-8-qualifying CTR sector, or null if not currently available (below the climb/descend FL150 floor, or nothing to estimate against).</summary>
-        public double? EtaMinutes
-        {
-            get { lock (_gate) { return _etaMinutes; } }
         }
 
         /// <summary>
@@ -346,6 +339,10 @@ namespace Handoff.Plugin
                     ? all[_pendingWaypointIndex.Value - 1].Ident
                     : null;
 
+                var etaMinutesByCallsign = _current
+                    .Where(c => c.EtaMinutes.HasValue)
+                    .ToDictionary(c => c.Callsign, c => c.EtaMinutes.Value, StringComparer.OrdinalIgnoreCase);
+
                 return new RankingSnapshot(
                     _routeAnchorLat, _routeAnchorLon,
                     _committedWaypointIndex, _pendingWaypointIndex, pendingWaypointName,
@@ -353,7 +350,7 @@ namespace Handoff.Plugin
                     naturalIndex, projection,
                     _routeInvalidatedByDiversion, _pendingDiversionDestination,
                     hysteresisEntries,
-                    _etaMinutes, _lastRankingExplain?.EtaCalculationDetail,
+                    etaMinutesByCallsign, _lastRankingExplain?.EtaCalculationDetail,
                     _lastWaypointAdvanceMechanism, _lastWaypointAdvanceAt);
             }
         }
@@ -567,6 +564,7 @@ namespace Handoff.Plugin
             // entry corresponds to, so BuildControllerDebugExplain can label a highlighted
             // controller correctly without re-deriving it from context.
             var highlightBlockBuckets = new List<(int Bucket, string Name)>();
+            var etaMinutesByCallsign = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
             if (isOnGround)
             {
@@ -575,7 +573,7 @@ namespace Handoff.Plugin
                 highlightBlocks.Add(groundResult);
                 highlightBlockBuckets.Add((6, "Ground relevance (DEL/GND/TWR/APP/CTR)"));
                 excludedFromRest.UnionWith(groundResult.HighlightedCallsigns);
-                _etaMinutes = null; // Bucket 8c only ever applies airborne.
+                // Bucket 8c only ever applies airborne -- etaMinutesByCallsign stays empty.
             }
             else
             {
@@ -591,7 +589,7 @@ namespace Handoff.Plugin
                 highlightBlockBuckets.Add((8, "Airborne CTR relevance"));
                 excludedFromRest.UnionWith(bucket8Result.HighlightedCallsigns);
 
-                _etaMinutes = ComputeEtaMinutes(telemetry, bucket8Result);
+                etaMinutesByCallsign = ComputeEtaMinutesByCallsign(telemetry, bucket8Result);
             }
 
             var highlightedCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.HighlightedCallsigns), StringComparer.OrdinalIgnoreCase);
@@ -653,11 +651,11 @@ namespace Handoff.Plugin
                     lastWaypointAdvanceMechanism = _lastWaypointAdvanceMechanism;
                     lastWaypointAdvanceAt = _lastWaypointAdvanceAt;
                 }
-                var etaDetail = _etaMinutes.HasValue
-                    ? "ETA computed from closest bucket-8 candidate distance and current groundspeed."
+                var etaDetail = etaMinutesByCallsign.Count > 0
+                    ? "ETA computed per bucket-8 candidate from its entering distance and current groundspeed."
                     : isOnGround
                         ? "Not applicable -- bucket 8c only applies airborne."
-                        : "No bucket-8 candidate currently qualifies, or below the eligibility floor (level flight or > FL150 while climbing/descending, groundspeed > 1kt).";
+                        : "No bucket-8 candidate currently qualifies for an entering ETA, or below the eligibility floor (level flight or > FL150 while climbing/descending, groundspeed > 1kt).";
 
                 // Bearing/distance from ownship's current position to each named waypoint --
                 // a quick "does this look right" sanity check (e.g. the last-passed waypoint
@@ -721,6 +719,7 @@ namespace Handoff.Plugin
                     isPinned: c.IsPinned,
                     isStandbyTuned: !isCurrent && standbyFrequencies.Contains(c.Frequency),
                     isSelcalActive: c.SelcalExpiresAtUtc.HasValue,
+                    etaMinutes: etaMinutesByCallsign.TryGetValue(c.Callsign, out var eta) ? eta : (double?)null,
                     stationName: VatAtisStationNameExtractor.Extract(info?.TextAtis) ?? VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData),
                     textAtis: info?.TextAtis,
                     debugExplain: explainByCallsign != null && explainByCallsign.TryGetValue(c.Callsign, out var explain) ? explain : null);
@@ -1111,6 +1110,12 @@ namespace Handoff.Plugin
             // requirement.
             public HashSet<string> VatGlassesMatched { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public HashSet<string> VatSpyMatched { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Bucket 8c (ETA) only -- which of DistanceNm's entries came from a "satisfied"
+            // containment match (already inside the sector, distance is a 0 sentinel, not a real
+            // geographic distance) rather than a genuine "entering" approach distance. ETA must
+            // never be computed from a satisfied entry -- see ComputeEtaMinutesByCallsign.
+            public HashSet<string> SatisfiedCallsigns { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         private static bool IsTwrOrApp(ControllerTier tier) => tier == ControllerTier.Tower || tier == ControllerTier.AppDep;
@@ -1778,16 +1783,18 @@ namespace Handoff.Plugin
 
             var containingMatches = VatGlassesSectorLookup.FindContainingSectors(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, pressureAltitudeFl, qnhTrueAltitudeFl);
 
-            var combined = new List<(HandoffController Owner, double DistanceNm)>();
+            var combined = new List<(HandoffController Owner, double DistanceNm, bool IsSatisfied)>();
 
             // "Satisfied" -- already inside the band, regardless of level/climbing/descending.
+            // Distance is a 0 sentinel, not a real geographic distance -- IsSatisfied marks it as
+            // such so ETA (bucket 8c) never mistakes it for genuine convergence.
             var containedCallsigns = ResolveContainedCallsigns(containingMatches, regions, allOnlineControllers);
             foreach (var callsign in containedCallsigns.Where(cs => !currentCallsigns.Contains(cs)))
             {
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
                 _ctrSatisfiedCommitted.Add(owner.Callsign);
-                combined.Add((owner, 0));
+                combined.Add((owner, 0, true));
                 result.VatGlassesMatched.Add(owner.Callsign);
             }
 
@@ -1802,7 +1809,7 @@ namespace Handoff.Plugin
                 if (owner == null) { _ctrSatisfiedCommitted.Remove(callsign); continue; }
                 var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
                 var staysIn = level != null && VatGlassesSectorLookup.DistanceToPolygonBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, level) <= PolygonContainmentDeadbandMarginNm;
-                if (staysIn) { combined.Add((owner, 0)); result.VatGlassesMatched.Add(owner.Callsign); } else _ctrSatisfiedCommitted.Remove(callsign);
+                if (staysIn) { combined.Add((owner, 0, true)); result.VatGlassesMatched.Add(owner.Callsign); } else _ctrSatisfiedCommitted.Remove(callsign);
             }
 
             // Issue #11: vatspy "satisfied" fallback -- only for CTR controllers VATGlasses has no
@@ -1817,7 +1824,7 @@ namespace Handoff.Plugin
                 if (owner == null || owner.Callsign.ParseControllerTier() != ControllerTier.Center) continue;
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
                 _ctrVatSpySatisfiedCommitted.Add(owner.Callsign);
-                combined.Add((owner, 0));
+                combined.Add((owner, 0, true));
                 result.VatSpyMatched.Add(owner.Callsign);
             }
 
@@ -1828,7 +1835,7 @@ namespace Handoff.Plugin
                 if (owner == null) { _ctrVatSpySatisfiedCommitted.Remove(callsign); continue; }
                 var boundary = FindAnyVatSpyBoundaryForController(owner, vatSpyBoundaries);
                 var staysIn = boundary != null && VatSpyBoundaryLookup.DistanceToBoundaryNm(telemetry.Latitude.Value, telemetry.Longitude.Value, boundary) <= PolygonContainmentDeadbandMarginNm;
-                if (staysIn) { combined.Add((owner, 0)); result.VatSpyMatched.Add(owner.Callsign); } else _ctrVatSpySatisfiedCommitted.Remove(callsign);
+                if (staysIn) { combined.Add((owner, 0, true)); result.VatSpyMatched.Add(owner.Callsign); } else _ctrVatSpySatisfiedCommitted.Remove(callsign);
             }
 
             // Issue #72: lateral dead-band for both "converging" loops below -- a candidate that
@@ -1845,7 +1852,7 @@ namespace Handoff.Plugin
                 if (!IsVerticallySatisfiedOrConverging(approach.Match.Level, pressureAltitudeFl, qnhTrueAltitudeFl, verticalTrendSign, sustainedTrend)) continue;
                 ctrEnteringMatchedNow.Add(owner.Callsign);
                 PassesEnteringDeadband(_ctrEnteringCommitted, owner.Callsign, true, approach.DistanceNauticalMiles, approach.Match.Level, telemetry, remainingWaypoints, out var matchDistanceNm);
-                combined.Add((owner, matchDistanceNm));
+                combined.Add((owner, matchDistanceNm, false));
                 result.VatGlassesMatched.Add(owner.Callsign);
             }
 
@@ -1862,7 +1869,7 @@ namespace Handoff.Plugin
                 }
                 if (PassesEnteringDeadband(_ctrEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var retainedDistanceNm))
                 {
-                    combined.Add((owner, retainedDistanceNm));
+                    combined.Add((owner, retainedDistanceNm, false));
                     result.VatGlassesMatched.Add(owner.Callsign);
                 }
             }
@@ -1878,7 +1885,7 @@ namespace Handoff.Plugin
                 if (FindAnySectorLevelForController(owner, regions, allOnlineControllers) != null) continue;
                 ctrVatSpyEnteringMatchedNow.Add(owner.Callsign);
                 PassesVatSpyEnteringDeadband(_ctrVatSpyEnteringCommitted, owner.Callsign, true, approach.DistanceNauticalMiles, approach.Boundary, telemetry, remainingWaypoints, out var matchDistanceNm);
-                combined.Add((owner, matchDistanceNm));
+                combined.Add((owner, matchDistanceNm, false));
                 result.VatSpyMatched.Add(owner.Callsign);
             }
 
@@ -1891,7 +1898,7 @@ namespace Handoff.Plugin
                 var boundary = FindAnyVatSpyBoundaryForController(owner, vatSpyBoundaries);
                 if (PassesVatSpyEnteringDeadband(_ctrVatSpyEnteringCommitted, callsign, false, 0, boundary, telemetry, remainingWaypoints, out var retainedDistanceNm))
                 {
-                    combined.Add((owner, retainedDistanceNm));
+                    combined.Add((owner, retainedDistanceNm, false));
                     result.VatSpyMatched.Add(owner.Callsign);
                 }
             }
@@ -1907,10 +1914,11 @@ namespace Handoff.Plugin
             var anchorDistance = deduped[0].DistanceNm;
             var band = deduped.Where(x => PassesDeadband(_tieBandCommitted, x.Owner.Callsign, x.DistanceNm, anchorDistance * TieBandMultiplier)).ToList();
 
-            foreach (var (owner, distance) in band)
+            foreach (var (owner, distance, isSatisfied) in band)
             {
                 result.HighlightedCallsigns.Add(owner.Callsign);
                 result.DistanceNm[owner.Callsign] = distance;
+                if (isSatisfied) result.SatisfiedCallsigns.Add(owner.Callsign);
             }
 
             if (band.Count == 1)
@@ -1919,7 +1927,7 @@ namespace Handoff.Plugin
             }
             else
             {
-                foreach (var (owner, _) in band) result.LikelyNextCallsigns.Add(owner.Callsign);
+                foreach (var (owner, _, _) in band) result.LikelyNextCallsigns.Add(owner.Callsign);
             }
 
             return result;
@@ -1953,21 +1961,29 @@ namespace Handoff.Plugin
             return false;
         }
 
-        /// <summary>Bucket 8c -- ETA to the closest bucket-8-qualifying CTR sector. Independent of IsHighlighted/IsNext/IsLikelyNext -- available during level flight (any altitude) or climbing/descending above FL150, null otherwise.</summary>
-        private double? ComputeEtaMinutes(OwnshipTelemetry telemetry, HighlightResult bucket8Result)
+        /// <summary>Bucket 8c -- per-controller ETA for every bucket-8-qualifying CTR candidate
+        /// whose distance reflects genuine convergence (excludes SatisfiedCallsigns, whose 0
+        /// distance is a "you're already inside" sentinel, not a real approach distance).
+        /// Independent of IsHighlighted/IsNext/IsLikelyNext -- available during level flight (any
+        /// altitude) or climbing/descending above FL150, empty otherwise.</summary>
+        private Dictionary<string, double> ComputeEtaMinutesByCallsign(OwnshipTelemetry telemetry, HighlightResult bucket8Result)
         {
-            if (bucket8Result.DistanceNm.Count == 0) return null;
+            var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
             var isLevel = Math.Abs(telemetry.VerticalSpeedFpm.GetValueOrDefault()) < VerticalTrendThresholdFpm;
             var pressureAltitudeFl = telemetry.PressureAltitudeFeet / 100.0;
             var eligible = isLevel || (pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > EtaClimbDescendMinFl);
-            if (!eligible) return null;
+            if (!eligible) return result;
 
             var groundSpeed = telemetry.GroundSpeedKnots;
-            if (!groundSpeed.HasValue || groundSpeed.Value <= 1) return null;
+            if (!groundSpeed.HasValue || groundSpeed.Value <= 1) return result;
 
-            var closestDistance = bucket8Result.DistanceNm.Values.Min();
-            return closestDistance / groundSpeed.Value * 60.0;
+            foreach (var entry in bucket8Result.DistanceNm)
+            {
+                if (bucket8Result.SatisfiedCallsigns.Contains(entry.Key)) continue;
+                result[entry.Key] = entry.Value / groundSpeed.Value * 60.0;
+            }
+            return result;
         }
 
         /// <summary>Within one bucket 6/7/8 block: IsNext first, then IsLikelyNext by distance only (ties are guaranteed same-tier by construction), then plain IsHighlighted by chain tier then distance.</summary>

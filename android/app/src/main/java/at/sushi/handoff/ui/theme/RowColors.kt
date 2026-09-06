@@ -135,16 +135,6 @@ fun controllerBadges(
     if (controller.isSelcalActive) add(ControllerBadge.SELCAL)
 }
 
-/** Which controller (if any) the ETA badge belongs to -- issue #71: etaMinutes is an
- *  ownship-level field, not per-controller, but always anchors on whichever bucket-8 CTR
- *  currently carries isNext (or isLikelyNext, if no isNext exists). Returns null if neither
- *  flag is set on any controller (no row to attach to) or if there's no ETA to show. */
-fun etaBadgeCallsign(controllers: List<Controller>, etaMinutes: Double?): String? {
-    if (etaMinutes == null) return null
-    return controllers.firstOrNull { it.isNext }?.callsign
-        ?: controllers.firstOrNull { it.isLikelyNext }?.callsign
-}
-
 /** COM1 gets [FacilityColors.TUNED_HUE] (teal), COM2 gets [FacilityColors.COM2_TUNED_HUE]
  *  (rose) -- a row tuned/standby-loaded on both at once (same frequency on both radios) defaults
  *  to COM1's color rather than picking arbitrarily. Fixed constants, not palette-driven (issue

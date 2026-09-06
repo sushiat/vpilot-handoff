@@ -879,38 +879,105 @@ namespace Handoff.Plugin.Tests
             Assert.DoesNotContain(ranked, c => c.IsNext);
         }
 
+        // Box well away from ownship's start position (0,0), heading straight at it -- a genuine
+        // "entering" lateral match (same pattern as Bucket8a_Ctr_Converging_HeadingNearMiss_*),
+        // not a "satisfied"/already-inside one. Bucket8c_Eta_SatisfiedOnlyCandidate_IsNull below
+        // covers the already-inside case, which must NOT produce an ETA (issue #127).
         [Fact]
         public void Bucket8c_Eta_LevelFlight_AnyAltitude_IsAvailable()
         {
-            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.5, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
-            AddController("TEST_CTR", 13350, 0, 0);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 5000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 5000); // low level cruise
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 5000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 5000); // low level cruise, heading north at the box
             var model = CreateModel(vatGlassesData: vatGlasses);
-            model.Current.ToList(); // force recompute (already computed in ctor, but be explicit)
 
-            Assert.NotNull(model.EtaMinutes);
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_CTR");
+            Assert.NotNull(ranked.EtaMinutes);
         }
 
         [Fact]
         public void Bucket8c_Eta_ClimbingBelowFl150_IsNull()
         {
-            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.5, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
-            AddController("TEST_CTR", 13350, 0, 0);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 8000, 1500, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 8000); // FL80, climbing
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 8000, 1500, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 8000); // FL80, climbing, heading north at the box
             var model = CreateModel(vatGlassesData: vatGlasses);
 
-            Assert.Null(model.EtaMinutes);
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_CTR");
+            Assert.Null(ranked.EtaMinutes);
         }
 
         [Fact]
         public void Bucket8c_Eta_ClimbingAboveFl150_IsAvailable()
         {
-            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.5, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
-            AddController("TEST_CTR", 13350, 0, 0);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 20000, 1500, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200, climbing
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 20000, 1500, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200, climbing, heading north at the box
             var model = CreateModel(vatGlassesData: vatGlasses);
 
-            Assert.NotNull(model.EtaMinutes);
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_CTR");
+            Assert.NotNull(ranked.EtaMinutes);
+        }
+
+        [Fact]
+        public void Bucket8c_Eta_SatisfiedOnlyCandidate_IsNull()
+        {
+            // Ownship already inside the sector -- containment distance is a 0 sentinel, not a
+            // real approach distance, so it must never produce an ETA (issue #127: this was
+            // showing "ETA 0m" while genuinely mid-sector).
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.5, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // inside band, level
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_CTR");
+            Assert.True(ranked.IsHighlighted);
+            Assert.Null(ranked.EtaMinutes);
+        }
+
+        [Fact]
+        public void Bucket8c_Eta_SatisfiedTiedCandidates_NeitherGetsAnEta()
+        {
+            // Two overlapping "satisfied" sectors tie for LikelyNext (same setup as
+            // Bucket8b_TieBand_TwoOverlappingSatisfiedSectors_BothLikelyNext above) -- both
+            // already-inside, so neither should get an ETA (issue #127).
+            var json = TwoOverlappingCtrSectorsRegionJson();
+            var vatGlasses = CreateVatGlassesDataModel(json);
+            AddController("AAA_CTR", 13350, 0, 0);
+            AddController("BBB_CTR", 13360, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "AAA_CTR").IsLikelyNext);
+            Assert.True(ranked.Single(c => c.Callsign == "BBB_CTR").IsLikelyNext);
+            Assert.Null(ranked.Single(c => c.Callsign == "AAA_CTR").EtaMinutes);
+            Assert.Null(ranked.Single(c => c.Callsign == "BBB_CTR").EtaMinutes);
+        }
+
+        [Fact]
+        public void Bucket8c_Eta_TiedEnteringCandidates_EachGetsItsOwnDistance()
+        {
+            // Two small CTR boxes ahead of ownship (heading north) at slightly different
+            // distances -- close enough to tie (within TieBandMultiplier), but genuinely different
+            // approach distances. Confirms ETA is computed per-callsign from each candidate's own
+            // entering distance, not one shared ownship-level value arbitrarily attached to
+            // whichever tied row happens to sort first (issue #71/#127).
+            var json = TwoCtrSectorsAtDifferentDistancesRegionJson();
+            var vatGlasses = CreateVatGlassesDataModel(json);
+            AddController("AAA_CTR", 13350, 1.5, 0);
+            AddController("BBB_CTR", 13360, 1.6, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // heading north at both boxes
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current;
+            var aaa = ranked.Single(c => c.Callsign == "AAA_CTR");
+            var bbb = ranked.Single(c => c.Callsign == "BBB_CTR");
+            Assert.True(aaa.IsLikelyNext);
+            Assert.True(bbb.IsLikelyNext);
+            Assert.NotNull(aaa.EtaMinutes);
+            Assert.NotNull(bbb.EtaMinutes);
+            Assert.True(bbb.EtaMinutes.Value > aaa.EtaMinutes.Value); // BBB is genuinely farther
         }
 
         // ---- Numeric spatial dead-band (flapping protection) --------------------------------
@@ -1772,6 +1839,25 @@ namespace Handoff.Plugin.Tests
                 ] }},
                 {{ ""id"": ""S_BBB"", ""group"": ""CTR"", ""owner"": [""POS_BBB""], ""sectors"": [
                     {{ ""min"": 0, ""max"": 660, ""points"": [{Point(-0.4, -0.4)},{Point(-0.4, 0.4)},{Point(0.4, 0.4)},{Point(0.4, -0.4)}] }}
+                ] }}
+            ],
+            ""positions"": {{
+                ""POS_AAA"": {{ ""type"": ""CTR"", ""frequency"": ""133.500"", ""callsign"": ""AAA_CTR"", ""pre"": [""AAA""] }},
+                ""POS_BBB"": {{ ""type"": ""CTR"", ""frequency"": ""134.500"", ""callsign"": ""BBB_CTR"", ""pre"": [""BBB""] }}
+            }}
+        }}";
+
+        /// <summary>Two small CTR boxes north of the origin at slightly different distances (1.5deg
+        /// vs 1.6deg, ~6% apart -- within TieBandMultiplier's 10% tie band, but genuinely
+        /// different), both reachable as "entering" matches for ownship heading due north.</summary>
+        private static string TwoCtrSectorsAtDifferentDistancesRegionJson() => $@"{{
+            ""airports"": {{}},
+            ""airspace"": [
+                {{ ""id"": ""S_AAA"", ""group"": ""CTR"", ""owner"": [""POS_AAA""], ""sectors"": [
+                    {{ ""min"": 0, ""max"": 660, ""points"": [{Point(1.49, -0.01)},{Point(1.49, 0.01)},{Point(1.51, 0.01)},{Point(1.51, -0.01)}] }}
+                ] }},
+                {{ ""id"": ""S_BBB"", ""group"": ""CTR"", ""owner"": [""POS_BBB""], ""sectors"": [
+                    {{ ""min"": 0, ""max"": 660, ""points"": [{Point(1.59, -0.01)},{Point(1.59, 0.01)},{Point(1.61, 0.01)},{Point(1.61, -0.01)}] }}
                 ] }}
             ],
             ""positions"": {{

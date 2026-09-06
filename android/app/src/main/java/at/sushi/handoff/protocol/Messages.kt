@@ -53,6 +53,11 @@ data class Controller(
     // Active SELCAL alert -- unlike isContactMe, tuning the alerting frequency does NOT clear
     // this, only an explicit dismissSelcal command or the alert's own expiry does.
     val isSelcalActive: Boolean = false,
+    // Bucket 8c -- this controller's own minutes-remaining estimate, available during level
+    // flight or climbing/descending above FL150. Per-controller (issue #71/#127): null whenever
+    // this controller has no qualifying *entering* (still approaching) distance, including when
+    // ownship is already inside its sector -- that's a "satisfied" match, not convergence.
+    val etaMinutes: Double? = null,
     // Issue #65 -- null unless debug mode is currently on (SetDebugModeCommand). Plain-language
     // explain data, not the ranking internals -- see docs/controller-ranking.md's "Debug explain
     // view" section.
@@ -119,9 +124,6 @@ data class ControllersMessage(
     // Pre-sorted by the plugin's priority ranking (docs/protocol.md) -- render in list order,
     // don't re-sort client-side.
     val controllers: List<Controller>,
-    // Ownship-level (not per-controller): minutes to the closest bucket-8-qualifying CTR sector,
-    // available during level flight or climbing/descending above FL150 -- null otherwise.
-    val etaMinutes: Double? = null,
     // Issue #65 -- null unless debug mode is currently on.
     val debug: RankingDebug? = null
 ) : ServerMessage

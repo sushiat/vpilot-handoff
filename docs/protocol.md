@@ -210,7 +210,6 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
 ```json
 {
   "type": "controllers",
-  "etaMinutes": null,
   "debug": null,
   "controllers": [
     {
@@ -233,6 +232,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "isPinned": false,
       "isStandbyTuned": false,
       "isSelcalActive": false,
+      "etaMinutes": null,
       "debug": null
     }
   ]
@@ -296,11 +296,14 @@ The boolean fields are what clients actually consume, each driving its own badge
   on the flight plan) even when the geometry is unambiguous. Clients should render this as a
   visibly softer/less certain variant of the `isNext` badge (e.g. "NEXT?" vs "NEXT"), not an
   unrelated badge.
-
-`etaMinutes` is a top-level field on the message itself (not per-controller) -- an estimate of
-minutes remaining to the closest bucket-8-qualifying CTR sector, available during level flight
-(any altitude) or while climbing/descending above FL150, `null` otherwise (including whenever
-nothing currently qualifies for bucket 8 at all).
+- `etaMinutes`: this controller's own estimate of minutes remaining until ownship reaches its
+  sector (bucket 8c), available during level flight (any altitude) or while climbing/descending
+  above FL150. Per-controller, not an ownship-level value -- when two bucket-8 CTR candidates are
+  tied (both `isLikelyNext`), each carries its own distinct `etaMinutes` rather than one shared
+  number. `null` whenever this controller doesn't currently have a qualifying *entering* (still
+  approaching) distance -- including when ownship's position is already inside this controller's
+  sector, which is a distance-0 "satisfied" match, not genuine convergence, and while climbing/
+  descending below the FL150 floor -- or when nothing currently qualifies for bucket 8 at all.
 
 #### `debug` (issue #65)
 

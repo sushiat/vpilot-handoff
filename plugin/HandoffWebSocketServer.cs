@@ -117,7 +117,7 @@ namespace Handoff.Plugin
             var broadcastInterval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
             _broadcastTimer = new Timer(_ =>
             {
-                Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
+                Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
                 Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
                 // originMismatch (issue #68) is telemetry-driven and can flip every Recompute
                 // tick, not just on the three Changed events flightPlan is otherwise wired to
@@ -227,7 +227,7 @@ namespace Handoff.Plugin
         /// previously sent unconditionally from OnOpen, before device authorization existed.</summary>
         private void SendSnapshotTo(IWebSocketConnection socket)
         {
-            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.EtaMinutes, _controllerRanking.PlanWideDebugExplain));
+            socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
             socket.Send(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
             socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
