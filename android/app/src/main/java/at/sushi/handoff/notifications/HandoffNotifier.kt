@@ -70,9 +70,11 @@ class HandoffNotifier(private val context: Context) {
         if (!HandoffState.appVisible.value) {
             message.messages.forEach { entry ->
                 if (entry.direction != "incoming" || entry in previousChatMessages) return@forEach
+                // Issue #131 -- text can arrive null if a plugin-side encoding bug blanks it.
+                val body = entry.text ?: "⚠ Message received without content"
                 when (entry.channel) {
-                    "radio" -> notify(ChannelIncomingRadio, "radio:${entry.timestamp}", "Radio message", entry.text)
-                    "private" -> notify(ChannelIncomingPrivate, "private:${entry.peer}:${entry.timestamp}", entry.peer ?: "Private message", entry.text)
+                    "radio" -> notify(ChannelIncomingRadio, "radio:${entry.timestamp}", "Radio message", body)
+                    "private" -> notify(ChannelIncomingPrivate, "private:${entry.peer}:${entry.timestamp}", entry.peer ?: "Private message", body)
                 }
             }
             message.selcalAlerts.forEach { alert ->

@@ -209,6 +209,32 @@ class MessagesTest {
         assertEquals("EGLL_TWR", message.selcalAlerts.single().from)
     }
 
+    // Issue #131 -- a plugin-side encoding bug once sent text as null/absent instead of the
+    // actual message. This must decode to a null ChatEntry.text, not throw and drop the batch.
+    @Test
+    fun decodesChatEntryWithNullText() {
+        val json = """
+            {"type":"chat","messages":[
+              {"channel":"private","direction":"incoming","peer":"EGLL_TWR","text":null,"frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertNull(message.messages.single().text)
+    }
+
+    @Test
+    fun decodesChatEntryWithMissingText() {
+        val json = """
+            {"type":"chat","messages":[
+              {"channel":"private","direction":"incoming","peer":"EGLL_TWR","frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertNull(message.messages.single().text)
+    }
+
     @Test
     fun decodesRadioStateMessageWithNullFrequencies() {
         val json = """{"type":"radioState","com1Frequency":null,"com2Frequency":null,"com1StandbyFrequency":null,"com2StandbyFrequency":null,"modeCEnabled":false,"transponderCode":null}"""
