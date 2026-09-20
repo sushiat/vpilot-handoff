@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Plugin (issue #134): vPilot could freeze completely (Windows "Application Hang") in dense
+  VATSIM traffic/ATC, and the tuned radio frequency could get stuck out of sync with the sim
+  mid-flight until vPilot was restarted. Both traced to the same class of bug: `NearbyAircraftModel`
+  and `ControllerRankingModel` ran a full, uncoalesced recompute synchronously on the thread
+  raising each `IBroker` event, with no throttling — a burst of aircraft/controller events in a
+  busy area meant hundreds of back-to-back recomputes (including VATGlasses/vatspy polygon
+  geometry) on that thread. Both models now mark state dirty on each event and defer the actual
+  recompute to the next read, which `HandoffWebSocketServer`'s existing fixed-cadence broadcast
+  timer already provides (the nearby-aircraft broadcast moved onto that same timer, alongside
+  controllers/flightPlan). That timer also no longer lets overlapping ticks queue up, and it now
+  skips building/serializing a message entirely when no client is connected. Chat/SELCAL history
+  is capped to the most recent 200 entries instead of growing and being resent in full forever.
+  Separately, `RadioStateModel.SendCommand`'s blocking pipe write to Handoff.RadioHost no longer
+  holds the same lock `Current`/`Telemetry` reads need — a slow/blocked write could previously
+  stall those reads indefinitely even while RadioHost kept polling and sending fine, which
+  plausibly explains the stuck-frequency symptom; a warning is now logged if a write takes
+  unusually long, for direct evidence if this recurs.
 - Android (issue #128): the MSG button badge kept blinking after tuning a "contact me"
   controller's frequency, even though tuning is exactly what a contact-me request is asking
   for — the row's own contact-me flash already correctly stopped on tune, but the badge blink

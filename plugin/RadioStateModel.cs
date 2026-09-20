@@ -33,6 +33,16 @@ namespace Handoff.Plugin
 
         private readonly object _gate = new object();
         private readonly object _lifecycleGate = new object();
+        // Issue #134: SendCommand's pipe write used to take _gate too -- the same lock
+        // ReadFromRadioHost needs to record RadioHost's next polled state push. If the write
+        // ever blocked (RadioHost's command thread busy, OS pipe buffer full), the reader
+        // thread couldn't take _gate, so Current/Telemetry would go stale while RadioHost kept
+        // polling/sending fine (observed live: tuned frequency stuck mid-flight, only a vPilot
+        // restart -- which respawns RadioHost and the pipes -- recovered it). A dedicated lock
+        // for _writer/the write itself means a slow write can no longer stall Current/Telemetry
+        // reads.
+        private readonly object _writeGate = new object();
+        private static readonly TimeSpan SlowWriteWarningThreshold = TimeSpan.FromMilliseconds(250);
         private readonly Action<string> _logDebug;
         private readonly UpdateIntervalModel _updateInterval;
         private RadioState _current = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
@@ -154,9 +164,9 @@ namespace Handoff.Plugin
             _loggedFirstState = false;
             _radioHostConnected = false;
             _simulatorConnected = false;
+            lock (_writeGate) { _writer = null; }
             lock (_gate)
             {
-                _writer = null;
                 _current = new RadioState(null, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
                 _telemetry = new OwnshipTelemetry(null, null, null, null, null, null, null, DateTimeOffset.Now);
             }
@@ -267,13 +277,14 @@ namespace Handoff.Plugin
 
         private void SendCommand(RadioIpcMessage message)
         {
-            lock (_gate)
+            lock (_writeGate)
             {
                 if (_writer == null)
                 {
                     Log("Dropped outgoing command, not connected to Handoff.RadioHost: " + message.Type);
                     return;
                 }
+                var stopwatch = Stopwatch.StartNew();
                 try
                 {
                     RadioIpcProtocol.WriteMessage(_writer, message);
@@ -281,6 +292,18 @@ namespace Handoff.Plugin
                 catch (IOException ex)
                 {
                     Log("Failed sending command to Handoff.RadioHost: " + ex.Message);
+                }
+                finally
+                {
+                    stopwatch.Stop();
+                    if (stopwatch.Elapsed > SlowWriteWarningThreshold)
+                    {
+                        // Issue #134: this write no longer blocks Current/Telemetry reads (see
+                        // _writeGate's doc comment), but a write this slow still means something
+                        // downstream -- RadioHost's command thread, the OS pipe buffer -- is
+                        // backed up, and there was previously no visible symptom of that at all.
+                        Log("Slow write to Handoff.RadioHost command pipe: " + stopwatch.ElapsedMilliseconds + "ms for " + message.Type + ".");
+                    }
                 }
             }
         }
@@ -347,7 +370,7 @@ namespace Handoff.Plugin
                         _radioHostConnected = true;
 
                         var writer = new StreamWriter(commandPipe) { AutoFlush = true };
-                        lock (_gate) { _writer = writer; }
+                        lock (_writeGate) { _writer = writer; }
 
                         // RadioHost starts fresh (on its own default cadences) every time it's
                         // (re)spawned, so re-apply the current tier immediately on connect -- not
@@ -401,7 +424,7 @@ namespace Handoff.Plugin
                 }
                 finally
                 {
-                    lock (_gate) { _writer = null; }
+                    lock (_writeGate) { _writer = null; }
                     _radioHostConnected = false;
                     _simulatorConnected = false;
                 }

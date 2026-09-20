@@ -193,6 +193,10 @@ namespace Handoff.Plugin
         private DateTimeOffset _verticalTrendSince;
 
         private IReadOnlyList<RankedController> _current = new List<RankedController>();
+        // Issue #134: set by every upstream Changed subscription below instead of recomputing
+        // inline -- the actual RecomputeLocked() call is deferred to the next public read (see
+        // EnsureRecomputed()), so a burst of broker/feed events only ever costs one recompute.
+        private bool _dirty;
         private bool _debugModeEnabled;
         private RankingDebugExplain _lastRankingExplain;
         private bool _hasTakenOffThisSession;
@@ -242,20 +246,25 @@ namespace Handoff.Plugin
             _logDebug = logDebug;
             _now = now ?? (() => DateTimeOffset.Now);
 
-            _controllerState.Changed += (s, e) => Recompute();
-            _radioState.Changed += (s, e) => Recompute();
-            _flightPlanState.Changed += (s, e) => Recompute();
-            _vatsimFeed.Changed += (s, e) => Recompute();
-            _pilotSession.Changed += (s, e) => Recompute();
-            _vatGlassesData.Changed += (s, e) => Recompute();
-            _vatSpyData.Changed += (s, e) => Recompute();
+            // Issue #134: IBroker events (and these sibling models' own Changed events) can
+            // burst tens of times a tick in dense traffic/ATC -- each handler here only marks
+            // state dirty; the actual recompute is deferred to the next public read via
+            // EnsureRecomputed(), so a burst only ever costs one recompute.
+            _controllerState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _radioState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _flightPlanState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _vatsimFeed.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _pilotSession.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _vatGlassesData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _vatSpyData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
 
-            Recompute();
+            _dirty = true;
+            EnsureRecomputed();
         }
 
         public IReadOnlyList<RankedController> Current
         {
-            get { lock (_gate) { return _current; } }
+            get { EnsureRecomputed(); lock (_gate) { return _current; } }
         }
 
         /// <summary>
@@ -273,7 +282,7 @@ namespace Handoff.Plugin
         /// <summary>Plugin-wide debug context (docs/protocol.md's top-level `controllers.debug`) -- null whenever DebugModeEnabled is false.</summary>
         public RankingDebugExplain PlanWideDebugExplain
         {
-            get { lock (_gate) { return _lastRankingExplain; } }
+            get { EnsureRecomputed(); lock (_gate) { return _lastRankingExplain; } }
         }
 
         public void SetDebugMode(bool enabled)
@@ -284,8 +293,9 @@ namespace Handoff.Plugin
                 changed = _debugModeEnabled != enabled;
                 _debugModeEnabled = enabled;
                 if (!enabled) _lastRankingExplain = null;
+                if (changed) _dirty = true;
             }
-            if (changed) Recompute();
+            if (changed) EnsureRecomputed();
         }
 
         /// <summary>
@@ -298,6 +308,8 @@ namespace Handoff.Plugin
         /// </summary>
         public RankingSnapshot BuildDebugSnapshot()
         {
+            EnsureRecomputed();
+
             var flightPlan = _flightPlanState.Current;
             var telemetry = _radioState.Telemetry;
             var all = flightPlan.Waypoints;
@@ -361,7 +373,7 @@ namespace Handoff.Plugin
         /// diversionPending message.</summary>
         public string PendingDiversionDestination
         {
-            get { lock (_gate) { return _pendingDiversionDestination; } }
+            get { EnsureRecomputed(); lock (_gate) { return _pendingDiversionDestination; } }
         }
 
         /// <summary>Issue #68 -- true when, on the ground pre-takeoff, ownship's position is more
@@ -372,7 +384,7 @@ namespace Handoff.Plugin
         /// flightPlan message originMismatch field.</summary>
         public bool IsOriginMismatched
         {
-            get { lock (_gate) { return _isOriginMismatched; } }
+            get { EnsureRecomputed(); lock (_gate) { return _isOriginMismatched; } }
         }
 
         /// <summary>True when the VATSIM data feed's entry for our own callsign carries a cid
@@ -384,7 +396,7 @@ namespace Handoff.Plugin
         /// docs/protocol.md's flightPlan message vatsimCidMismatch field.</summary>
         public bool IsVatsimCidMismatched
         {
-            get { lock (_gate) { return _isVatsimCidMismatched; } }
+            get { EnsureRecomputed(); lock (_gate) { return _isVatsimCidMismatched; } }
         }
 
         /// <summary>Pilot confirmed the pending destination change is a real diversion -- drops the
@@ -399,9 +411,10 @@ namespace Handoff.Plugin
                 {
                     _routeInvalidatedByDiversion = true;
                     _pendingDiversionDestination = null;
+                    _dirty = true;
                 }
             }
-            if (changed) Recompute();
+            if (changed) EnsureRecomputed();
         }
 
         /// <summary>Pilot dismissed the pending destination change (a false alarm -- feed lag,
@@ -410,11 +423,46 @@ namespace Handoff.Plugin
         public void DismissDiversion()
         {
             bool changed;
-            lock (_gate) { changed = _pendingDiversionDestination != null; _pendingDiversionDestination = null; }
-            if (changed) Recompute();
+            lock (_gate)
+            {
+                changed = _pendingDiversionDestination != null;
+                _pendingDiversionDestination = null;
+                if (changed) _dirty = true;
+            }
+            if (changed) EnsureRecomputed();
         }
 
-        private void Recompute()
+        /// <summary>
+        /// Recomputes if dirty, on whichever thread calls it, and raises Changed exactly once
+        /// if it did (issue #134) -- called from every public read (Current,
+        /// PendingDiversionDestination, IsOriginMismatched, IsVatsimCidMismatched,
+        /// PlanWideDebugExplain, BuildDebugSnapshot) so a burst of upstream events between reads
+        /// only ever costs one actual RecomputeLocked() call, not one per event. _dirty is
+        /// cleared *before* RecomputeLocked() runs, not after, so a reentrant dirty-mark from
+        /// inside the call itself (ClearContactMe -> HandoffControllerStateModel.Changed, fired
+        /// synchronously from within RecomputeLocked) survives instead of being clobbered --
+        /// that's what schedules the follow-up recompute the old code got via a full synchronous
+        /// re-entrant Recompute() call.
+        /// </summary>
+        private void EnsureRecomputed()
+        {
+            bool recomputed;
+            lock (_gate)
+            {
+                recomputed = _dirty;
+                if (_dirty)
+                {
+                    _dirty = false;
+                    RecomputeLocked();
+                }
+            }
+            // Raised outside _gate so a Changed subscriber can't block other threads waiting to
+            // read Current/PendingDiversionDestination/etc.
+            if (recomputed) Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>
+        private void RecomputeLocked()
         {
             var controllers = _controllerState.Controllers;
             var radio = _radioState.Current;
@@ -725,8 +773,7 @@ namespace Handoff.Plugin
                     debugExplain: explainByCallsign != null && explainByCallsign.TryGetValue(c.Callsign, out var explain) ? explain : null);
             }).ToList();
 
-            lock (_gate) { _current = ranked; }
-            Changed?.Invoke(this, EventArgs.Empty);
+            _current = ranked;
         }
 
         /// <summary>
