@@ -73,6 +73,10 @@ namespace Handoff.Plugin
         private readonly X509Certificate2 _certificate;
         private WebSocketServer _server;
         private Timer _broadcastTimer;
+        // Issue #134: reentrancy guard for the broadcast timer -- 0 idle, 1 a tick is running.
+        // Skips (rather than queues) a tick if the previous one is still running, so a slow
+        // Recompute/serialize/broadcast can't pile up overlapping callbacks on the ThreadPool.
+        private int _broadcastTickRunning;
 
         // Decoupled from Recompute() -- internal ranking stays fully event-driven/reactive, but
         // diffing "did anything meaningful change" is intractable for SimConnect-driven fields
@@ -115,16 +119,7 @@ namespace Handoff.Plugin
         public BindOutcome Start()
         {
             var broadcastInterval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
-            _broadcastTimer = new Timer(_ =>
-            {
-                Broadcast(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
-                Broadcast(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
-                // originMismatch (issue #68) is telemetry-driven and can flip every Recompute
-                // tick, not just on the three Changed events flightPlan is otherwise wired to
-                // below -- resent here on the same cadence as its IsOriginMismatched sibling
-                // PendingDiversionDestination above.
-                Broadcast(BuildFlightPlanMessage());
-            }, null, broadcastInterval, broadcastInterval);
+            _broadcastTimer = new Timer(_ => RunBroadcastTick(), null, broadcastInterval, broadcastInterval);
 
             // Update-interval tier change (issue #88): re-arm the broadcast timer to the new
             // cadence and push a fresh subsystemStatus so every connected client's dropdown
@@ -133,31 +128,64 @@ namespace Handoff.Plugin
             {
                 var interval = TimeSpan.FromMilliseconds(_updateInterval.WsBroadcastMs);
                 _broadcastTimer?.Change(interval, interval);
-                Broadcast(BuildSubsystemStatusMessage());
+                Broadcast(BuildSubsystemStatusMessage);
             };
-            _chatModel.Changed += (s, e) => Broadcast(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
-            _radioState.Changed += (s, e) => Broadcast(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
-            _nearbyAircraft.Changed += (s, e) => Broadcast(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
+            _chatModel.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
+            _radioState.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
 
             // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
             // plan (PilotSessionModel's own callsign, cross-referenced against
             // VatsimDataFeedModel's pilots[]), so any of the three changing needs to
             // re-broadcast it, not just a SimBrief refetch.
-            _flightPlanState.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
-            _pilotSession.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
-            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildFlightPlanMessage());
+            _flightPlanState.Changed += (s, e) => Broadcast(BuildFlightPlanMessage);
+            _pilotSession.Changed += (s, e) => Broadcast(BuildFlightPlanMessage);
+            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildFlightPlanMessage);
 
             // Each of these three also feeds the subsystemStatus message, so any of them
             // changing needs to re-broadcast it too, not just their own message type.
-            _radioState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
-            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
-            _flightPlanState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage());
+            _radioState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage);
+            _vatsimDataFeed.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage);
+            _flightPlanState.Changed += (s, e) => Broadcast(BuildSubsystemStatusMessage);
 
             // A stream, not a snapshot -- broadcast just the one operation that changed, not
             // the whole set of currently-active operations (see OperationProgressModel).
-            _operationProgress.Changed += (s, e) => Broadcast(ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished, e.Success));
+            _operationProgress.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildOperationProgressMessage(e.OperationId, e.Status, e.Finished, e.Success));
 
             return TryBindSocket();
+        }
+
+        /// <summary>
+        /// One broadcast-timer tick (issue #134): controllers/diversionPending/flightPlan/
+        /// nearbyAircraft all move at this same fixed cadence rather than firing per upstream
+        /// event -- see the class doc comment for why (ControllerRankingModel/NearbyAircraftModel
+        /// already defer their own expensive recompute to whichever read happens next, so this
+        /// tick's Current/PlanWideDebugExplain/etc reads are also what actually triggers those
+        /// recomputes, at most once per tick no matter how many broker events fired in between).
+        /// Guarded against overlap -- see _broadcastTickRunning.
+        /// </summary>
+        private void RunBroadcastTick()
+        {
+            if (Interlocked.CompareExchange(ref _broadcastTickRunning, 1, 0) != 0)
+            {
+                Log("Skipping broadcast tick -- previous tick still running.");
+                return;
+            }
+
+            try
+            {
+                Broadcast(() => ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
+                Broadcast(() => ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
+                // originMismatch (issue #68) is telemetry-driven and can flip every recompute,
+                // not just on the three Changed events flightPlan is otherwise wired to above --
+                // resent here on the same cadence as its IsOriginMismatched sibling
+                // PendingDiversionDestination above.
+                Broadcast(BuildFlightPlanMessage);
+                Broadcast(() => ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _broadcastTickRunning, 0);
+            }
         }
 
         /// <summary>Binds the Fleck socket on the current port (issue #98) -- split out from
@@ -516,11 +544,19 @@ namespace Handoff.Plugin
             }
         }
 
-        private void Broadcast(string message)
+        /// <summary>
+        /// Issue #134: takes a builder instead of a pre-built message so the (potentially
+        /// non-trivial, Newtonsoft-serialized) JSON is never built at all when there are no
+        /// authenticated sockets to send it to -- broker/feed event bursts with no client
+        /// connected yet previously still paid the full build cost on every tick.
+        /// </summary>
+        private void Broadcast(Func<string> buildMessage)
         {
             List<IWebSocketConnection> sockets;
-            lock (_gate) { sockets = _authenticatedSockets.ToList(); }
+            lock (_gate) { sockets = _authenticatedSockets.Count > 0 ? _authenticatedSockets.ToList() : null; }
+            if (sockets == null) return;
 
+            var message = buildMessage();
             foreach (var socket in sockets)
             {
                 try

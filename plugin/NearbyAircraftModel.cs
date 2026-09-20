@@ -15,9 +15,11 @@ namespace Handoff.Plugin
     /// reports other aircraft, never ownship, so no self-filtering is needed.
     ///
     /// Distance is computed against ownship's own position (IRadioStateModel.Telemetry, sourced
-    /// from SimConnect via Handoff.RadioHost -- IBroker has no ownship position of its own).
-    /// Recomputed on every aircraft or telemetry change and filtered to RadiusNauticalMiles,
-    /// closest first, matching the design's "AIRCRAFT WITHIN 20NM · CLOSEST FIRST" header.
+    /// from SimConnect via Handoff.RadioHost -- IBroker has no ownship position of its own),
+    /// filtered to RadiusNauticalMiles, closest first, matching the design's "AIRCRAFT WITHIN
+    /// 20NM · CLOSEST FIRST" header. Every aircraft/telemetry change just marks state dirty;
+    /// the actual recompute is deferred to the next Current read (issue #134 -- a burst of
+    /// IBroker events in a busy area must not each cost a full recompute).
     /// </summary>
     public sealed class NearbyAircraftModel
     {
@@ -28,6 +30,7 @@ namespace Handoff.Plugin
         private readonly Dictionary<string, AircraftPosition> _aircraft =
             new Dictionary<string, AircraftPosition>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyList<NearbyAircraft> _current = new List<NearbyAircraft>();
+        private bool _dirty;
 
         public event EventHandler Changed;
 
@@ -39,19 +42,42 @@ namespace Handoff.Plugin
             broker.AircraftAdded += OnAircraftAdded;
             broker.AircraftUpdated += OnAircraftUpdated;
             broker.AircraftDeleted += OnAircraftDeleted;
-            _radioState.Changed += (s, e) => Recompute();
+            _radioState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
         }
 
-        /// <summary>Point-in-time snapshot, within RadiusNauticalMiles of ownship, closest first.</summary>
+        /// <summary>
+        /// Point-in-time snapshot, within RadiusNauticalMiles of ownship, closest first.
+        /// Recompute is deferred to read time rather than run on every IBroker event --
+        /// a burst of AircraftAdded events (e.g. connecting in a busy area) only ever
+        /// costs one actual recompute, on whichever thread next reads this property (see
+        /// issue #134).
+        /// </summary>
         public IReadOnlyList<NearbyAircraft> Current
         {
-            get { lock (_gate) { return _current; } }
+            get
+            {
+                IReadOnlyList<NearbyAircraft> snapshot;
+                bool recomputed;
+                lock (_gate)
+                {
+                    recomputed = _dirty;
+                    if (_dirty)
+                    {
+                        _dirty = false;
+                        RecomputeLocked();
+                    }
+                    snapshot = _current;
+                }
+                // Raised outside _gate so a Changed subscriber can't block other threads
+                // waiting to read Current.
+                if (recomputed) Changed?.Invoke(this, EventArgs.Empty);
+                return snapshot;
+            }
         }
 
         private void OnAircraftAdded(object sender, AircraftAddedEventArgs e)
         {
-            lock (_gate) { _aircraft[e.Callsign] = new AircraftPosition(e.TypeCode, e.Latitude, e.Longitude); }
-            Recompute();
+            lock (_gate) { _aircraft[e.Callsign] = new AircraftPosition(e.TypeCode, e.Latitude, e.Longitude); _dirty = true; }
         }
 
         private void OnAircraftUpdated(object sender, AircraftUpdatedEventArgs e)
@@ -62,27 +88,24 @@ namespace Handoff.Plugin
                     _aircraft[e.Callsign] = existing.WithLocation(e.Latitude, e.Longitude);
                 // Unknown callsign: ignore rather than fabricate a partial entry (mirrors
                 // ControllerStateModel's OnControllerFrequencyChanged handling).
+                _dirty = true;
             }
-            Recompute();
         }
 
         private void OnAircraftDeleted(object sender, AircraftDeletedEventArgs e)
         {
-            lock (_gate) { _aircraft.Remove(e.Callsign); }
-            Recompute();
+            lock (_gate) { _aircraft.Remove(e.Callsign); _dirty = true; }
         }
 
-        private void Recompute()
+        /// <summary>Assumes the caller already holds _gate for the duration of this call.</summary>
+        private void RecomputeLocked()
         {
             var telemetry = _radioState.Telemetry;
             var result = new List<NearbyAircraft>();
 
             if (telemetry.Latitude.HasValue && telemetry.Longitude.HasValue)
             {
-                List<KeyValuePair<string, AircraftPosition>> snapshot;
-                lock (_gate) { snapshot = _aircraft.ToList(); }
-
-                result = snapshot
+                result = _aircraft
                     .Select(kvp => new
                     {
                         kvp.Key,
@@ -95,8 +118,7 @@ namespace Handoff.Plugin
                     .ToList();
             }
 
-            lock (_gate) { _current = result; }
-            Changed?.Invoke(this, EventArgs.Empty);
+            _current = result;
         }
 
         private readonly struct AircraftPosition

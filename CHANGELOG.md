@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Plugin (issue #131): a private message could occasionally arrive on a client with a
+  completely empty `text` body despite the sender confirming it wasn't sent that way, with no
+  repro to pin down why. `ChatModel` now logs enough diagnostics on receipt (length,
+  null-check, and whether the text round-trips cleanly through the same JSON serializer used
+  for the wire protocol) to make a recurrence debuggable via vPilot's `/dbgwin` — covering
+  radio and broadcast messages too, not just private ones, since all three share the same
+  FSD-decoded text pipeline and radio traffic is far more frequent to catch in the act.
+  Regardless of the exact cause, an unpaired UTF-16 surrogate (which a truncated multi-byte
+  FSD message could produce) or an embedded control character like NUL (a classic
+  cross-language truncation trigger) could each plausibly corrupt a field like this —
+  incoming private, radio, and broadcast message text is now sanitized before being stored,
+  replacing unpaired surrogates with U+FFFD and stripping stray control characters, so
+  neither can reach the wire payload.
+- Plugin (issue #134): vPilot could freeze completely (Windows "Application Hang") in dense
+  VATSIM traffic/ATC, and the tuned radio frequency could get stuck out of sync with the sim
+  mid-flight until vPilot was restarted. Both traced to the same class of bug: `NearbyAircraftModel`
+  and `ControllerRankingModel` ran a full, uncoalesced recompute synchronously on the thread
+  raising each `IBroker` event, with no throttling — a burst of aircraft/controller events in a
+  busy area meant hundreds of back-to-back recomputes (including VATGlasses/vatspy polygon
+  geometry) on that thread. Both models now mark state dirty on each event and defer the actual
+  recompute to the next read, which `HandoffWebSocketServer`'s existing fixed-cadence broadcast
+  timer already provides (the nearby-aircraft broadcast moved onto that same timer, alongside
+  controllers/flightPlan). That timer also no longer lets overlapping ticks queue up, and it now
+  skips building/serializing a message entirely when no client is connected. Chat/SELCAL history
+  is capped to the most recent 200 entries instead of growing and being resent in full forever.
+  Separately, `RadioStateModel.SendCommand`'s blocking pipe write to Handoff.RadioHost no longer
+  holds the same lock `Current`/`Telemetry` reads need — a slow/blocked write could previously
+  stall those reads indefinitely even while RadioHost kept polling and sending fine, which
+  plausibly explains the stuck-frequency symptom; a warning is now logged if a write takes
+  unusually long, for direct evidence if this recurs.
+- Android (issue #128): the MSG button badge kept blinking after tuning a "contact me"
+  controller's frequency, even though tuning is exactly what a contact-me request is asking
+  for — the row's own contact-me flash already correctly stopped on tune, but the badge blink
+  was driven by separate, disconnected unread-tab bookkeeping with no notion of "resolved."
+  `MainScreen` now tracks which directed-unread tabs are still explained purely by an
+  outstanding contact-me and relaxes the blink for those once every pending sender is tuned
+  (or otherwise no longer flagged), while any tab with an unrelated directed message (a private
+  message, or a non-contact-me radio call mentioning the pilot's callsign) keeps blinking as
+  before. The unread count itself is untouched — it still stays at 1 until chat is opened.
 - Plugin/Android (issue #127): the CTR ETA badge (issue #71) could read "ETA 0m" while
   genuinely mid-sector, not near any boundary — a controller whose sector already
   contained ownship's position (a "satisfied" bucket-8 match, e.g. an overlapping/
