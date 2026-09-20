@@ -143,6 +143,59 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void RadioMessageReceived_LogsDiagnosticsWhenLoggerProvided()
+        {
+            var broker = new FakeBroker();
+            var lines = new List<string>();
+            var model = new ChatModel(broker, lines.Add);
+
+            broker.RaiseRadioMessageReceived(new RadioMessageReceivedEventArgs(new[] { 12345 }, "EGLL_TWR", "cleared for takeoff"));
+
+            var line = Assert.Single(lines);
+            Assert.Contains("RadioMessageReceived", line);
+            Assert.Contains("from=EGLL_TWR", line);
+            Assert.Contains("text=\"cleared for takeoff\"", line);
+        }
+
+        [Fact]
+        public void RadioMessageReceived_UnpairedSurrogate_ReplacedWithReplacementChar()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            var malformed = "descend\uD83Dnow";
+
+            broker.RaiseRadioMessageReceived(new RadioMessageReceivedEventArgs(new[] { 12345 }, "EGLL_TWR", malformed));
+
+            Assert.Equal("descend�now", Assert.Single(model.Messages).Text);
+        }
+
+        [Fact]
+        public void BroadcastMessageReceived_LogsDiagnosticsWhenLoggerProvided()
+        {
+            var broker = new FakeBroker();
+            var lines = new List<string>();
+            var model = new ChatModel(broker, lines.Add);
+
+            broker.RaiseBroadcastMessageReceived(new BroadcastMessageReceivedEventArgs("VATSIM", "server restarting"));
+
+            var line = Assert.Single(lines);
+            Assert.Contains("BroadcastMessageReceived", line);
+            Assert.Contains("from=VATSIM", line);
+            Assert.Contains("text=\"server restarting\"", line);
+        }
+
+        [Fact]
+        public void BroadcastMessageReceived_EmbeddedNulCharacter_Stripped()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+
+            broker.RaiseBroadcastMessageReceived(new BroadcastMessageReceivedEventArgs("VATSIM", "server\0restarting"));
+
+            Assert.Equal("serverrestarting", Assert.Single(model.Messages).Text);
+        }
+
+        [Fact]
         public void SendPrivateMessage_CallsThroughAndAppendsOutgoingMessage()
         {
             var broker = new FakeBroker();

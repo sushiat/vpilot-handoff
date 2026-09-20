@@ -79,23 +79,20 @@ namespace Handoff.Plugin
 
         private void OnPrivateMessageReceived(object sender, PrivateMessageReceivedEventArgs e)
         {
-            LogPrivateMessageDiagnostics(e.From, e.Message);
-            var sanitized = SanitizeText(e.Message);
-            if (!ReferenceEquals(sanitized, e.Message))
-            {
-                Log($"PrivateMessageReceived from={e.From} sanitization changed text: raw=\"{e.Message}\" sanitized=\"{sanitized}\"");
-            }
+            var sanitized = LogAndSanitize("PrivateMessageReceived", e.From, e.Message);
             AddMessage(new ChatMessage(ChatChannel.Private, ChatDirection.Incoming, e.From, sanitized, null, DateTimeOffset.Now));
         }
 
         private void OnRadioMessageReceived(object sender, RadioMessageReceivedEventArgs e)
         {
-            AddMessage(new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, SanitizeText(e.Message), e.Frequencies, DateTimeOffset.Now, e.From));
+            var sanitized = LogAndSanitize("RadioMessageReceived", e.From, e.Message);
+            AddMessage(new ChatMessage(ChatChannel.Radio, ChatDirection.Incoming, null, sanitized, e.Frequencies, DateTimeOffset.Now, e.From));
         }
 
         private void OnBroadcastMessageReceived(object sender, BroadcastMessageReceivedEventArgs e)
         {
-            AddMessage(new ChatMessage(ChatChannel.Broadcast, ChatDirection.Incoming, e.From, SanitizeText(e.Message), null, DateTimeOffset.Now));
+            var sanitized = LogAndSanitize("BroadcastMessageReceived", e.From, e.Message);
+            AddMessage(new ChatMessage(ChatChannel.Broadcast, ChatDirection.Incoming, e.From, sanitized, null, DateTimeOffset.Now));
         }
 
         /// <summary>
@@ -103,23 +100,37 @@ namespace Handoff.Plugin
         /// text body despite the sender confirming it wasn't sent that way. No repro since, so
         /// this logs enough to diagnose it if it recurs: raw text, length, and whether the text
         /// round-trips cleanly through the same JSON serializer used for the wire protocol.
+        /// Applied to all three incoming channels (not just private) -- the corruption theory
+        /// (unpaired surrogate / stray control char in FSD-decoded text) applies equally to any
+        /// of them, and radio/broadcast traffic is a far more reliable way to catch it live than
+        /// waiting for a private message. Returns the sanitized text either way.
         /// </summary>
-        private void LogPrivateMessageDiagnostics(string from, string text)
+        private string LogAndSanitize(string eventName, string from, string text)
         {
-            if (_logDebug == null) return;
+            var sanitized = SanitizeText(text);
 
-            string roundTrip;
-            try
+            if (_logDebug != null)
             {
-                var json = JsonConvert.SerializeObject(text);
-                roundTrip = JsonConvert.DeserializeObject<string>(json) == text ? "ok" : "mismatch";
-            }
-            catch (Exception ex)
-            {
-                roundTrip = "threw: " + ex.Message;
+                string roundTrip;
+                try
+                {
+                    var json = JsonConvert.SerializeObject(text);
+                    roundTrip = JsonConvert.DeserializeObject<string>(json) == text ? "ok" : "mismatch";
+                }
+                catch (Exception ex)
+                {
+                    roundTrip = "threw: " + ex.Message;
+                }
+
+                Log($"{eventName} from={from} length={text?.Length ?? -1} isNull={text == null} jsonRoundTrip={roundTrip} text=\"{text}\"");
+
+                if (!ReferenceEquals(sanitized, text))
+                {
+                    Log($"{eventName} from={from} sanitization changed text: raw=\"{text}\" sanitized=\"{sanitized}\"");
+                }
             }
 
-            Log($"PrivateMessageReceived from={from} length={text?.Length ?? -1} isNull={text == null} jsonRoundTrip={roundTrip} text=\"{text}\"");
+            return sanitized;
         }
 
         /// <summary>
