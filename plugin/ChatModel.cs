@@ -17,6 +17,12 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class ChatModel
     {
+        // Issue #134: VATSIM text traffic is low, so a session realistically never approaches
+        // this, but nothing was capping it -- an unbounded list re-serialized and rebroadcast in
+        // full on every new message would otherwise grow for as long as the plugin runs. Applies
+        // separately to _messages and _selcalAlerts (independent, unrelated streams).
+        private const int MaxHistoryEntries = 200;
+
         private readonly object _gate = new object();
         private readonly IBroker _broker;
         private readonly List<ChatMessage> _messages = new List<ChatMessage>();
@@ -80,14 +86,28 @@ namespace Handoff.Plugin
 
         private void OnSelcalAlertReceived(object sender, SelcalAlertReceivedEventArgs e)
         {
-            lock (_gate) { _selcalAlerts.Add(new SelcalAlert(e.From, e.Frequencies, DateTimeOffset.Now)); }
+            lock (_gate)
+            {
+                _selcalAlerts.Add(new SelcalAlert(e.From, e.Frequencies, DateTimeOffset.Now));
+                TrimToCapacity(_selcalAlerts);
+            }
             RaiseChanged();
         }
 
         private void AddMessage(ChatMessage message)
         {
-            lock (_gate) { _messages.Add(message); }
+            lock (_gate)
+            {
+                _messages.Add(message);
+                TrimToCapacity(_messages);
+            }
             RaiseChanged();
+        }
+
+        /// <summary>Assumes the caller already holds _gate.</summary>
+        private static void TrimToCapacity<T>(List<T> list)
+        {
+            if (list.Count > MaxHistoryEntries) list.RemoveRange(0, list.Count - MaxHistoryEntries);
         }
 
         private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);

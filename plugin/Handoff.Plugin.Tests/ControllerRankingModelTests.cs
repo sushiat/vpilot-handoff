@@ -1152,9 +1152,13 @@ namespace Handoff.Plugin.Tests
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
             var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
 
-            // Sequence past B and let the commit land, same as above.
+            // Sequence past B and let the commit land, same as above. The intermediate read is
+            // required, not just documentation -- it's what actually starts the pending-advance
+            // hysteresis timer at the first raise's "now"; without it, both raises would coalesce
+            // into a single recompute at whatever "now" the next read happens to use.
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 2.5, 0, now);
             _radio.RaiseChanged();
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted); // not yet -- sustained-disagreement hysteresis hasn't elapsed
             now = now.AddSeconds(13);
             _radio.RaiseChanged();
             Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
