@@ -117,7 +117,7 @@ namespace Handoff.Plugin
                     var json = JsonConvert.SerializeObject(text);
                     roundTrip = JsonConvert.DeserializeObject<string>(json) == text ? "ok" : "mismatch";
                 }
-                catch (Exception ex)
+                catch (JsonException ex)
                 {
                     roundTrip = "threw: " + ex.Message;
                 }

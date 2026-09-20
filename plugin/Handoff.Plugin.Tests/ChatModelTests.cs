@@ -29,7 +29,7 @@ namespace Handoff.Plugin.Tests
         {
             var broker = new FakeBroker();
             var lines = new List<string>();
-            var model = new ChatModel(broker, lines.Add);
+            _ = new ChatModel(broker, lines.Add);
 
             broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
 
@@ -147,7 +147,7 @@ namespace Handoff.Plugin.Tests
         {
             var broker = new FakeBroker();
             var lines = new List<string>();
-            var model = new ChatModel(broker, lines.Add);
+            _ = new ChatModel(broker, lines.Add);
 
             broker.RaiseRadioMessageReceived(new RadioMessageReceivedEventArgs(new[] { 12345 }, "EGLL_TWR", "cleared for takeoff"));
 
@@ -174,7 +174,7 @@ namespace Handoff.Plugin.Tests
         {
             var broker = new FakeBroker();
             var lines = new List<string>();
-            var model = new ChatModel(broker, lines.Add);
+            _ = new ChatModel(broker, lines.Add);
 
             broker.RaiseBroadcastMessageReceived(new BroadcastMessageReceivedEventArgs("VATSIM", "server restarting"));
 
