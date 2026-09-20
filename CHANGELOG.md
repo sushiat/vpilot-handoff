@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Plugin (issue #131): a private message could occasionally arrive on a client with a
+  completely empty `text` body despite the sender confirming it wasn't sent that way, with no
+  repro to pin down why. `ChatModel` now logs enough diagnostics on receipt (length,
+  null-check, and whether the text round-trips cleanly through the same JSON serializer used
+  for the wire protocol) to make a recurrence debuggable via vPilot's `/dbgwin`. Regardless of
+  the exact cause, an unpaired UTF-16 surrogate (which a truncated multi-byte FSD message could
+  produce) or an embedded control character like NUL (a classic cross-language truncation
+  trigger) could each plausibly corrupt a field like this — incoming private, radio, and
+  broadcast message text is now sanitized before being stored, replacing unpaired surrogates
+  with U+FFFD and stripping stray control characters, so neither can reach the wire payload.
 - Plugin (issue #134): vPilot could freeze completely (Windows "Application Hang") in dense
   VATSIM traffic/ATC, and the tuned radio frequency could get stuck out of sync with the sim
   mid-flight until vPilot was restarted. Both traced to the same class of bug: `NearbyAircraftModel`
