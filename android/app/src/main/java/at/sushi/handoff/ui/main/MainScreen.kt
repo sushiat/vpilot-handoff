@@ -84,6 +84,7 @@ import at.sushi.handoff.ui.theme.HandoffTheme
 import at.sushi.handoff.ui.theme.DefaultRowColorPalette
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import at.sushi.handoff.ui.theme.SavedRowColorTheme
+import at.sushi.handoff.ui.theme.isContactMeResolved
 import kotlinx.coroutines.flow.first
 import java.util.UUID
 
@@ -331,6 +332,16 @@ private fun MainScreenContent() {
     // message, or a radio message mentioning ownCallsign) -- feeds TopBar's flashing
     // orange/hazard-yellow badge treatment, distinct from the ambient/blue case (issue #32).
     var directedUnreadTabs by remember { mutableStateOf(setOf<String>()) }
+    // Per-tab bookkeeping for issue #128: which unread-directed tabs are still explained
+    // *entirely* by an outstanding contact-me request (so tuning the requester can relax the
+    // MSG button's blink for them) vs tabs that have earned their directed-unread status some
+    // other way (a private message, or a radio call mentioning ownCallsign that ISN'T a
+    // contact-me) and so must keep blinking regardless of tuning. pendingContactMeByTab maps
+    // tab -> set of contact-me callers whose message hasn't been read yet; membership alone
+    // doesn't mean "still blinking" -- see unresolvedContactMeTabs below, which re-checks
+    // isContactMeResolved live against current radio state.
+    var pendingContactMeByTab by remember { mutableStateOf(mapOf<String, Set<String>>()) }
+    var nonContactMeDirectedTabs by remember { mutableStateOf(setOf<String>()) }
     var selcalDismissedTimestamp by remember { mutableStateOf<String?>(null) }
 
     val latestSelcalAlert = chat.selcalAlerts.maxByOrNull { it.timestamp }
@@ -341,6 +352,8 @@ private fun MainScreenContent() {
     fun clearUnread(tab: String) {
         unreadByTab = unreadByTab - tab
         directedUnreadTabs = directedUnreadTabs - tab
+        pendingContactMeByTab = pendingContactMeByTab - tab
+        nonContactMeDirectedTabs = nonContactMeDirectedTabs - tab
     }
 
     fun openChatWith(callsign: String) {
@@ -392,9 +405,38 @@ private fun MainScreenContent() {
             val currentlyViewing = chatPanelVisible && (activeChatTab == tab || (tab == RADIO_TAB && activeChatTab == null))
             if (currentlyViewing) continue
             unreadByTab = unreadByTab + (tab to ((unreadByTab[tab] ?: 0) + 1))
-            if (directed) directedUnreadTabs = directedUnreadTabs + tab
+            if (directed) {
+                directedUnreadTabs = directedUnreadTabs + tab
+                // Issue #128: only a radio entry from a station currently flagged isContactMe
+                // counts as contact-me-caused -- everything else (private messages, ordinary
+                // radio calls mentioning ownCallsign) marks the tab as needing to keep blinking
+                // regardless of tuning.
+                val sender = entry.from
+                val senderController = sender?.let { s -> controllers.controllers.find { it.callsign == s } }
+                if (entry.channel != "private" && senderController?.isContactMe == true) {
+                    pendingContactMeByTab = pendingContactMeByTab +
+                        (tab to ((pendingContactMeByTab[tab] ?: emptySet()) + sender))
+                } else {
+                    nonContactMeDirectedTabs = nonContactMeDirectedTabs + tab
+                }
+            }
         }
     }
+
+    // Issue #128: a tab's directed-unread only keeps blinking the MSG button if either (a) it
+    // has a directed-unread message unrelated to contact-me, or (b) at least one of its pending
+    // contact-me senders is still un-tuned (or still flagged isContactMe at all) -- recomputed
+    // live off controllers/radioState, same as the row's own isContactMeResolved check, so
+    // tuning the requester relaxes both at the same moment.
+    val unresolvedContactMeTabs = pendingContactMeByTab.filterValues { senders ->
+        senders.any { s ->
+            val c = controllers.controllers.find { it.callsign == s }
+            c?.isContactMe == true && !isContactMeResolved(c, radioState.com1Frequency, radioState.com2Frequency)
+        }
+    }.keys
+    val blinkingDirectedTabs = directedUnreadTabs.filter {
+        it in nonContactMeDirectedTabs || it in unresolvedContactMeTabs
+    }.toSet()
 
     // The nearby-aircraft dialog is folded in here (rendered as plain inline content layered
     // over the chat panel, not a system Dialog) rather than as a standalone top-level dialog --
@@ -540,7 +582,7 @@ private fun MainScreenContent() {
                 lastMessageLabel = lastReceivedPeer
                     ?: "RADIO".takeIf { chat.messages.isNotEmpty() || chat.selcalAlerts.isNotEmpty() },
                 unreadCount = unreadByTab.values.sum(),
-                hasDirectedUnread = directedUnreadTabs.isNotEmpty(),
+                hasDirectedUnread = blinkingDirectedTabs.isNotEmpty(),
                 // Frequency match, not the isCurrent flag -- a station can be isCurrent on either
                 // COM independently (docs/controller-ranking.md bucket 1), so matching by the
                 // radio's own actual tuned frequency is the more direct/authoritative lookup.
