@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-20
+
 ### Fixed
 
 - Plugin (issue #131): a private message could occasionally arrive on a client with a
@@ -580,7 +582,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
   fallback — and when, surfaced in both the live view and the snapshot file.
 
-[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.2.0...v0.3.0
