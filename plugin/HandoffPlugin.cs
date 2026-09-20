@@ -33,7 +33,7 @@ namespace Handoff.Plugin
         public void Initialize(IBroker broker)
         {
             _broker = broker;
-            _chatModel = new ChatModel(_broker);
+            _chatModel = new ChatModel(_broker, _broker.PostDebugMessage);
             // Needs _chatModel to already exist -- it absorbs the old ContactMeModel/
             // SelcalActiveModel's chat-triggered detection directly (issue #18's unified
             // HandoffController model), not just IBroker's controller events.

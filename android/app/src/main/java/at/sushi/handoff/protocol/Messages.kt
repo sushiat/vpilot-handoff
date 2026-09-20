@@ -134,7 +134,10 @@ data class ChatEntry(
     val direction: String,
     val peer: String? = null,
     val from: String? = null,
-    val text: String,
+    // Issue #131 -- a plugin-side encoding bug once left this null/absent instead of the
+    // sent text. Nullable so a recurrence degrades to a visible placeholder in the UI
+    // instead of failing to deserialize the whole chat batch.
+    val text: String? = null,
     val frequencies: List<Int>? = null,
     val timestamp: String
 )
