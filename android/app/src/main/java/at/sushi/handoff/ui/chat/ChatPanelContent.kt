@@ -305,7 +305,8 @@ private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boo
 private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
     val colors = LocalHandoffColors.current
     val outgoing = entry.direction == "outgoing"
-    val mentionsUs = !outgoing && entry.channel == "radio" && mentionsCallsign(entry.text, ownCallsign)
+    val mentionsUs = !outgoing && entry.channel == "radio" &&
+        entry.text?.let { mentionsCallsign(it, ownCallsign) } == true
     val metaText = buildString {
         val frequencyLabel = entry.frequencies?.firstOrNull()?.let { RadioFrequency.format(it) }
         val leading = entry.peer ?: listOfNotNull(entry.from, frequencyLabel).joinToString(" · ").ifEmpty { null }
@@ -344,7 +345,9 @@ private fun MessageRow(entry: ChatEntry, ownCallsign: String?) {
                     color = colors.textMuted,
                     modifier = Modifier.padding(bottom = 2.dp)
                 )
-                Text(entry.text, fontSize = 16.5.sp, color = colors.text)
+                // Issue #131 -- text can arrive null/absent if a plugin-side encoding bug
+                // blanks it before the wire; surface that instead of a silent empty bubble.
+                Text(entry.text ?: "⚠ Message received without content", fontSize = 16.5.sp, color = colors.text)
             }
         }
     }

@@ -393,7 +393,7 @@ private fun MainScreenContent() {
                 if (peer !in openChatTabs) openChatTabs = openChatTabs + peer
             } else {
                 tab = RADIO_TAB
-                directed = mentionsCallsign(entry.text, flightPlan.vatsimCallsign)
+                directed = entry.text?.let { mentionsCallsign(it, flightPlan.vatsimCallsign) } == true
             }
             // In wide fullscreen the chat panel is always on screen (chatOpen only gates the
             // split-screen overlay's/narrow-fullscreen's own visibility -- see the onToggleChat
