@@ -22,6 +22,7 @@ import androidx.core.app.ServiceCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import at.sushi.handoff.network.CdmClient
 import at.sushi.handoff.network.CertTrustStore
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.network.HandoffWebSocketClient
@@ -48,10 +49,14 @@ import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
+import at.sushi.handoff.util.deriveCdmSlotDisplay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Foreground service so the WebSocket connection to the plugin survives the app losing
@@ -81,6 +86,10 @@ class HandoffConnectionService : Service() {
         private const val MinBackoffMillis = 2_000L
         private const val MaxBackoffMillis = 30_000L
         private const val PingIntervalMillis = 10_000L
+        // Issue #143 -- first guess at a poll cadence for the read-only VDGS/TOBT tile against
+        // api.viffsys.com; the issue itself flags the right interval as an open question, not
+        // something confirmed against real usage yet.
+        private const val CdmPollIntervalMillis = 60_000L
         // Issue #73a -- the type this service's *normal* startForeground calls declare. Does NOT
         // include mediaProjection: Android 14+ rejects asserting that type until the user has
         // actually granted MediaProjection consent in this session (the underlying "project_media"
@@ -101,6 +110,7 @@ class HandoffConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob())
     private var connectionJob: Job? = null
     private var pingJob: Job? = null
+    private var cdmPollingJob: Job? = null
     private var quitRequested = false
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
@@ -218,6 +228,7 @@ class HandoffConnectionService : Service() {
             onCertificateSeen = { fingerprint, commonName -> onCertificateSeen(fingerprint, commonName) }
         )
         reconnectLoop()
+        startCdmPollingLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -243,6 +254,7 @@ class HandoffConnectionService : Service() {
     override fun onDestroy() {
         connectionJob?.cancel()
         pingJob?.cancel()
+        cdmPollingJob?.cancel()
         client.close()
         ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
         unregisterReceiver(powerConnectedReceiver)
@@ -592,6 +604,53 @@ class HandoffConnectionService : Service() {
                 delay(PingIntervalMillis)
                 client.send(PingCommand(clientTimestamp = System.currentTimeMillis()))
             }
+        }
+    }
+
+    /** Issue #143 -- read-only VDGS/TOBT polling against the undocumented api.viffsys.com A-CDM
+     *  backend, entirely independent of the plugin WebSocket connection above (this doesn't touch
+     *  plugin/ at all, per the issue's own scoping -- Android already has departure airport and
+     *  callsign from the existing flightPlan message). Keyed off the *VATSIM-filed* origin/
+     *  callsign specifically, not SimBrief's (which has no guarantee of matching what's actually
+     *  filed on the network, and isn't what this backend tracks) -- confirmed live in the issue
+     *  that a filed VATSIM flight plan, not connection state alone, is what makes a flight appear
+     *  in this backend's data at all. collectLatest means a change in either value (a new flight,
+     *  or a plugin disconnect resetting both to null) cancels whatever polling loop was running
+     *  for the previous one, including its own cdmSlot state. */
+    private fun startCdmPollingLoop() {
+        cdmPollingJob = scope.launch {
+            HandoffState.flightPlan
+                .map { it.vatsimOrigin to it.vatsimCallsign }
+                .distinctUntilChanged()
+                .collectLatest { (origin, callsign) ->
+                    if (origin == null || callsign == null) {
+                        HandoffState.setCdmSlot(null)
+                        return@collectLatest
+                    }
+                    // Gate on the airport actually being CDM-covered and TOBT-ready before ever
+                    // polling per-flight data for it (issue #143's recommendation) -- avoids
+                    // hammering this undocumented third-party backend for an airport with nothing
+                    // to give.
+                    val airport = CdmClient.fetchCadAirports()?.find { it.icao.equals(origin, ignoreCase = true) }
+                    if (airport?.isCdm != true || !airport.tobtReady) {
+                        HandoffState.setCdmSlot(null)
+                        return@collectLatest
+                    }
+                    while (true) {
+                        val mine = CdmClient.fetchDepartureAirportFlights(origin)
+                            ?.find { it.callsign.equals(callsign, ignoreCase = true) }
+                        if (mine != null && !mine.atot.isNullOrBlank()) {
+                            // Already departed -- TOBT/CDM tracking is only meaningful
+                            // pre-departure. Stop polling this flight rather than keep hitting the
+                            // backend for a slot that's over; a new flight plan (collectLatest's
+                            // own trigger above) restarts this for the next one.
+                            HandoffState.setCdmSlot(null)
+                            break
+                        }
+                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis()))
+                        delay(CdmPollIntervalMillis)
+                    }
+                }
         }
     }
 

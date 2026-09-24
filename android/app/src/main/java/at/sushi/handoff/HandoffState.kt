@@ -14,6 +14,7 @@ import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.DefaultRowColorPalette
 import at.sushi.handoff.ui.theme.RowColorPalette
+import at.sushi.handoff.util.CdmSlotDisplay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -149,6 +150,16 @@ object HandoffState {
 
     private val _diversionPending = MutableStateFlow(DiversionPendingMessage())
     val diversionPending: StateFlow<DiversionPendingMessage> = _diversionPending.asStateFlow()
+
+    // Issue #143 -- read-only VDGS/TOBT status for the currently-filed departure, polled directly
+    // from api.viffsys.com by HandoffConnectionService's own CDM polling loop. This is a separate
+    // concern from everything else in this file: it never comes from the plugin WebSocket (this
+    // feature doesn't touch plugin/ at all, per the issue's scoping), so it's not reset by
+    // clearLiveServerState() below -- the polling loop itself clears it once its own trigger
+    // condition (a VATSIM-filed flight plan at a CDM-covered airport) goes away, including on a
+    // plugin disconnect (which resets flightPlan to nulls, the loop's own gate).
+    private val _cdmSlot = MutableStateFlow<CdmSlotDisplay?>(null)
+    val cdmSlot: StateFlow<CdmSlotDisplay?> = _cdmSlot.asStateFlow()
 
     private val _nearbyAircraft = MutableStateFlow(NearbyAircraftMessage(aircraft = emptyList()))
     val nearbyAircraft: StateFlow<NearbyAircraftMessage> = _nearbyAircraft.asStateFlow()
@@ -310,6 +321,10 @@ object HandoffState {
 
     fun update(message: DiversionPendingMessage) {
         _diversionPending.value = message
+    }
+
+    fun setCdmSlot(slot: CdmSlotDisplay?) {
+        _cdmSlot.value = slot
     }
 
     fun update(message: NearbyAircraftMessage) {

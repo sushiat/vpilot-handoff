@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.sp
 import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.util.CdmSlotDisplay
+import at.sushi.handoff.util.CdmUrgency
+import kotlin.math.abs
 
 /** The controller list's footer: a "face" row (connection dot + status line, refresh + settings
  *  icons) that's the first/top child of this container, with the expandable detail content
@@ -85,6 +88,12 @@ fun FooterStatusBar(
     vatsimOrigin: String?,
     vatsimDestination: String?,
     vatsimMissing: Boolean,
+    // Issue #143 -- read-only VDGS/TOBT status for the current departure, polled directly from
+    // api.viffsys.com (a separate concern from everything else this footer shows, none of which
+    // comes from the plugin). Null whenever there's nothing to show -- see HandoffState.cdmSlot's
+    // doc for exactly when that is. Drives the small collapsed-row chip and its own expanded-drawer
+    // detail row, same "only shown when it fires" treatment as originMismatch/vatsimCidMismatch.
+    cdmSlot: CdmSlotDisplay?,
     // The host actually used for the current/last connection attempt (HandoffState.resolvedHost)
     // -- not the raw manual-IP preference, which stays null forever for anyone relying on UDP
     // discovery instead of typing an IP in Settings, even while genuinely connected.
@@ -221,6 +230,12 @@ fun FooterStatusBar(
                     )
                 }
             }
+            // Issue #143 -- only shown once there's room for the full "Connected · route" label;
+            // on a narrower layout it just disappears rather than competing for space with
+            // anything the existing width-tuned logic above already fights for.
+            if (cdmSlot != null && showStatusLabel) {
+                CdmChip(cdmSlot)
+            }
             // Tight boxes with a 2px gap, same pattern as ControllerList's pin/message icons --
             // Material3's IconButton reserves a 48dp touch target plus its own internal padding,
             // which pushed these icons much further apart than intended. Sized up while there's
@@ -292,6 +307,21 @@ fun FooterStatusBar(
                     if (vatsimMissing) "MISSING" else "${vatsimOrigin ?: "----"} → ${vatsimDestination ?: "----"}",
                     flightPlanWarning
                 )
+                // Issue #143 -- only shown while there's a CDM slot to report at all (see
+                // HandoffState.cdmSlot's doc for when that is). Unlike the plugin-sourced rows
+                // above, this comes straight from api.viffsys.com.
+                cdmSlot?.let { slot ->
+                    FlightPlanDetailRow(
+                        "TOBT/CDM",
+                        listOfNotNull(
+                            slot.tobt?.let { "TOBT $it" },
+                            slot.tsat?.let { "TSAT $it" },
+                            slot.ctot?.let { "CTOT $it" },
+                            slot.statusText
+                        ).joinToString(" · ").ifEmpty { "----" },
+                        warning = slot.urgency == CdmUrgency.URGENT
+                    )
+                }
                 // Issue #68 -- only shown when the plugin's on-ground sanity gate actually fires;
                 // unlike the two rows above (always visible), this is purely a "something's wrong"
                 // flag with no not-wrong state worth displaying.
@@ -361,6 +391,29 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
             fontFamily = RobotoMono,
             color = if (warning) colors.attention else colors.textMuted
         )
+    }
+}
+
+/** Issue #143's small "on-tablet status indicator" for the read-only VDGS/TOBT tile -- a colored
+ *  dot (green/amber/red by time-to-slot, [CdmUrgency]) plus a compact "TOBT T-12m" style label.
+ *  The dot's color is a time-proximity heuristic computed client-side, NOT a decode of the
+ *  backend's own cdmSts string -- see [CdmUrgency]'s doc for why. */
+@Composable
+private fun CdmChip(slot: CdmSlotDisplay) {
+    val colors = LocalHandoffColors.current
+    val dotColor = when (slot.urgency) {
+        CdmUrgency.GOOD -> colors.ok
+        CdmUrgency.ATTENTION -> colors.attention
+        CdmUrgency.URGENT -> at.sushi.handoff.ui.dialogs.outOfBandRed
+        CdmUrgency.NEUTRAL -> colors.textMuted
+    }
+    val label = slot.minutesUntil?.let { minutes ->
+        val sign = if (minutes < 0) "+" else "T-"
+        "${slot.targetLabel} $sign${abs(minutes)}m"
+    } ?: (slot.targetLabel ?: slot.statusText ?: "CDM")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(8.dp).background(dotColor, CircleShape))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textMuted, maxLines = 1, softWrap = false)
     }
 }
 

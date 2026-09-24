@@ -225,6 +225,7 @@ private fun MainScreenContent() {
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
+    val cdmSlot by HandoffState.cdmSlot.collectAsState()
 
     // One-shot-on-connect plugin/app version-skew check (issue #87). Re-arms on every (re)connect
     // via the connectionStatus key; on reaching CONNECTED it waits for the first subsystemStatus
@@ -693,6 +694,7 @@ private fun MainScreenContent() {
                 vatsimOrigin = flightPlan.vatsimOrigin,
                 vatsimDestination = flightPlan.vatsimDestination,
                 vatsimMissing = vatsimMissing,
+                cdmSlot = cdmSlot,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
                 operationIndicator = operationIndicator,
