@@ -44,7 +44,7 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDispl
         data.ctot.isNotBlank() -> "CTOT" to data.ctot
         data.tsat.isNotBlank() -> "TSAT" to data.tsat
         data.tobt.isNotBlank() -> "TOBT" to data.tobt
-        else -> null to null
+        else -> return null
     }
     val minutesUntil = targetHhmm?.let { minutesUntilUtcHhmm(it, nowEpochMillis) }
     val urgency = when {
