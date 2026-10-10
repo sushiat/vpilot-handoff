@@ -84,4 +84,70 @@ class CdmSlotStatusTest {
         assertEquals(CdmUrgency.URGENT, deriveCdmSlotDisplay(flight, utcMillis(17, 27))!!.urgency) // 3m out
         assertEquals(CdmUrgency.URGENT, deriveCdmSlotDisplay(flight, utcMillis(17, 35))!!.urgency) // 5m overdue
     }
+
+    @Test
+    fun deriveCdmSlotDisplay_fallsBackToRequestedTobtThenEobt_asTentative() {
+        val requested = CdmFlight(callsign = "EIN76G", eobt = "1800", cdmData = CdmFlightData(reqTobt = "1830"))
+        val reqDisplay = deriveCdmSlotDisplay(requested, utcMillis(17, 40))!!
+        assertEquals("TOBT?", reqDisplay.targetLabel)
+        assertEquals(50, reqDisplay.minutesUntil)
+        assertEquals(true, reqDisplay.tentative)
+        assertEquals(CdmUrgency.NEUTRAL, reqDisplay.urgency)
+
+        val eobtOnly = CdmFlight(callsign = "EIN76G", eobt = "1800", cdmData = CdmFlightData())
+        val eobtDisplay = deriveCdmSlotDisplay(eobtOnly, utcMillis(17, 40))!!
+        assertEquals("EOBT?", eobtDisplay.targetLabel)
+        assertEquals(true, eobtDisplay.tentative)
+
+        val accepted = CdmFlight(callsign = "EIN76G", eobt = "1800", cdmData = CdmFlightData(tobt = "1830", reqTobt = "1830"))
+        assertEquals(false, deriveCdmSlotDisplay(accepted, utcMillis(17, 40))!!.tentative)
+    }
+
+    @Test
+    fun deriveCdmSlotDisplay_usesTopLevelTobtWhenCdmDataTobtBlank() {
+        // Seen live: an accepted TOBT sits on the flight itself while cdmData.tobt stays blank.
+        val flight = CdmFlight(callsign = "EIN76G", eobt = "1800", tobt = "1810", cdmData = CdmFlightData(reqTobt = "1810"))
+        val display = deriveCdmSlotDisplay(flight, utcMillis(17, 50))!!
+        assertEquals("TOBT", display.targetLabel)
+        assertEquals("1810", display.tobt)
+        assertEquals(false, display.tentative)
+        assertEquals(20, display.minutesUntil)
+    }
+
+    @Test
+    fun tobtWindow_followsPluginRules() {
+        val flight = CdmFlight(callsign = "EIN76G", tobt = "1810", cdmData = CdmFlightData())
+        fun urgencyAt(h: Int, m: Int) = deriveCdmSlotDisplay(flight, utcMillis(h, m))!!.urgency
+        assertEquals(CdmUrgency.ATTENTION, urgencyAt(17, 54)) // 16 min out: before the window
+        assertEquals(CdmUrgency.ATTENTION, urgencyAt(18, 4)) // 6 min out: still before it
+        assertEquals(CdmUrgency.GOOD, urgencyAt(18, 5)) // window opens at TOBT-5
+        assertEquals(CdmUrgency.GOOD, urgencyAt(18, 10))
+        assertEquals(CdmUrgency.GOOD, urgencyAt(18, 14)) // TOBT+4
+        assertEquals(CdmUrgency.FLASHING, urgencyAt(18, 15)) // last minute, TOBT+5
+        assertEquals(CdmUrgency.URGENT, urgencyAt(18, 16)) // expired
+    }
+
+    @Test
+    fun tobtWindow_neverExpiresOnceAsrtIsSet() {
+        val flight = CdmFlight(callsign = "EIN76G", tobt = "1810", cdmData = CdmFlightData(asrt = "1805"))
+        assertEquals(CdmUrgency.GOOD, deriveCdmSlotDisplay(flight, utcMillis(18, 30))!!.urgency)
+    }
+
+    @Test
+    fun at_rederivesMinutesAndUrgencyForANewNow() {
+        val flight = CdmFlight(callsign = "EIN76G", tobt = "1810", cdmData = CdmFlightData())
+        val display = deriveCdmSlotDisplay(flight, utcMillis(18, 0))!!
+        assertEquals(10, display.minutesUntil)
+        assertEquals(CdmUrgency.URGENT, display.at(utcMillis(18, 20)).urgency)
+    }
+
+    @Test
+    fun deriveCdmSlotDisplay_readsTopLevelCtotRunwayAndSid() {
+        val flight = CdmFlight(callsign = "SWR755L", ctot = "1510", cdmData = CdmFlightData(depInfo = "29/LANUX2C", reason = "REGULATION"))
+        val display = deriveCdmSlotDisplay(flight, utcMillis(15, 0))!!
+        assertEquals("CTOT", display.targetLabel)
+        assertEquals("29", display.depRunway)
+        assertEquals("LANUX2C", display.sid)
+        assertEquals("REGULATION", display.reason)
+    }
 }

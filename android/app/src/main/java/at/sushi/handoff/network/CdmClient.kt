@@ -16,6 +16,10 @@ data class CdmFlightData(
     val tsat: String = "",
     val ttot: String = "",
     val ctot: String = "",
+    val reqTobt: String = "",
+    val asrt: String = "",
+    /** Runway and SID the controller assigned, as "29/LANUX2C"; blank until they do. */
+    val depInfo: String = "",
     val reason: String = "",
     val confirmed: Boolean = false
 )
@@ -33,6 +37,11 @@ data class CdmFlight(
     val departure: String? = null,
     val arrival: String? = null,
     val eobt: String? = null,
+    // Top-level accepted TOBT -- the backend fills this when it accepts a pilot's request, while
+    // cdmData.tobt stays blank until the CDM sequencer sets its own (seen live, issue #143).
+    val tobt: String? = null,
+    // Same top-level-vs-cdmData split as tobt: seen live with a CTOT only on the flight itself.
+    val ctot: String? = null,
     val atot: String? = null,
     val cdmSts: String? = null,
     val cdmData: CdmFlightData? = null

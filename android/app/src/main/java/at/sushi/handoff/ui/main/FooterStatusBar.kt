@@ -26,6 +26,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import at.sushi.handoff.ui.theme.RobotoMono
@@ -310,18 +316,7 @@ fun FooterStatusBar(
                 // Issue #143 -- only shown while there's a CDM slot to report at all (see
                 // HandoffState.cdmSlot's doc for when that is). Unlike the plugin-sourced rows
                 // above, this comes straight from api.viffsys.com.
-                cdmSlot?.let { slot ->
-                    FlightPlanDetailRow(
-                        "TOBT/CDM",
-                        listOfNotNull(
-                            slot.tobt?.let { "TOBT $it" },
-                            slot.tsat?.let { "TSAT $it" },
-                            slot.ctot?.let { "CTOT $it" },
-                            slot.statusText
-                        ).joinToString(" · ").ifEmpty { "----" },
-                        warning = slot.urgency == CdmUrgency.URGENT
-                    )
-                }
+                cdmSlot?.let { CdmDrawerRow(it) }
                 // Issue #68 -- only shown when the plugin's on-ground sanity gate actually fires;
                 // unlike the two rows above (always visible), this is purely a "something's wrong"
                 // flag with no not-wrong state worth displaying.
@@ -394,17 +389,34 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
     }
 }
 
-/** Issue #143's small "on-tablet status indicator" for the read-only VDGS/TOBT tile -- a colored
- *  dot (green/amber/red by time-to-slot, [CdmUrgency]) plus a compact "TOBT T-12m" style label.
- *  The dot's color is a time-proximity heuristic computed client-side, NOT a decode of the
- *  backend's own cdmSts string -- see [CdmUrgency]'s doc for why. */
+/** Re-derives [slot]'s time-dependent fields every second (the poll that produced it only runs
+ *  once a minute, but the windows are +-5 minutes and the last-minute flash needs a 1s beat). */
 @Composable
-private fun CdmChip(slot: CdmSlotDisplay) {
+private fun rememberTickingCdmSlot(slot: CdmSlotDisplay): CdmSlotDisplay {
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            nowMillis = System.currentTimeMillis()
+        }
+    }
+    return slot.at(nowMillis)
+}
+
+/** Issue #143's small "on-tablet status indicator" for the read-only VDGS/TOBT tile -- a colored
+ *  dot ([CdmUrgency]) plus a compact "TOBT T-12m" style label counting to the target time. For an
+ *  accepted TOBT/TSAT the dot follows the CDM plugin's +-5 minute window (see [cdmUrgency]); it is
+ *  NOT a decode of the backend's own cdmSts string. */
+@Composable
+private fun CdmChip(initial: CdmSlotDisplay) {
     val colors = LocalHandoffColors.current
+    val slot = rememberTickingCdmSlot(initial)
+    val flashOn = (System.currentTimeMillis() / 1_000) % 2 == 0L
     val dotColor = when (slot.urgency) {
         CdmUrgency.GOOD -> colors.ok
         CdmUrgency.ATTENTION -> colors.attention
         CdmUrgency.URGENT -> at.sushi.handoff.ui.dialogs.outOfBandRed
+        CdmUrgency.FLASHING -> if (flashOn) colors.ok else colors.attention
         CdmUrgency.NEUTRAL -> colors.textMuted
     }
     val label = slot.minutesUntil?.let { minutes ->
@@ -412,9 +424,30 @@ private fun CdmChip(slot: CdmSlotDisplay) {
         "${slot.targetLabel} $sign${abs(minutes)}m"
     } ?: (slot.targetLabel ?: slot.statusText ?: "CDM")
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.size(8.dp).background(dotColor, CircleShape))
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textMuted, maxLines = 1, softWrap = false)
+        Box(Modifier.size(10.dp).background(dotColor, CircleShape))
+        Text(label, fontSize = 13.sp, color = colors.text, maxLines = 1, softWrap = false)
     }
+}
+
+@Composable
+private fun CdmDrawerRow(initial: CdmSlotDisplay) {
+    val slot = rememberTickingCdmSlot(initial)
+    slot.sid?.let { sid ->
+        FlightPlanDetailRow("Departure", listOfNotNull(slot.depRunway?.let { "RWY $it" }, "SID $sid").joinToString(" · "), warning = false)
+    }
+    slot.reason?.let { FlightPlanDetailRow("CDM reason", it, warning = true) }
+    FlightPlanDetailRow(
+        "TOBT/CDM",
+        listOfNotNull(
+            slot.tobt?.let { "TOBT $it" },
+            slot.tsat?.let { "TSAT $it" },
+            slot.ctot?.let { "CTOT $it" },
+            slot.requestedTobt?.takeIf { slot.tobt == null }?.let { "TOBT? $it" },
+            slot.eobt?.let { "EOBT $it" },
+            slot.statusText
+        ).joinToString(" · ").ifEmpty { "----" },
+        warning = slot.urgency == CdmUrgency.URGENT
+    )
 }
 
 /** Mirrors SubsystemStatusRow's layout, but with OperationStatusIcon instead of a static dot --
