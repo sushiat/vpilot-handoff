@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin (issue #148): the COM standby (and active) frequency on the Fenix A320 didn't update
+  in the app after setting it. The Fenix keeps its radio management panel frequencies in
+  its own L:vars instead of the standard `COM ... FREQUENCY` SimVars, so the radio helper now
+  reads `L:N_PED_RMP1`/`RMP2` (mapped to COM1/COM2) when the aircraft title contains "Fenix".
+  An unpowered panel (which reports -1) shows no frequency.
+
 ## [0.6.0] - 2026-09-20
 
 ### Fixed
