@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its own L:vars instead of the standard `COM ... FREQUENCY` SimVars, so the radio helper now
   reads `L:N_PED_RMP1`/`RMP2` (mapped to COM1/COM2) when the aircraft title contains "Fenix".
   An unpowered panel (which reports -1) shows no frequency.
+- Plugin: the VATSIM data feed poll failed outright whenever the feed listed the same callsign
+  twice (seen live with an identical duplicated controller row), so the plugin never saw the
+  pilot's filed flight plan and the VATSIM row stayed "MISSING" for as long as the duplicate
+  lasted. Duplicate callsigns are now tolerated (last entry wins) instead of failing the whole
+  poll.
 
 ## [0.6.0] - 2026-09-20
 
