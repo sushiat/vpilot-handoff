@@ -21,6 +21,25 @@ namespace Handoff.Plugin.Tests
         }
 
         [Theory]
+        [InlineData(122800, 122.800)]
+        [InlineData(118000, 118.000)]
+        [InlineData(136990, 136.990)]
+        public void FromKilohertz_ConvertsInBandValues(double kilohertz, double expected)
+        {
+            Assert.Equal(expected, RadioFrequency.FromKilohertz(kilohertz).Value, 6);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(0)]
+        [InlineData(117999)]
+        [InlineData(136991)]
+        public void FromKilohertz_ReturnsNullOutOfBand(double kilohertz)
+        {
+            Assert.Null(RadioFrequency.FromKilohertz(kilohertz));
+        }
+
+        [Theory]
         [InlineData(118.000)]
         [InlineData(136.990)]
         [InlineData(123.725)]
