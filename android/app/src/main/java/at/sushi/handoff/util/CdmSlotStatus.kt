@@ -70,9 +70,12 @@ private const val AttentionThresholdMinutes = 15
 private const val UrgentThresholdMinutes = 5
 
 // The rpuig2001/CDM EuroScope plugin's TOBT/TSAT window, in whole minutes either side of the time:
-// yellow before it opens, green inside it, flashing yellow/green for the last minute, and
-// expired (red) after that -- unless the flight already has an ASRT.
+// yellow before it opens, green inside it, flashing yellow/green as it runs out, and expired (red)
+// after that -- unless the flight already has an ASRT. The plugin itself flashes only for the
+// final minute; we start two minutes early (+4) because not every controller can take a flight
+// right at the edge of the window.
 private const val WindowMinutes = 5
+private const val FlashFromMinutesAfter = 4
 
 /** [minutes] is the time until the target (negative once it's passed). [windowed] is true for an
  *  accepted TOBT/TSAT; a CTOT (neither tentative nor windowed) keeps the old simple thresholds. */
@@ -80,8 +83,8 @@ fun cdmUrgency(minutes: Int?, tentative: Boolean, windowed: Boolean, asrtSet: Bo
     tentative || minutes == null -> CdmUrgency.NEUTRAL
     windowed -> when {
         minutes > WindowMinutes -> CdmUrgency.ATTENTION
-        minutes > -WindowMinutes || asrtSet -> CdmUrgency.GOOD
-        minutes == -WindowMinutes -> CdmUrgency.FLASHING
+        minutes > -FlashFromMinutesAfter || asrtSet -> CdmUrgency.GOOD
+        minutes >= -WindowMinutes -> CdmUrgency.FLASHING
         else -> CdmUrgency.URGENT
     }
     minutes <= UrgentThresholdMinutes -> CdmUrgency.URGENT
@@ -96,10 +99,12 @@ fun cdmUrgency(minutes: Int?, tentative: Boolean, windowed: Boolean, asrtSet: Bo
 fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDisplay? {
     flight ?: return null
     val data = flight.cdmData ?: CdmFlightData()
-    val eobt = flight.eobt?.takeIf { it.isNotBlank() }
+    val eobt = hhmm(flight.eobt).takeIf { it.isNotBlank() }
     // The backend's top-level tobt is the accepted one; cdmData.tobt can stay blank even then.
-    val tobt = data.tobt.ifBlank { flight.tobt.orEmpty() }
-    val ctot = data.ctot.ifBlank { flight.ctot.orEmpty() }
+    val tobt = hhmm(data.tobt.ifBlank { flight.tobt.orEmpty() })
+    val ctot = hhmm(data.ctot.ifBlank { flight.ctot.orEmpty() })
+    val tsat = hhmm(data.tsat)
+    val reqTobt = hhmm(data.reqTobt)
     val depParts = data.depInfo.split("/", limit = 2)
     val depRunway = depParts[0].trim().ifEmpty { null }
     val sid = depParts.getOrNull(1)?.trim()?.ifEmpty { null }
@@ -110,18 +115,18 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDispl
     // as-yet-unaccepted requested TOBT, then the filed EOBT, both tentative.
     val (targetLabel, targetHhmm, tentative) = when {
         ctot.isNotBlank() -> Triple("CTOT", ctot, false)
-        data.tsat.isNotBlank() -> Triple("TSAT", data.tsat, false)
+        tsat.isNotBlank() -> Triple("TSAT", tsat, false)
         tobt.isNotBlank() -> Triple("TOBT", tobt, false)
-        data.reqTobt.isNotBlank() -> Triple("TOBT?", data.reqTobt, true)
+        reqTobt.isNotBlank() -> Triple("TOBT?", reqTobt, true)
         eobt != null -> Triple("EOBT?", eobt, true)
         else -> return null
     }
     return CdmSlotDisplay(
         statusText = flight.cdmSts?.takeIf { it.isNotBlank() },
         tobt = tobt.takeIf { it.isNotBlank() },
-        tsat = data.tsat.takeIf { it.isNotBlank() },
+        tsat = tsat.takeIf { it.isNotBlank() },
         ctot = ctot.takeIf { it.isNotBlank() },
-        requestedTobt = data.reqTobt.takeIf { it.isNotBlank() },
+        requestedTobt = reqTobt.takeIf { it.isNotBlank() },
         eobt = eobt,
         reason = data.reason.takeIf { it.isNotBlank() },
         depRunway = depRunway,
@@ -134,6 +139,14 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDispl
         asrtSet = data.asrt.isNotBlank(),
         urgency = CdmUrgency.NEUTRAL
     ).at(nowEpochMillis)
+}
+
+/** The backend sends the same time as "HHmm" (flight-level fields) or "HHmmss" (the CDM sequencer's
+ *  cdmData tobt/tsat/ttot, seen live once a TOBT is processed) -- normalized to "HHmm", since the
+ *  UI works in whole minutes. Blank/unrecognized strings pass through unchanged. */
+fun hhmm(raw: String?): String {
+    val t = raw.orEmpty().trim()
+    return if (t.length == 6 && t.all { it.isDigit() }) t.substring(0, 4) else t
 }
 
 /** Parses a bare "HHmm" UTC time-of-day (A-CDM's wire format, e.g. "1725" for 17:25Z -- issue

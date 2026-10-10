@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time) and the expanded footer adds a "TOBT/CDM" row, plus the assigned runway/SID and any
   hold reason once the backend has them. The dot follows the CDM window: grey while only
   requested ("TOBT?") or just the filed EOBT, yellow until 5 minutes before the TOBT/TSAT,
-  green inside the window, flashing green/yellow for its last minute, then red once it has
+  green inside the window, flashing green/yellow for its last two minutes, then red once it has
   expired (unless an ASRT is set). It updates every second; setting a TOBT is still done on
   the website.
 

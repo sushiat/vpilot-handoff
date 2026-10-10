@@ -122,7 +122,8 @@ class CdmSlotStatusTest {
         assertEquals(CdmUrgency.ATTENTION, urgencyAt(18, 4)) // 6 min out: still before it
         assertEquals(CdmUrgency.GOOD, urgencyAt(18, 5)) // window opens at TOBT-5
         assertEquals(CdmUrgency.GOOD, urgencyAt(18, 10))
-        assertEquals(CdmUrgency.GOOD, urgencyAt(18, 14)) // TOBT+4
+        assertEquals(CdmUrgency.GOOD, urgencyAt(18, 13)) // TOBT+3
+        assertEquals(CdmUrgency.FLASHING, urgencyAt(18, 14)) // flashing starts at TOBT+4
         assertEquals(CdmUrgency.FLASHING, urgencyAt(18, 15)) // last minute, TOBT+5
         assertEquals(CdmUrgency.URGENT, urgencyAt(18, 16)) // expired
     }
@@ -149,5 +150,20 @@ class CdmSlotStatusTest {
         assertEquals("29", display.depRunway)
         assertEquals("LANUX2C", display.sid)
         assertEquals("REGULATION", display.reason)
+    }
+
+    @Test
+    fun deriveCdmSlotDisplay_normalizesSixDigitSequencerTimes() {
+        // Seen live: once processed, cdmData.tobt/tsat are "HHmmss" while the flight's own tobt is "HHmm".
+        val flight = CdmFlight(
+            callsign = "EIN76G", eobt = "1800", tobt = "1845",
+            cdmData = CdmFlightData(tobt = "184500", tsat = "184500")
+        )
+        val display = deriveCdmSlotDisplay(flight, utcMillis(18, 40))!!
+        assertEquals("TSAT", display.targetLabel)
+        assertEquals("1845", display.tobt)
+        assertEquals("1845", display.tsat)
+        assertEquals(5, display.minutesUntil)
+        assertEquals(CdmUrgency.GOOD, display.urgency)
     }
 }
