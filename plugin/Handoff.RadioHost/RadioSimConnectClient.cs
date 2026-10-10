@@ -78,7 +78,8 @@ namespace Handoff.RadioHost
         private enum Requests
         {
             RadioSimVars = IdBase,
-            OwnshipTelemetrySimVars
+            OwnshipTelemetrySimVars,
+            AircraftRadioLvars
         }
 
         // MapClientEventToSimEvent/TransmitClientEvent/SetNotificationGroupPriority overload
@@ -146,6 +147,22 @@ namespace Handoff.RadioHost
             public double SeaLevelPressureHpa;
         }
 
+        // Aircraft title plus the Fenix A320's RMP frequency L:vars (kHz; -1 while unpowered).
+        // The Fenix doesn't keep the standard COM ACTIVE/STANDBY FREQUENCY SimVars in sync with
+        // its radio management panels (issue #148), so on that aircraft these are the read
+        // source instead. RMP1 follows COM1, RMP2 follows COM2. Own definition so non-Fenix
+        // aircraft never have their frequencies touched by these (they read as missing/0 there).
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+        private struct AircraftRadioLvars
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string Title;
+            public double Rmp1ActiveKhz;
+            public double Rmp1StandbyKhz;
+            public double Rmp2ActiveKhz;
+            public double Rmp2StandbyKhz;
+        }
+
         // TRANSPONDER STATE:1 enum value for altitude-reporting ("Alt"/Mode C) mode.
         private const int TransponderStateAlt = 4;
 
@@ -173,6 +190,14 @@ namespace Handoff.RadioHost
         // true on a real aircraft with the power off. Nullable so the very first poll always logs
         // (no prior state to compare against).
         private bool? _lastAvionicsPowered;
+
+        // Latest AircraftRadioLvars reading, consumed by the next RadioSimVars reply (both are
+        // requested every tick, lvars first).
+        private bool _isFenix;
+        private double _rmp1ActiveKhz = -1;
+        private double _rmp1StandbyKhz = -1;
+        private double _rmp2ActiveKhz = -1;
+        private double _rmp2StandbyKhz = -1;
 
         // Live raw readings, updated on every SimConnect poll -- used to verify a write
         // actually took effect.
@@ -411,16 +436,33 @@ namespace Handoff.RadioHost
             _rawSimConnect.TransmitClientEvent((uint)SIMCONNECT_SIMOBJECT_TYPE.USER, eventId, dwData, Priority.Highest, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
         }
 
+        private static int? ToCompressed(double? megahertz) =>
+            megahertz.HasValue ? RadioFrequency.ToVatsimCompressed(megahertz.Value) : (int?)null;
+
         private void OnFsDataReceived(object sender, FsDataReceivedEventArgs e)
         {
             foreach (var simConnectObject in e.Data)
             {
                 if (simConnectObject is RadioSimVars radioSimVars)
                 {
-                    _lastCom1FrequencyMhz = radioSimVars.Com1FrequencyMhz;
-                    _lastCom2FrequencyMhz = radioSimVars.Com2FrequencyMhz;
-                    _lastCom1StandbyFrequencyMhz = radioSimVars.Com1StandbyFrequencyMhz;
-                    _lastCom2StandbyFrequencyMhz = radioSimVars.Com2StandbyFrequencyMhz;
+                    // null == no valid frequency (e.g. unpowered Fenix RMP reading -1).
+                    double? com1Mhz = radioSimVars.Com1FrequencyMhz;
+                    double? com2Mhz = radioSimVars.Com2FrequencyMhz;
+                    double? com1StandbyMhz = radioSimVars.Com1StandbyFrequencyMhz;
+                    double? com2StandbyMhz = radioSimVars.Com2StandbyFrequencyMhz;
+
+                    if (_isFenix)
+                    {
+                        com1Mhz = RadioFrequency.FromKilohertz(_rmp1ActiveKhz);
+                        com2Mhz = RadioFrequency.FromKilohertz(_rmp2ActiveKhz);
+                        com1StandbyMhz = RadioFrequency.FromKilohertz(_rmp1StandbyKhz);
+                        com2StandbyMhz = RadioFrequency.FromKilohertz(_rmp2StandbyKhz);
+                    }
+
+                    _lastCom1FrequencyMhz = com1Mhz ?? 0;
+                    _lastCom2FrequencyMhz = com2Mhz ?? 0;
+                    _lastCom1StandbyFrequencyMhz = com1StandbyMhz ?? 0;
+                    _lastCom2StandbyFrequencyMhz = com2StandbyMhz ?? 0;
                     _lastTransponderCodeBcd = radioSimVars.TransponderCodeBcd;
                     _lastCom1ReceiveEnabled = radioSimVars.Com1Receive != 0;
                     _lastCom2ReceiveEnabled = radioSimVars.Com2Receive != 0;
@@ -452,10 +494,10 @@ namespace Handoff.RadioHost
                     }
 
                     var next = new RadioState(
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com1FrequencyMhz),
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com2FrequencyMhz),
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com1StandbyFrequencyMhz),
-                        RadioFrequency.ToVatsimCompressed(radioSimVars.Com2StandbyFrequencyMhz),
+                        ToCompressed(com1Mhz),
+                        ToCompressed(com2Mhz),
+                        ToCompressed(com1StandbyMhz),
+                        ToCompressed(com2StandbyMhz),
                         avionicsPowered && radioSimVars.TransponderState == TransponderStateAlt,
                         Handoff.Plugin.TransponderCode.FromBcd(radioSimVars.TransponderCodeBcd),
                         avionicsPowered && radioSimVars.Com1Transmit != 0,
@@ -471,6 +513,20 @@ namespace Handoff.RadioHost
                     }
 
                     _onStateChanged(next);
+                }
+                else if (simConnectObject is AircraftRadioLvars lvars)
+                {
+                    var isFenix = lvars.Title != null && lvars.Title.ToLowerInvariant().Contains("fenix");
+                    if (isFenix != _isFenix)
+                    {
+                        Logger.Log("Reading COM frequencies from Fenix RMP L:vars: " + isFenix + " (title \"" + lvars.Title + "\")");
+                    }
+
+                    _isFenix = isFenix;
+                    _rmp1ActiveKhz = lvars.Rmp1ActiveKhz;
+                    _rmp1StandbyKhz = lvars.Rmp1StandbyKhz;
+                    _rmp2ActiveKhz = lvars.Rmp2ActiveKhz;
+                    _rmp2StandbyKhz = lvars.Rmp2StandbyKhz;
                 }
                 else if (simConnectObject is OwnshipTelemetrySimVars telemetrySimVars)
                 {
@@ -540,6 +596,15 @@ namespace Handoff.RadioHost
                                 new SimVar("SEA LEVEL PRESSURE", "Millibars", SIMCONNECT_DATATYPE.FLOAT64)
                             });
 
+                            _fsConnect.RegisterDataDefinition<AircraftRadioLvars>(Requests.AircraftRadioLvars, new List<SimVar>
+                            {
+                                new SimVar("TITLE", null, SIMCONNECT_DATATYPE.STRING256),
+                                new SimVar("L:N_PED_RMP1_ACTIVE", "number", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("L:N_PED_RMP1_STDBY", "number", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("L:N_PED_RMP2_ACTIVE", "number", SIMCONNECT_DATATYPE.FLOAT64),
+                                new SimVar("L:N_PED_RMP2_STDBY", "number", SIMCONNECT_DATATYPE.FLOAT64)
+                            });
+
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1FrequencyHz, "COM_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom2FrequencyHz, "COM2_RADIO_SET_HZ");
                             _fsConnect.MapClientEventToSimEvent(Groups.Radio, Events.SetCom1StandbyFrequencyHz, "COM_STBY_RADIO_SET_HZ");
@@ -588,6 +653,7 @@ namespace Handoff.RadioHost
                         // One thread, two independent cadences: tick at the shorter (radio)
                         // interval and only re-request telemetry once enough ticks have
                         // accumulated to reach _telemetryPollIntervalMs.
+                        _fsConnect.RequestData(Requests.AircraftRadioLvars, Requests.AircraftRadioLvars);
                         _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
 
                         _msSinceLastTelemetryPoll += _pollIntervalMs;
