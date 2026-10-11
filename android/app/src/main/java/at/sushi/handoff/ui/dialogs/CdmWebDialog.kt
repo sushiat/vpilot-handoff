@@ -2,6 +2,8 @@ package at.sushi.handoff.ui.dialogs
 
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -27,6 +29,19 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 /** The A-CDM site pilots set their TOBT on -- also what vats.im/vdgs redirects to. */
 const val VdgsUrl = "https://vdgs.vatsimspain.es/vdgs/index.php"
+
+// Hosts the dialog may navigate to (the site itself, VATSIM's login, and Cloudflare's bot check
+// that fronts both); any other top-level navigation is blocked, so a stray link can't take the
+// JavaScript-enabled WebView somewhere else. Subdomains are included.
+private val AllowedHostDomains = listOf("vatsimspain.es", "vatsim.net", "cloudflare.com")
+
+/** True for an https URL on (a subdomain of) one of [AllowedHostDomains]. */
+internal fun isAllowedVdgsNavigation(url: String): Boolean {
+    val uri = try { java.net.URI(url) } catch (e: java.net.URISyntaxException) { return false }
+    if (!"https".equals(uri.scheme, ignoreCase = true)) return false
+    val host = uri.host?.lowercase() ?: return false
+    return AllowedHostDomains.any { host == it || host.endsWith(".$it") }
+}
 
 /** Issue #143 -- hosts the real VDGS site in an embedded WebView so the pilot can log in with
  *  VATSIM and set/edit their TOBT without leaving the app. WebView (not a Custom Tab) so the
@@ -60,11 +75,20 @@ fun CdmWebDialog(onDismiss: () -> Unit) {
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         // Same slate the dark login page uses, so there's no white flash while loading.
                         setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+                        // JavaScript is required by the VATSIM login and the VDGS panel; there is no
+                        // addJavascriptInterface bridge, and navigation is limited to the allowlist
+                        // above. Content/file access and mixed content are never needed here.
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.allowContentAccess = false
+                        settings.allowFileAccess = false
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                        webViewClient = WebViewClient()
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                                !isAllowedVdgsNavigation(request.url.toString())
+                        }
                         loadUrl(VdgsUrl)
                     }
                 },
