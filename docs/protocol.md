@@ -40,6 +40,13 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #151 follow-up -- contact-me text on the controller row. New nullable field
+`controllers[].contactMeText` (see `isContactMe`). For a known controller the "contact me"
+private message no longer appears in `chat`: it becomes `isContactMe` + `contactMeText` instead.
+Additive per the Compatibility section -- an older client still flashes the row from
+`isContactMe` but never shows the text (and no longer gets the message as chat); a newer client
+talking to an older plugin sees no field and keeps today's behavior.
+
 Issue #151 -- plugin-owned chat read/ack state, so unread counts survive an app restart and
 sync across multiple paired clients. New field `id` (per-message, monotonically increasing for
 the plugin's process lifetime) and `sessionId` (changes on every plugin restart) on `chat`. New
@@ -236,6 +243,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
+      "contactMeText": null,
       "isHighlighted": false,
       "isNext": false,
       "isLikelyNext": false,
@@ -288,7 +296,13 @@ The boolean fields are what clients actually consume, each driving its own badge
   set this (see `pinController` below) -- pinning must never displace whatever's actually tuned.
 - `isStandbyTuned`: loaded into COM1 or COM2 standby, ready to swap to active the moment a
   handoff comes.
-- `isContactMe`: this controller sent an outstanding "contact me" request.
+- `isContactMe`: this controller sent an outstanding "contact me" request. Cleared once the
+  controller's own frequency **or any airband frequency named in the request's text** is active
+  on COM1/COM2, or after 5 minutes.
+- `contactMeText`: the text of that request, a string while `isContactMe` is true and `null`
+  otherwise. For a controller the plugin already knows about, the plugin turns a private message
+  containing "contact me" into this flag + text and does **not** deliver the message in `chat`;
+  a sender the plugin has no controller record for still gets the message in `chat` as before.
 - `isSelcalActive`: a currently-active SELCAL alert. Unlike `isContactMe`, tuning the alerting
   frequency does **not** clear this -- only an explicit `dismissSelcal` or the alert's own expiry
   does (see `dismissSelcal` below).

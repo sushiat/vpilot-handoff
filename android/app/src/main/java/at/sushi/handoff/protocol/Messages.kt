@@ -37,6 +37,10 @@ data class Controller(
     val requestsContactMe: Boolean = false,
     val isCurrent: Boolean = false,
     val isContactMe: Boolean = false,
+    // The text of this controller's outstanding "contact me" message, present only while
+    // isContactMe is true. The plugin no longer delivers that message through `chat` for a known
+    // controller -- the row shows it instead. Null from an older plugin (or no contact-me).
+    val contactMeText: String? = null,
     // Three-flag design (issue #18, replacing the old isLikelyNextCandidate/isApproaching pair):
     // isHighlighted is relevance/visibility ("worth seeing"), independent of isNext/isLikelyNext.
     // isNext is confident and singular; isLikelyNext is the same signal confidence-capped (a

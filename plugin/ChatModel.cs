@@ -60,6 +60,14 @@ namespace Handoff.Plugin
         /// </summary>
         public event EventHandler ReadStateChanged;
 
+        /// <summary>
+        /// Called with (from, sanitized text) for every incoming private message, before it's added
+        /// to the log. Returning true swallows the message: it never reaches the log, so it gets no
+        /// id and never counts as unread. HandoffControllerStateModel uses this to turn a known
+        /// controller's "contact me" into a row signal instead of a chat message.
+        /// </summary>
+        public Func<string, string, bool> IncomingPrivateFilter { get; set; }
+
         public ChatModel(IBroker broker, Action<string> logDebug = null)
         {
             _broker = broker ?? throw new ArgumentNullException(nameof(broker));
@@ -128,6 +136,11 @@ namespace Handoff.Plugin
         private void OnPrivateMessageReceived(object sender, PrivateMessageReceivedEventArgs e)
         {
             var sanitized = LogAndSanitize("PrivateMessageReceived", e.From, e.Message);
+            if (IncomingPrivateFilter?.Invoke(e.From, sanitized) == true)
+            {
+                Log($"PrivateMessageReceived from={e.From} swallowed by IncomingPrivateFilter");
+                return;
+            }
             AddMessage(new ChatMessage(ChatChannel.Private, ChatDirection.Incoming, e.From, sanitized, null, DateTimeOffset.Now));
         }
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin/Android (issue #151): a known controller's "contact me" private message is no longer
+  put in the chat log. The plugin turns it into the row's contact-me flag and sends the text
+  with it, and the Android row grows a full-width line under the existing content showing what
+  the controller actually wrote. The request clears when the controller's own frequency, or any
+  frequency named in the message, goes active on COM1/COM2 (or after 5 minutes). This also ends
+  the MSG badge and private tab blinking after you'd already tuned: there's no chat message
+  left to acknowledge. The contact-me notification shows the text too. A "contact me" from a
+  callsign the plugin doesn't know still arrives as an ordinary private message.
 - Android (issue #143): read-only TOBT/CDM status for the departure, polled from the public
   A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-enabled
   airport. A footer chip shows the next target ("TOBT T-12m", counting to the

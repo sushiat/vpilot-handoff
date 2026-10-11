@@ -67,6 +67,7 @@ namespace Handoff.Plugin
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
+                    contactMeText = c.ContactMeText,
                     isHighlighted = c.IsHighlighted,
                     isNext = c.IsNext,
                     isLikelyNext = c.IsLikelyNext,

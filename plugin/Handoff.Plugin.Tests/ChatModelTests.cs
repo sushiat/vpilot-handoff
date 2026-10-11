@@ -351,5 +351,32 @@ namespace Handoff.Plugin.Tests
 
             Assert.False(model.ReadThrough.ContainsKey("radio"));
         }
+
+        [Fact]
+        public void IncomingPrivateFilter_ReturningTrue_SwallowsMessageWithoutConsumingAnId()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            model.IncomingPrivateFilter = (from, text) => text == "swallow me";
+
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "swallow me"));
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "keep me"));
+
+            var message = Assert.Single(model.Messages);
+            Assert.Equal("keep me", message.Text);
+            Assert.Equal(1, message.Id); // the swallowed message never took id 1
+        }
+
+        [Fact]
+        public void IncomingPrivateFilter_DoesNotAffectRadioMessages()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            model.IncomingPrivateFilter = (from, text) => true;
+
+            broker.RaiseRadioMessageReceived(new RadioMessageReceivedEventArgs(new[] { 23725 }, "EGLL_TWR", "contact me"));
+
+            Assert.Single(model.Messages);
+        }
     }
 }

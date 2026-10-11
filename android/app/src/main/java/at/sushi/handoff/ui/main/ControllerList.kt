@@ -63,6 +63,7 @@ import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.controllerRowGroup
 import at.sushi.handoff.ui.theme.facilitySuffixName
+import at.sushi.handoff.ui.theme.isContactMeResolved
 import at.sushi.handoff.ui.theme.oklch
 import at.sushi.handoff.ui.theme.rememberFlashPhaseA
 import kotlin.math.roundToInt
@@ -519,6 +520,24 @@ private fun ControllerRow(
                     // (making the callsign column's own height closer to the row's height, so the
                     // slack is much smaller to begin with).
                     FrequencyText(Modifier.padding(top = if (badges.isEmpty()) 0.dp else 6.dp))
+                }
+
+                // The controller's own "contact me" wording, across the full row width below
+                // everything else. The plugin clears isContactMe (and with it this text) once the
+                // controller's frequency, or any frequency named in the message, is tuned.
+                val contactMeText = controller.contactMeText
+                if (controller.isContactMe && !contactMeText.isNullOrBlank() &&
+                    !isContactMeResolved(controller, com1Active, com2Active)
+                ) {
+                    Text(
+                        contactMeText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = text,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                    )
                 }
             }
 

@@ -837,5 +837,30 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal("somethingElse", command.Type);
         }
+
+        [Fact]
+        public void BuildControllersMessage_IncludesContactMeText_OnlyWhileContactMe()
+        {
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_TWR", 23725, 0, 0, null, null, null, null,
+                    requestsContactMe: true, isCurrent: false, isContactMe: true,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    contactMeText: "contact me on 121.725"),
+                new RankedController(
+                    "EGLL_GND", 21800, 0, 0, null, null, null, null,
+                    requestsContactMe: true, isCurrent: true, isContactMe: false,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    contactMeText: "stale text")
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+
+            Assert.Equal("contact me on 121.725", (string)json["controllers"][0]["contactMeText"]);
+            Assert.Equal(JTokenType.Null, json["controllers"][1]["contactMeText"].Type);
+        }
     }
 }

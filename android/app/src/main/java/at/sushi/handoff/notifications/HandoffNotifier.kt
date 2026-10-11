@@ -74,7 +74,11 @@ class HandoffNotifier(private val context: Context) {
             message.controllers.forEach { controller ->
                 if (controller.requestsContactMe && controller.callsign !in previousRequestingContactMe) {
                     activeContactMeNotificationIds[controller.callsign] =
-                        notify(ChannelContactMe, "contact:${controller.callsign}", "Contact me", "${controller.callsign} is requesting contact")
+                        notify(
+                            ChannelContactMe, "contact:${controller.callsign}", "Contact me",
+                            controller.contactMeText?.takeIf { it.isNotBlank() }?.let { "${controller.callsign}: $it" }
+                                ?: "${controller.callsign} is requesting contact"
+                        )
                 }
             }
         }

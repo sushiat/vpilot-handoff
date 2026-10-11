@@ -515,6 +515,17 @@ namespace Handoff.Plugin
                 controllers.Where(c => tunedFrequencies.Contains(c.Frequency)).Select(c => c.Callsign),
                 StringComparer.OrdinalIgnoreCase);
             foreach (var callsign in currentCallsigns) _controllerState.ClearContactMe(callsign);
+            // A contact-me can name frequencies other than the controller's own listed one ("contact
+            // me on 128.950"), so tuning any frequency it names also answers the request.
+            // `controllers` above is a pre-clear snapshot, so also remember who was just answered
+            // this way and treat them as resolved in this very pass's output below.
+            var answeredContactMeCallsigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in controllers.Where(c => c.ContactMeText != null))
+            {
+                if (!HandoffControllerStateModel.ParseContactMeFrequencies(c.ContactMeText).Any(tunedFrequencies.Contains)) continue;
+                answeredContactMeCallsigns.Add(c.Callsign);
+                _controllerState.ClearContactMe(c.Callsign);
+            }
             var currentTier = controllers.FirstOrDefault(c => tunedFrequencies.Contains(c.Frequency))?.Callsign?.ParseControllerTier();
 
             VatsimPilotInfo vatsimPilot = null;
@@ -760,7 +771,8 @@ namespace Handoff.Plugin
                     rating: info != null ? (int?)info.Rating : null,
                     requestsContactMe: c.ContactMeExpiresAtUtc.HasValue,
                     isCurrent: isCurrent,
-                    isContactMe: !isCurrent && c.ContactMeExpiresAtUtc.HasValue,
+                    isContactMe: !isCurrent && !answeredContactMeCallsigns.Contains(c.Callsign) && c.ContactMeExpiresAtUtc.HasValue,
+                    contactMeText: c.ContactMeText,
                     isHighlighted: highlightedCallsigns.Contains(c.Callsign),
                     isNext: nextCallsigns.Contains(c.Callsign),
                     isLikelyNext: likelyNextCallsigns.Contains(c.Callsign),

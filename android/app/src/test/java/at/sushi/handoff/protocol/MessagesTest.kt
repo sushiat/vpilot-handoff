@@ -86,6 +86,25 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesControllersMessage_ContactMeText_PresentOrAbsent() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":0,"longitude":0,
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"contactMeText":"contact me on 121.725"},
+              {"callsign":"EGLL_GND","frequency":21800,"latitude":0,"longitude":0,
+               "requestsContactMe":false,"isCurrent":false,"isContactMe":false,"contactMeText":null},
+              {"callsign":"EGLL_APP","frequency":12900,"latitude":0,"longitude":0}
+            ]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ControllersMessage
+
+        assertEquals("contact me on 121.725", message.controllers[0].contactMeText)
+        assertNull(message.controllers[1].contactMeText)
+        assertNull(message.controllers[2].contactMeText)
+    }
+
+    @Test
     fun decodesControllersMessage_NoDebugField_DebugStaysNull() {
         val json = """
             {"type":"controllers","controllers":[
