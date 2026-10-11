@@ -108,8 +108,8 @@ namespace Handoff.Plugin
                     {
                         lock (_gate)
                         {
-                            _controllersByCallsign = snapshot.Controllers.ToDictionary(c => c.Callsign, c => c, StringComparer.OrdinalIgnoreCase);
-                            _pilotsByCallsign = snapshot.Pilots.ToDictionary(p => p.Callsign, p => p, StringComparer.OrdinalIgnoreCase);
+                            _controllersByCallsign = ByCallsign(snapshot.Controllers, c => c.Callsign);
+                            _pilotsByCallsign = ByCallsign(snapshot.Pilots, p => p.Callsign);
                             _lastError = null;
                         }
                         _connected = true;
@@ -132,6 +132,18 @@ namespace Handoff.Plugin
 
                 Thread.Sleep(PollInterval);
             }
+        }
+
+        /// <summary>
+        /// The live feed has been seen listing the same callsign twice (identical duplicate
+        /// controller rows) -- ToDictionary would throw on that and fail the whole poll, so every
+        /// pilot lookup silently stayed empty for as long as the duplicate lasted. Last entry wins.
+        /// </summary>
+        private static Dictionary<string, T> ByCallsign<T>(IEnumerable<T> items, Func<T, string> callsignOf)
+        {
+            var result = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in items) result[callsignOf(item)] = item;
+            return result;
         }
 
         private void Log(string message)
