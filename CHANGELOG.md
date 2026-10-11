@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android (issue #143): read-only TOBT/CDM status for the departure, polled from the public
+  A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-enabled
+  airport. A footer chip shows the next target ("TOBT T-12m", counting to the
+  time) and the expanded footer adds a "TOBT/CDM" row, plus the assigned runway/SID and any
+  hold reason once the backend has them. The dot follows the CDM window: grey while only
+  requested ("TOBT?") or just the filed EOBT, yellow until 5 minutes before the TOBT/TSAT,
+  green inside the window, flashing green/yellow for its last two minutes, then red once it has
+  expired (unless an ASRT is set). It updates every second. Tapping the chip opens the VDGS
+  site in an embedded browser to log in with VATSIM and set the TOBT without leaving the app.
+  Until the backend tracks the flight (it can lag the filing by minutes), a grey "TOBT –"
+  chip shows instead, so the feature is visibly active and the site stays reachable.
+
+### Fixed
+
+- Plugin (issue #148): the COM standby (and active) frequency on the Fenix A320 didn't update
+  in the app after setting it. The Fenix keeps its radio management panel frequencies in
+  its own L:vars instead of the standard `COM ... FREQUENCY` SimVars, so the radio helper now
+  reads `L:N_PED_RMP1`/`RMP2` (mapped to COM1/COM2) when the aircraft title contains "Fenix".
+  An unpowered panel (which reports -1) shows no frequency.
+- Plugin: the VATSIM data feed poll failed outright whenever the feed listed the same callsign
+  twice (seen live with an identical duplicated controller row), so the plugin never saw the
+  pilot's filed flight plan and the VATSIM row stayed "MISSING" for as long as the duplicate
+  lasted. Duplicate callsigns are now tolerated (last entry wins) instead of failing the whole
+  poll.
+
 ## [0.6.0] - 2026-09-20
 
 ### Fixed

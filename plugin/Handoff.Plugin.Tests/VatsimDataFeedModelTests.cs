@@ -60,5 +60,28 @@ namespace Handoff.Plugin.Tests
 
             Assert.False(model.IsConnected);
         }
+
+        [Fact]
+        public void DuplicateCallsignsInFeed_DoNotFailThePoll()
+        {
+            // Seen live: the feed listed the same controller callsign twice, which used to throw
+            // out of ToDictionary and leave every pilot lookup empty.
+            var controller = new VatsimControllerInfo("EPGD_TWR", 1226744, "Test", 4, 3);
+            var snapshot = new VatsimDataFeedSnapshot(
+                new List<VatsimControllerInfo> { controller, controller },
+                new List<VatsimPilotInfo> { new VatsimPilotInfo("EIN76G", "BIKF", "EIDW"), new VatsimPilotInfo("EIN76G", "BIKF", "EIDW") });
+            var model = new VatsimDataFeedModel(fetch: () => Task.FromResult(snapshot));
+
+            using var raised = new ManualResetEventSlim();
+            model.Changed += (s, e) => raised.Set();
+
+            model.Start();
+            Assert.True(raised.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(model.IsConnected);
+            Assert.Single(model.Controllers);
+            Assert.True(model.Pilots.ContainsKey("EIN76G"));
+
+            model.Stop();
+        }
     }
 }
