@@ -627,12 +627,14 @@ class HandoffConnectionService : Service() {
                         HandoffState.setCdmSlot(null)
                         return@collectLatest
                     }
-                    // Gate on the airport actually being CDM-covered and TOBT-ready before ever
+                    // Gate on the airport being known to the CDM backend (either flag) before ever
                     // polling per-flight data for it (issue #143's recommendation) -- avoids
-                    // hammering this undocumented third-party backend for an airport with nothing
-                    // to give.
+                    // hammering this undocumented third-party backend for an airport with nothing to
+                    // give. Either flag, not both: tobtReady's exact meaning is undocumented, and
+                    // live data shows pilots requesting and getting TOBTs/TSATs at isCdm-only
+                    // airports too, so requiring both would hide the tile where it still works.
                     val airport = CdmClient.fetchCadAirports()?.find { it.icao.equals(origin, ignoreCase = true) }
-                    if (airport?.isCdm != true || !airport.tobtReady) {
+                    if (airport?.isCdm != true && airport?.tobtReady != true) {
                         HandoffState.setCdmSlot(null)
                         return@collectLatest
                     }
