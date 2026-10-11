@@ -2,6 +2,7 @@ package at.sushi.handoff.ui.dialogs
 
 import android.content.Intent
 import android.net.Uri
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -67,6 +68,13 @@ fun CdmWebDialog(onDismiss: () -> Unit) {
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        // Explicit match-parent params: a WebView created without any is laid out as
+                        // wrap-content, and Chromium then resolves every vh unit to 0, so pages built
+                        // on min-h-screen/h-screen (the VATSIM login) collapse to zero height and
+                        // clip all their content.
+                        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                        // Same slate the dark login page uses, so there's no white flash while loading.
+                        setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         CookieManager.getInstance().setAcceptCookie(true)
