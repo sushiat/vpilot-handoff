@@ -67,30 +67,33 @@ fun CdmWebDialog(onDismiss: () -> Unit) {
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
-                    WebView(ctx).apply {
-                        // Explicit match-parent params: a WebView created without any is laid out as
-                        // wrap-content, and Chromium then resolves every vh unit to 0, so pages built
-                        // on min-h-screen/h-screen (the VATSIM login) collapse to zero height and
-                        // clip all their content.
-                        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                        // Same slate the dark login page uses, so there's no white flash while loading.
-                        setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
-                        // JavaScript is required by the VATSIM login and the VDGS panel; there is no
-                        // addJavascriptInterface bridge, and navigation is limited to the allowlist
-                        // above. Content/file access and mixed content are never needed here.
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.allowContentAccess = false
-                        settings.allowFileAccess = false
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                        CookieManager.getInstance().setAcceptCookie(true)
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                                !isAllowedVdgsNavigation(request.url.toString())
-                        }
-                        loadUrl(VdgsUrl)
+                    val webView = WebView(ctx)
+                    // Explicit match-parent params: a WebView created without any is laid out as
+                    // wrap-content, and Chromium then resolves every vh unit to 0, so pages built
+                    // on min-h-screen/h-screen (the VATSIM login) collapse to zero height and
+                    // clip all their content.
+                    webView.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    // Same slate the dark login page uses, so there's no white flash while loading.
+                    webView.setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+                    // JavaScript is required by the VATSIM login and the VDGS panel; there is no
+                    // addJavascriptInterface bridge, and navigation is limited to the allowlist
+                    // above. Content/file access and mixed content are never needed here. Plain
+                    // setter calls on a named WebSettings (not property syntax inside apply) so
+                    // static analysis can see that content access is disabled.
+                    val webSettings = webView.settings
+                    webSettings.setJavaScriptEnabled(true)
+                    webSettings.setDomStorageEnabled(true)
+                    webSettings.setAllowContentAccess(false)
+                    webSettings.setAllowFileAccess(false)
+                    webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)
+                    CookieManager.getInstance().setAcceptCookie(true)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                    webView.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                            !isAllowedVdgsNavigation(request.url.toString())
                     }
+                    webView.loadUrl(VdgsUrl)
+                    webView
                 },
                 onRelease = { it.destroy() }
             )
