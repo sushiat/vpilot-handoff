@@ -424,7 +424,7 @@ private fun CdmChip(initial: CdmSlotDisplay, onClick: () -> Unit) {
     val label = slot.minutesUntil?.let { minutes ->
         val sign = if (minutes < 0) "+" else "T-"
         "${slot.targetLabel} $sign${abs(minutes)}m"
-    } ?: (slot.targetLabel ?: slot.statusText ?: "CDM")
+    } ?: if (slot.targetHhmm == null) "${slot.targetLabel ?: "CDM"} –" else (slot.targetLabel ?: slot.statusText ?: "CDM")
     Row(
         Modifier.clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,

@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold reason once the backend has them. The dot follows the CDM window: grey while only
   requested ("TOBT?") or just the filed EOBT, yellow until 5 minutes before the TOBT/TSAT,
   green inside the window, flashing green/yellow for its last two minutes, then red once it has
-  expired (unless an ASRT is set). It updates every second; setting a TOBT is still done on
-  the website.
+  expired (unless an ASRT is set). It updates every second. Tapping the chip opens the VDGS
+  site in an embedded browser to log in with VATSIM and set the TOBT without leaving the app.
+  Until the backend tracks the flight (it can lag the filing by minutes), a grey "TOBT –"
+  chip shows instead, so the feature is visibly active and the site stays reachable.
 
 ### Fixed
 

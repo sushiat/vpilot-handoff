@@ -166,4 +166,12 @@ class CdmSlotStatusTest {
         assertEquals(5, display.minutesUntil)
         assertEquals(CdmUrgency.GOOD, display.urgency)
     }
+
+    @Test
+    fun cdmWaitingDisplay_isGreyAndTimeless() {
+        val waiting = cdmWaitingDisplay()
+        assertEquals(CdmUrgency.NEUTRAL, waiting.at(utcMillis(12, 0)).urgency)
+        assertNull(waiting.at(utcMillis(12, 0)).minutesUntil)
+        assertEquals("waiting for flight", waiting.statusText)
+    }
 }

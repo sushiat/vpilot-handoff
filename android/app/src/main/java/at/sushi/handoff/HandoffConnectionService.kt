@@ -49,6 +49,7 @@ import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
+import at.sushi.handoff.util.cdmWaitingDisplay
 import at.sushi.handoff.util.deriveCdmSlotDisplay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -639,8 +640,14 @@ class HandoffConnectionService : Service() {
                         return@collectLatest
                     }
                     while (true) {
-                        val mine = CdmClient.fetchDepartureAirportFlights(origin)
-                            ?.find { it.callsign.equals(callsign, ignoreCase = true) }
+                        val flights = CdmClient.fetchDepartureAirportFlights(origin)
+                        if (flights == null) {
+                            // Fetch failed (network/shape): keep whatever is showing rather than
+                            // flipping the chip to "waiting" on a blip.
+                            delay(CdmPollIntervalMillis)
+                            continue
+                        }
+                        val mine = flights.find { it.callsign.equals(callsign, ignoreCase = true) }
                         if (mine != null && !mine.atot.isNullOrBlank()) {
                             // Already departed -- TOBT/CDM tracking is only meaningful
                             // pre-departure. Stop polling this flight rather than keep hitting the
@@ -649,7 +656,10 @@ class HandoffConnectionService : Service() {
                             HandoffState.setCdmSlot(null)
                             break
                         }
-                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis()))
+                        // The airport qualifies but the backend doesn't track this flight (yet) -- it can lag
+                        // a filed plan by minutes to an hour -- so show a placeholder instead of nothing:
+                        // proves the feature is active and keeps the TOBT dialog reachable.
+                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis()) ?: cdmWaitingDisplay())
                         delay(CdmPollIntervalMillis)
                     }
                 }

@@ -149,6 +149,16 @@ fun hhmm(raw: String?): String {
     return if (t.length == 6 && t.all { it.isDigit() }) t.substring(0, 4) else t
 }
 
+/** Placeholder for "this airport supports CDM but the backend isn't tracking the flight yet": a
+ *  grey, time-less "TOBT -" chip whose drawer row reads "waiting for flight". */
+fun cdmWaitingDisplay() = CdmSlotDisplay(
+    statusText = "waiting for flight",
+    tobt = null, tsat = null, ctot = null, requestedTobt = null, eobt = null,
+    reason = null, depRunway = null, sid = null,
+    targetLabel = "TOBT", targetHhmm = null, minutesUntil = null,
+    tentative = true, windowed = false, asrtSet = false, urgency = CdmUrgency.NEUTRAL
+)
+
 /** Parses a bare "HHmm" UTC time-of-day (A-CDM's wire format, e.g. "1725" for 17:25Z -- issue
  *  #143's live-captured examples) and returns whole minutes from [nowEpochMillis] to the nearest
  *  occurrence of that time-of-day (negative if it's already passed). Picks whichever of
