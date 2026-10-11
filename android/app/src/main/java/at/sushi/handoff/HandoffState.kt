@@ -1,6 +1,7 @@
 package at.sushi.handoff
 
 import at.sushi.handoff.network.AppUpdateInfo
+import at.sushi.handoff.network.UpdateSource
 import at.sushi.handoff.network.VersionSkew
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ChatReadStateMessage
@@ -30,7 +31,7 @@ data class VersionMismatch(
     val skew: VersionSkew,
     val pluginVersion: String,
     val appVersion: String,
-    val viaObtainium: Boolean
+    val updateSource: UpdateSource
 )
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM }

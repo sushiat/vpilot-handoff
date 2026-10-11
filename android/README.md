@@ -20,6 +20,19 @@ The Gradle wrapper (`gradlew`/`gradlew.bat`, pinned to Gradle 8.10.2) is checked
 
 Verified: `./gradlew assembleDebug` succeeds end-to-end with this setup.
 
+### Distribution channels (issue #153)
+
+Two product flavors, same code, same `applicationId`/versionCode/signing key:
+
+- `sideload` -- GitHub Releases, Obtainium, flightsim.to. Everything on.
+- `play` -- the Google Play build; its risky features are switched off (see
+  `app/src/play/` and [docs/play-release.md](../docs/play-release.md)).
+
+Gradle task names carry the flavor: `./gradlew assembleSideloadDebug` /
+`testSideloadDebugUnitTest` (plain `assembleDebug`/`test` build/run both), the debug APKs land at
+`app/build/outputs/apk/<flavor>/debug/app-<flavor>-debug.apk`, and the Play bundle is
+`./gradlew bundlePlayRelease`.
+
 ## Structure
 
 - `app/` — single module, `minSdk 26` (required for notification channels / foreground

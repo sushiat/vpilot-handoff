@@ -30,6 +30,17 @@ android {
         versionName = appVersionName
     }
 
+    // Issue #153 -- two distribution channels from one codebase. `sideload` is what GitHub Releases /
+    // Obtainium / flightsim.to ship (everything on); `play` is the Google Play build, whose risky
+    // features are individually switched off (see each flavor's ChannelFeatures and
+    // docs/play-release.md). Same applicationId, versionCode and signing key, so installs from
+    // either channel can update each other.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("sideload") { dimension = "channel" }
+        create("play") { dimension = "channel" }
+    }
+
     signingConfigs {
         // Populated from RELEASE_KEYSTORE_PATH/RELEASE_KEYSTORE_PASSWORD/RELEASE_KEY_ALIAS/
         // RELEASE_KEY_PASSWORD env vars in CI (see .github/workflows/release.yml). Falls back to
@@ -78,14 +89,14 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
 
-    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")

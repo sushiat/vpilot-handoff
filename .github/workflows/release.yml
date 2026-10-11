@@ -222,18 +222,23 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+        # Issue #153: two channels from one codebase. The sideload APK (GitHub Releases, Obtainium,
+        # flightsim.to) ships every feature; the Play bundle is the same app with its risky
+        # features switched off (see docs/play-release.md). Same signing key for both.
+        run: ./gradlew assembleSideloadRelease bundlePlayRelease --no-daemon
 
-      - name: Rename APK
+      - name: Rename APK and AAB
         run: |
           tag="${{ github.ref_name }}"
-          apk="android/app/build/outputs/apk/release/app-release.apk"
-          mv "$apk" "Handoff-$tag.apk"
+          mv "android/app/build/outputs/apk/sideload/release/app-sideload-release.apk" "Handoff-$tag.apk"
+          mv "android/app/build/outputs/bundle/playRelease/app-play-release.aab" "Handoff-$tag.aab"
 
       - uses: actions/upload-artifact@v7
         with:
           name: android-package
-          path: Handoff-*.apk
+          path: |
+            Handoff-*.apk
+            Handoff-*.aab
 
   release:
     name: Publish GitHub release
@@ -269,6 +274,7 @@ jobs:
           files: |
             Handoff-Setup-*.exe
             Handoff-*.apk
+            Handoff-*.aab
             Handoff-*.zip
             Handoff-*.zip.sha256
           body_path: release-notes.md

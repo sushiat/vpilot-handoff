@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play flavor overlay (issue #153): merged over src/main's manifest. Everything removed
+     here pairs with a switch in this flavor's ChannelFeatures; re-enable a feature by flipping
+     the switch and deleting its lines here. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ChannelFeatures.FullDeviceCapture = false -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"
+        tools:node="remove" />
+
+    <application>
+        <!-- ChannelFeatures.FullDeviceCapture = false: dataSync only and no mediaProjection type. -->
+        <service
+            android:name=".HandoffConnectionService"
+            android:foregroundServiceType="dataSync"
+            tools:replace="android:foregroundServiceType" />
+    </application>
+
+</manifest>
