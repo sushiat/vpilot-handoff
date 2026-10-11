@@ -235,6 +235,59 @@ class MessagesTest {
         assertNull(message.messages.single().text)
     }
 
+    // Issue #151 -- per-message id, chat sessionId, chatReadState, markChatRead.
+
+    @Test
+    fun decodesChatMessageWithSessionIdAndMessageIds() {
+        val json = """
+            {"type":"chat","sessionId":"b3f1c2e0","messages":[
+              {"id":41,"channel":"private","direction":"incoming","peer":"EGLL_TWR","text":"cleared for takeoff","frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertEquals("b3f1c2e0", message.sessionId)
+        assertEquals(41L, message.messages.single().id)
+    }
+
+    @Test
+    fun decodesChatMessageWithoutSessionIdOrMessageIds_OlderPlugin() {
+        val json = """
+            {"type":"chat","messages":[
+              {"channel":"private","direction":"incoming","peer":"EGLL_TWR","text":"hello","frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertNull(message.sessionId)
+        assertNull(message.messages.single().id)
+    }
+
+    @Test
+    fun decodesChatReadStateMessage() {
+        val json = """{"type":"chatReadState","sessionId":"b3f1c2e0","readThrough":{"radio":38,"EGLL_TWR":41}}"""
+
+        val message = decodeServerMessage(json) as ChatReadStateMessage
+        assertEquals("b3f1c2e0", message.sessionId)
+        assertEquals(38L, message.readThrough["radio"])
+        assertEquals(41L, message.readThrough["EGLL_TWR"])
+    }
+
+    @Test
+    fun decodesChatReadStateMessageWithEmptyReadThrough() {
+        val json = """{"type":"chatReadState","sessionId":"b3f1c2e0","readThrough":{}}"""
+
+        val message = decodeServerMessage(json) as ChatReadStateMessage
+        assertEquals(emptyMap<String, Long>(), message.readThrough)
+    }
+
+    @Test
+    fun encodesMarkChatReadCommand() {
+        val json = MarkChatReadCommand(tab = "EGLL_TWR", throughId = 41).encode()
+
+        assertEquals("""{"type":"markChatRead","tab":"EGLL_TWR","throughId":41}""", json)
+    }
+
     @Test
     fun decodesRadioStateMessageWithNullFrequencies() {
         val json = """{"type":"radioState","com1Frequency":null,"com2Frequency":null,"com1StandbyFrequency":null,"com2StandbyFrequency":null,"modeCEnabled":false,"transponderCode":null}"""

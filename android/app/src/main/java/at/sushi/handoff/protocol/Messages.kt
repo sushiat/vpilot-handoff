@@ -130,6 +130,10 @@ data class ControllersMessage(
 
 @Serializable
 data class ChatEntry(
+    // Issue #151 -- per-message id, monotonically increasing for the plugin process's lifetime.
+    // Null from an older plugin that predates this field -- see ChatMessage.sessionId and
+    // ChatReadStateMessage for how a client tells the two cases apart.
+    val id: Long? = null,
     val channel: String,
     val direction: String,
     val peer: String? = null,
@@ -152,8 +156,27 @@ data class SelcalAlert(
 @Serializable
 data class ChatMessage(
     val type: String = "chat",
+    // Issue #151 -- changes whenever the plugin process restarts (the log and every entry's id
+    // reset together). Null from an older plugin that predates this field, which is exactly the
+    // client's feature-detection signal to fall back to local-only read tracking (see
+    // MainScreen.kt).
+    val sessionId: String? = null,
     val messages: List<ChatEntry>,
     val selcalAlerts: List<SelcalAlert>
+) : ServerMessage
+
+/** The per-tab chat read watermark (issue #151, docs/protocol.md) -- a separate message from
+ *  [ChatMessage] because it changes far more often than the log itself and shouldn't resend up
+ *  to 200 entries each time. [readThrough] maps a tab ("radio", or a private peer's callsign) to
+ *  the highest [ChatEntry.id] read on that tab; a tab with nothing read yet is simply absent, not
+ *  present with a 0/null value. A client should ignore this message when [sessionId] doesn't
+ *  match the latest [ChatMessage.sessionId] -- a mismatch means one side hasn't caught up yet
+ *  after a plugin restart. */
+@Serializable
+data class ChatReadStateMessage(
+    val type: String = "chatReadState",
+    val sessionId: String? = null,
+    val readThrough: Map<String, Long> = emptyMap()
 ) : ServerMessage
 
 /** Two independent views of the flight plan (docs/protocol.md) -- surfaced side by side so the
@@ -344,6 +367,7 @@ fun decodeServerMessage(text: String): ServerMessage? {
     return when (element["type"]?.jsonPrimitive?.content) {
         "controllers" -> json.decodeFromJsonElement<ControllersMessage>(element)
         "chat" -> json.decodeFromJsonElement<ChatMessage>(element)
+        "chatReadState" -> json.decodeFromJsonElement<ChatReadStateMessage>(element)
         "radioState" -> json.decodeFromJsonElement<RadioStateMessage>(element)
         "flightPlan" -> json.decodeFromJsonElement<FlightPlanMessage>(element)
         "diversionPending" -> json.decodeFromJsonElement<DiversionPendingMessage>(element)
@@ -540,6 +564,22 @@ data class DismissSelcalCommand(
     val callsign: String
 ) : ClientCommand {
     override fun encode() = json.encodeToString(DismissSelcalCommand.serializer(), this)
+}
+
+/** Advances the read watermark for one tab (issue #151) -- see [ChatReadStateMessage]. [tab] is
+ *  `"radio"` for the radio/broadcast tab, otherwise a private peer's callsign. The plugin applies
+ *  max(existing watermark, [throughId]), clamped to the newest message id it's actually assigned,
+ *  and rebroadcasts [ChatReadStateMessage] to every connected client only if the watermark
+ *  genuinely advanced. Send this when a tab becomes the actively-viewed one, and again whenever a
+ *  new message arrives for a tab that's already being viewed. Harmless to send to an older plugin
+ *  that predates this command -- it's logged and ignored, same as any other unrecognized type. */
+@Serializable
+data class MarkChatReadCommand(
+    val type: String = "markChatRead",
+    val tab: String,
+    val throughId: Long
+) : ClientCommand {
+    override fun encode() = json.encodeToString(MarkChatReadCommand.serializer(), this)
 }
 
 /** Responds to a [DiversionPendingMessage] prompt -- no payload, since only one destination can

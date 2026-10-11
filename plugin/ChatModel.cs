@@ -34,12 +34,31 @@ namespace Handoff.Plugin
         private readonly Action<string> _logDebug;
         private readonly List<ChatMessage> _messages = new List<ChatMessage>();
         private readonly List<SelcalAlert> _selcalAlerts = new List<SelcalAlert>();
+        private long _nextMessageId = 1;
+        // Issue #151 -- per-tab read watermark ("radio" or a private peer's callsign -> highest
+        // message id read). In-memory only, same lifetime as _messages: the log itself isn't
+        // persisted across a plugin restart, so persisting just the watermark would be meaningless.
+        private readonly Dictionary<string, long> _readThrough = new Dictionary<string, long>();
+
+        /// <summary>
+        /// Issue #151 -- changes whenever this ChatModel instance is constructed (i.e. every plugin
+        /// restart), so clients can tell "the log and its ids just reset" apart from "nothing new
+        /// happened yet" and drop any cached local read-tracking assumptions.
+        /// </summary>
+        public string SessionId { get; } = Guid.NewGuid().ToString("N").Substring(0, 8);
 
         /// <summary>
         /// Fires after any new message or SELCAL alert. Payload-free by design, same as
         /// ControllerStateModel.Changed — consumers re-read Messages/SelcalAlerts.
         /// </summary>
         public event EventHandler Changed;
+
+        /// <summary>
+        /// Issue #151 -- fires only when a MarkRead call actually advances some tab's watermark.
+        /// Deliberately separate from Changed: the watermark changes far more often than the log
+        /// itself and shouldn't trigger a resend of up to 200 chat entries each time.
+        /// </summary>
+        public event EventHandler ReadStateChanged;
 
         public ChatModel(IBroker broker, Action<string> logDebug = null)
         {
@@ -60,6 +79,35 @@ namespace Handoff.Plugin
         public IReadOnlyList<SelcalAlert> SelcalAlerts
         {
             get { lock (_gate) { return _selcalAlerts.ToList(); } }
+        }
+
+        public IReadOnlyDictionary<string, long> ReadThrough
+        {
+            get { lock (_gate) { return new Dictionary<string, long>(_readThrough); } }
+        }
+
+        /// <summary>
+        /// Issue #151 -- applies max(existing watermark, throughId) for this tab ("radio" or a
+        /// private peer's callsign). throughId is clamped to the newest message id ever assigned,
+        /// so a stale/bogus client value can never claim more as read than actually exists. Raises
+        /// ReadStateChanged only if the watermark genuinely advanced -- a no-op resend never
+        /// triggers a rebroadcast.
+        /// </summary>
+        public void MarkRead(string tab, long throughId)
+        {
+            if (string.IsNullOrEmpty(tab)) return;
+
+            bool advanced;
+            lock (_gate)
+            {
+                var clamped = Math.Min(throughId, _nextMessageId - 1);
+                var current = _readThrough.TryGetValue(tab, out var existing) ? existing : 0;
+                var next = Math.Max(current, clamped);
+                advanced = next > current;
+                if (advanced) _readThrough[tab] = next;
+            }
+
+            if (advanced) ReadStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void SendPrivateMessage(string to, string message)
@@ -198,6 +246,7 @@ namespace Handoff.Plugin
         {
             lock (_gate)
             {
+                message.Id = _nextMessageId++;
                 _messages.Add(message);
                 TrimToCapacity(_messages);
             }

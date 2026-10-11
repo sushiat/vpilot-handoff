@@ -32,6 +32,7 @@ import at.sushi.handoff.notifications.HandoffNotifier
 import at.sushi.handoff.protocol.AuthResultMessage
 import at.sushi.handoff.protocol.AuthenticateCommand
 import at.sushi.handoff.protocol.ChatMessage
+import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
@@ -564,6 +565,7 @@ class HandoffConnectionService : Service() {
         when (message) {
             is ControllersMessage -> { HandoffState.update(message); notifier.onControllersUpdate(message) }
             is ChatMessage -> { HandoffState.update(message); notifier.onChatUpdate(message) }
+            is ChatReadStateMessage -> { HandoffState.update(message); notifier.onChatReadStateUpdate(message) }
             is RadioStateMessage -> HandoffState.update(message)
             is FlightPlanMessage -> HandoffState.update(message)
             is DiversionPendingMessage -> HandoffState.update(message)
