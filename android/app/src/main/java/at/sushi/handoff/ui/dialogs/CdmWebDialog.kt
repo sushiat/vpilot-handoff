@@ -1,7 +1,5 @@
 package at.sushi.handoff.ui.dialogs
 
-import android.content.Intent
-import android.net.Uri
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -19,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,12 +32,10 @@ const val VdgsUrl = "https://vdgs.vatsimspain.es/vdgs/index.php"
  *  VATSIM and set/edit their TOBT without leaving the app. WebView (not a Custom Tab) so the
  *  session cookie lives in this app's own cookie jar, which a native TOBT entry could later reuse;
  *  the WebView keeps cookies between openings, so the VATSIM login is only needed once per
- *  session lifetime. The "Browser" button hands the same page to the real browser as a fallback
- *  (e.g. if password-manager autofill or the login's bot check misbehaves in a WebView). */
+ *  session lifetime. */
 @Composable
 fun CdmWebDialog(onDismiss: () -> Unit) {
     val colors = LocalHandoffColors.current
-    val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
@@ -52,17 +47,7 @@ fun CdmWebDialog(onDismiss: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("TOBT / VDGS", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.text)
-                Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Browser",
-                        fontSize = 13.sp,
-                        color = colors.text.copy(alpha = 0.7f),
-                        modifier = Modifier.clickable {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(VdgsUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
-                    )
-                    Text("✕", fontSize = 18.sp, color = colors.text.copy(alpha = 0.7f), modifier = Modifier.clickable(onClick = onDismiss))
-                }
+                Text("✕", fontSize = 18.sp, color = colors.text.copy(alpha = 0.7f), modifier = Modifier.clickable(onClick = onDismiss))
             }
             AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
