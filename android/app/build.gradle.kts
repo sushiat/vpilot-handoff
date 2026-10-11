@@ -30,6 +30,17 @@ android {
         versionName = appVersionName
     }
 
+    // Issue #153 -- two distribution channels from one codebase. `sideload` is what GitHub Releases /
+    // Obtainium / flightsim.to ship (everything on); `play` is the Google Play build, whose risky
+    // features are individually switched off (see each flavor's ChannelFeatures and
+    // docs/play-release.md). Same applicationId, versionCode and signing key, so installs from
+    // either channel can update each other.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("sideload") { dimension = "channel" }
+        create("play") { dimension = "channel" }
+    }
+
     signingConfigs {
         // Populated from RELEASE_KEYSTORE_PATH/RELEASE_KEYSTORE_PASSWORD/RELEASE_KEY_ALIAS/
         // RELEASE_KEY_PASSWORD env vars in CI (see .github/workflows/release.yml). Falls back to

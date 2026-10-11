@@ -88,8 +88,15 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/master' }}
 
       - name: Build debug APK
+        # Builds both distribution channels (sideload + play flavors, issue #153).
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build Play release bundle
+        # Unsigned here (no keystore on PR builds) -- this only proves the play flavor's manifest
+        # overlay and the AAB packaging still work, so a break shows up before a tag does.
+        working-directory: android
+        run: ./gradlew bundlePlayRelease --no-daemon
 
       - name: Test
         working-directory: android

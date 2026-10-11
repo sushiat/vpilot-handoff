@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.VersionMismatch
+import at.sushi.handoff.network.UpdateSource
 import at.sushi.handoff.network.VersionSkew
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 
@@ -43,10 +44,10 @@ fun VersionMismatchDialog(
             title = "App out of date"
             body = "This app (v${mismatch.appVersion}) is older than the vPilot plugin " +
                 "(v${mismatch.pluginVersion}). " +
-                if (mismatch.viaObtainium) {
-                    "Update Handoff via Obtainium to catch up."
-                } else {
-                    "Re-download the latest APK from GitHub and sideload it to catch up."
+                when (mismatch.updateSource) {
+                    UpdateSource.PLAY_STORE -> "Update Handoff from Google Play to catch up."
+                    UpdateSource.OBTAINIUM -> "Update Handoff via Obtainium to catch up."
+                    UpdateSource.MANUAL -> "Re-download the latest APK from GitHub and sideload it to catch up."
                 }
         }
     }
@@ -59,9 +60,10 @@ fun VersionMismatchDialog(
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
         )
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Only the app-behind + manual-sideload path has an actionable link; the plugin-behind
-            // and Obtainium paths resolve outside this app, so they just get an acknowledge button.
-            if (mismatch.skew == VersionSkew.APP_BEHIND && !mismatch.viaObtainium) {
+            // Only the app-behind + manual-sideload path has an actionable link; the plugin-behind,
+            // Obtainium and Play Store paths resolve outside this app, so they just get an
+            // acknowledge button.
+            if (mismatch.skew == VersionSkew.APP_BEHIND && mismatch.updateSource == UpdateSource.MANUAL) {
                 Button(onClick = onViewRelease, modifier = Modifier.fillMaxWidth()) {
                     Text("View release", fontSize = 15.sp)
                 }

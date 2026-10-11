@@ -34,6 +34,7 @@ import android.net.Uri
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.core.content.edit
+import at.sushi.handoff.ChannelFeatures
 import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
@@ -42,6 +43,8 @@ import at.sushi.handoff.LayoutMode
 import at.sushi.handoff.VersionMismatch
 import at.sushi.handoff.network.AppUpdateClient
 import at.sushi.handoff.network.AppUpdateDismissStore
+import at.sushi.handoff.network.UpdateSource
+import at.sushi.handoff.network.updateSourceFor
 import at.sushi.handoff.network.IgnoredDeviceStore
 import at.sushi.handoff.network.VersionMismatchDismissStore
 import at.sushi.handoff.network.isInstalledViaObtainium
@@ -198,7 +201,7 @@ private fun MainScreenContent() {
         HandoffState.setLayoutMode(if (split) LayoutMode.SPLIT else LayoutMode.FULLSCREEN)
         if (split) {
             HandoffState.setSplitSide(detectSplitSide(context))
-            if (!overlayPermissionRequested && !ChatOverlayWindow.hasOverlayPermission(context)) {
+            if (ChannelFeatures.FloatingOverlay && !overlayPermissionRequested && !ChatOverlayWindow.hasOverlayPermission(context)) {
                 overlayPermissionRequested = true
                 context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
             }
@@ -210,7 +213,7 @@ private fun MainScreenContent() {
     // dismissible notice instead, remembered per-version so it doesn't nag again for the same
     // release once dismissed.
     LaunchedEffect(Unit) {
-        if (isInstalledViaObtainium(context)) return@LaunchedEffect
+        if (updateSourceFor(ChannelFeatures.GithubUpdateChecks, isInstalledViaObtainium(context)) != UpdateSource.MANUAL) return@LaunchedEffect
         val currentVersion = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: return@LaunchedEffect
@@ -248,7 +251,7 @@ private fun MainScreenContent() {
                 skew = skew,
                 pluginVersion = pluginVersion,
                 appVersion = appVersion,
-                viaObtainium = isInstalledViaObtainium(context)
+                updateSource = updateSourceFor(ChannelFeatures.GithubUpdateChecks, isInstalledViaObtainium(context))
             )
         )
     }

@@ -59,4 +59,16 @@ class AppUpdateClientTest {
         assertEquals(VersionSkew.APP_BEHIND, versionSkew(pluginVersion = "0.2.1", appVersion = "0.2"))
         assertEquals(VersionSkew.PLUGIN_BEHIND, versionSkew(pluginVersion = "0.2", appVersion = "0.2.1"))
     }
+
+    @Test
+    fun updateSourceFor_playChannel_leavesUpdatesToTheStore_evenIfInstalledByObtainium() {
+        assertEquals(UpdateSource.PLAY_STORE, updateSourceFor(githubUpdateChecks = false, installedViaObtainium = false))
+        assertEquals(UpdateSource.PLAY_STORE, updateSourceFor(githubUpdateChecks = false, installedViaObtainium = true))
+    }
+
+    @Test
+    fun updateSourceFor_sideloadChannel_distinguishesObtainiumFromManual() {
+        assertEquals(UpdateSource.OBTAINIUM, updateSourceFor(githubUpdateChecks = true, installedViaObtainium = true))
+        assertEquals(UpdateSource.MANUAL, updateSourceFor(githubUpdateChecks = true, installedViaObtainium = false))
+    }
 }

@@ -90,6 +90,17 @@ fun versionSkew(pluginVersion: String?, appVersion: String): VersionSkew? = when
     else -> null
 }
 
+/** Who is responsible for updating this install (issue #153): the Play Store build leaves it to
+ *  the store (no GitHub check, no GitHub link), an Obtainium install to Obtainium, and only a hand
+ *  sideloaded APK needs this app's own notice. */
+enum class UpdateSource { PLAY_STORE, OBTAINIUM, MANUAL }
+
+fun updateSourceFor(githubUpdateChecks: Boolean, installedViaObtainium: Boolean): UpdateSource = when {
+    !githubUpdateChecks -> UpdateSource.PLAY_STORE
+    installedViaObtainium -> UpdateSource.OBTAINIUM
+    else -> UpdateSource.MANUAL
+}
+
 /** True if this APK was installed by Obtainium, which already checks/prompts for updates on its
  *  own -- callers should skip their own update notice entirely in that case. `getInstallSourceInfo`
  *  needs API 30+; minSdk here is 26, so this falls back to the deprecated
