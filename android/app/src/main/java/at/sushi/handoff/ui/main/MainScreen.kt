@@ -76,6 +76,7 @@ import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
 import at.sushi.handoff.ui.dialogs.DiversionConfirmDialog
+import at.sushi.handoff.ui.dialogs.CdmWebDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
 import at.sushi.handoff.ui.dialogs.SettingsDialog
@@ -225,6 +226,7 @@ private fun MainScreenContent() {
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
+    val cdmSlot by HandoffState.cdmSlot.collectAsState()
 
     // One-shot-on-connect plugin/app version-skew check (issue #87). Re-arms on every (re)connect
     // via the connectionStatus key; on reaching CONNECTED it waits for the first subsystemStatus
@@ -316,6 +318,7 @@ private fun MainScreenContent() {
     var comDialogOpen by remember { mutableStateOf<Int?>(null) } // 1 or 2
     var xpdrDialogOpen by remember { mutableStateOf(false) }
     var settingsDialogOpen by remember { mutableStateOf(false) }
+    var cdmWebOpen by remember { mutableStateOf(false) }
     var rowColorDialogOpen by remember { mutableStateOf(false) }
     var nearbyDialogOpen by remember { mutableStateOf(false) }
     var footerExpanded by remember { mutableStateOf(false) }
@@ -693,6 +696,7 @@ private fun MainScreenContent() {
                 vatsimOrigin = flightPlan.vatsimOrigin,
                 vatsimDestination = flightPlan.vatsimDestination,
                 vatsimMissing = vatsimMissing,
+                cdmSlot = cdmSlot,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
                 operationIndicator = operationIndicator,
@@ -703,6 +707,7 @@ private fun MainScreenContent() {
                 onToggleExpanded = { footerExpanded = !footerExpanded },
                 onRefresh = { send(RefreshFlightPlanCommand()) },
                 onOpenSettings = { settingsDialogOpen = true },
+                onOpenCdm = { cdmWebOpen = true },
                 // Not persisted -- HandoffConnectionService re-derives this from the live
                 // charging state at startup and forces it on when a charger connects; a manual
                 // toggle here only holds until the next one of those triggers.
@@ -820,6 +825,10 @@ private fun MainScreenContent() {
             onConfirm = { send(ConfirmDiversionCommand()) },
             onDismiss = { send(DismissDiversionCommand()) }
         )
+    }
+
+    if (cdmWebOpen) {
+        CdmWebDialog(onDismiss = { cdmWebOpen = false })
     }
 
     if (settingsDialogOpen) {
