@@ -34,6 +34,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.sushi.handoff.ChannelFeatures
 import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
@@ -109,19 +110,23 @@ fun DebugOverlayContent(
                 // "saves vertical space for the controller list" reasoning. onCheckedChange = null
                 // on the Checkbox itself since the whole Row is the click target, same pattern as
                 // ControllerList's "Hide tuned" checkbox.
-                Row(
-                    Modifier.clickable { onFullDeviceCaptureChange(!fullDeviceCapture) },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Full-device screenshot", fontSize = 12.sp, color = colors.textMuted)
-                    Checkbox(
-                        checked = fullDeviceCapture,
-                        onCheckedChange = null,
-                        modifier = Modifier.scale(0.75f),
-                        colors = CheckboxDefaults.colors(checkedColor = colors.accent, uncheckedColor = colors.textMuted)
-                    )
+                // Issue #153 -- absent entirely in a channel that doesn't ship the capture feature
+                // (the Play build); the snapshot then just uses its view-scoped screenshot.
+                if (ChannelFeatures.FullDeviceCapture) {
+                    Row(
+                        Modifier.clickable { onFullDeviceCaptureChange(!fullDeviceCapture) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Full-device screenshot", fontSize = 12.sp, color = colors.textMuted)
+                        Checkbox(
+                            checked = fullDeviceCapture,
+                            onCheckedChange = null,
+                            modifier = Modifier.scale(0.75f),
+                            colors = CheckboxDefaults.colors(checkedColor = colors.accent, uncheckedColor = colors.textMuted)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
                 }
-                Spacer(Modifier.width(12.dp))
                 Text("✕", fontSize = 18.sp, color = colors.text.copy(alpha = 0.6f), modifier = Modifier.clickable(onClick = onClose))
             }
         }
