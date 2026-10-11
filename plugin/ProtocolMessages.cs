@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Handoff.Plugin
@@ -140,7 +141,9 @@ namespace Handoff.Plugin
             {
                 type = "chatReadState",
                 sessionId,
-                readThrough
+                // A JObject, not the dictionary itself: the camel-case resolver above also rewrites
+                // dictionary keys, which would turn the peer callsign "EGLL_TWR" into "eGLL_TWR".
+                readThrough = JObject.FromObject(readThrough)
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
