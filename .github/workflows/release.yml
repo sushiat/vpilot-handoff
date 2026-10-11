@@ -254,6 +254,14 @@ jobs:
         with:
           name: android-package
 
+      - name: Build flightsim.to bundle
+        # flightsim.to takes a single upload, so bundle the installer + APK into one zip (issue
+        # #145) and publish its sha256 alongside, instead of assembling it by hand per release.
+        run: |
+          zip "Handoff-${{ github.ref_name }}.zip" Handoff-Setup-*.exe Handoff-*.apk
+          sha256sum "Handoff-${{ github.ref_name }}.zip" > "Handoff-${{ github.ref_name }}.zip.sha256"
+          cat "Handoff-${{ github.ref_name }}.zip.sha256"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
@@ -261,6 +269,8 @@ jobs:
           files: |
             Handoff-Setup-*.exe
             Handoff-*.apk
+            Handoff-*.zip
+            Handoff-*.zip.sha256
           body_path: release-notes.md
           prerelease: false
           fail_on_unmatched_files: true
