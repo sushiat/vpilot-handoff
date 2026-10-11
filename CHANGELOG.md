@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Android (issue #143): read-only TOBT/CDM status for the departure, polled from the public
-  A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-covered,
-  TOBT-ready airport. A footer chip shows the next target ("TOBT T-12m", counting to the
+  A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-enabled
+  airport. A footer chip shows the next target ("TOBT T-12m", counting to the
   time) and the expanded footer adds a "TOBT/CDM" row, plus the assigned runway/SID and any
   hold reason once the backend has them. The dot follows the CDM window: grey while only
   requested ("TOBT?") or just the filed EOBT, yellow until 5 minutes before the TOBT/TSAT,
