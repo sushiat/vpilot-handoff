@@ -8,8 +8,12 @@
 [![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
 
 > [!IMPORTANT]
-> An independent native **iOS/iPadOS client** built by Thomas
-> is now available: [MANFahrer-GF/vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
+> **iOS/iPadOS:** an independent native client built by Thomas is on the App Store as
+> **[vPilot Remote](https://apps.apple.com/us/app/vpilot-remote/id6817687242)** — the
+> controller list, two-way chat, radio and transponder control, built against this
+> project's protocol. Source and iOS-side issues:
+> [MANFahrer-GF/vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios).
+> It is not affiliated with this project; please report iOS bugs there rather than here.
 
 A companion app for [vPilot](https://vpilot.rosscarlson.dev/) that puts the online
 VATSIM controller list and two-way chat on a second screen - built to run as an
@@ -126,7 +130,8 @@ and ranking flow described above. Still early: expect rough edges, and see
 
 ## Credits
 
-An independent native iOS/iPadOS client, [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios),
+An independent native iOS/iPadOS client, [vpilot-handoff-ios](https://github.com/MANFahrer-GF/vpilot-handoff-ios)
+— on the App Store as [vPilot Remote](https://apps.apple.com/us/app/vpilot-remote/id6817687242) —
 has also been built against this project's protocol.
 
 Handoff's controller ranking and flight-plan awareness depend on data from:
