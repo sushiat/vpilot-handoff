@@ -449,6 +449,7 @@ private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit) {
             slot.tobt?.let { "TOBT $it" },
             slot.tsat?.let { "TSAT $it" },
             slot.ctot?.let { "CTOT $it" },
+            slot.ctotOffBlock?.let { "off-block ~$it" },
             slot.requestedTobt?.takeIf { slot.tobt == null }?.let { "TOBT? $it" },
             slot.eobt?.let { "EOBT $it" },
             slot.statusText
