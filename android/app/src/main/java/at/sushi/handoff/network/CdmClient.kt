@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URLEncoder
 
 /** A-CDM milestone times for one flight, all bare "HHmm" UTC strings (e.g. "1725" for 17:25Z) --
  *  blank ("") rather than null/absent when a milestone hasn't happened yet, per issue #143's live
@@ -55,11 +56,36 @@ data class CdmFlight(
 data class CadAirport(
     val icao: String,
     val isCdm: Boolean = false,
-    val tobtReady: Boolean = false
+    val tobtReady: Boolean = false,
+    /** Expected taxi-out time (EXOT) in whole minutes -- verified live as a bare integer (2-20
+     *  across all airports) for issue #159. Null/absent when the backend omits it. */
+    val taxiTime: Int? = null
 )
 
 private val cdmJson = Json { ignoreUnknownKeys = true }
 private val cdmHttp = OkHttpClient()
+
+/** Outcome of a single-callsign lookup (issue #158). */
+sealed interface CdmLookup {
+    data class Found(val flight: CdmFlight) : CdmLookup
+    /** Backend answered but doesn't track this callsign (404, or 200 with an empty body). */
+    data object NoEntry : CdmLookup
+    /** Network error, server error or an unexpected body -- unknown, not "absent". */
+    data object Failed : CdmLookup
+}
+
+internal fun classifyCallsignResponse(code: Int, body: String?): CdmLookup = when {
+    code == 404 -> CdmLookup.NoEntry
+    code !in 200..299 -> CdmLookup.Failed
+    body.isNullOrBlank() -> CdmLookup.NoEntry
+    else -> decodeCdmBody<CdmFlight>(body)?.let { CdmLookup.Found(it) } ?: CdmLookup.Failed
+}
+
+/** Decodes a response body; a missing or blank one decodes to null. */
+internal inline fun <reified T> decodeCdmBody(body: String?): T? {
+    if (body.isNullOrBlank()) return null
+    return runCatching { cdmJson.decodeFromString<T>(body) }.getOrNull()
+}
 
 /**
  * Read-only client for the undocumented api.viffsys.com A-CDM backend (issue #143). Confirmed
@@ -77,24 +103,31 @@ object CdmClient {
 
     /** `/etfms/getCadAirports` -- every airport the backend knows about. Used to gate polling to
      *  airports that are actually CDM-covered and TOBT-ready before ever calling
-     *  [fetchDepartureAirportFlights] for them. */
+     *  [fetchFlightByCallsign] for them. */
     suspend fun fetchCadAirports(): List<CadAirport>? = get("$BaseUrl/etfms/getCadAirports")
 
-    /** `/ifps/depAirport?airport=XXXX` -- every currently-tracked flight departing [icao]; the
-     *  caller finds its own callsign's row. The issue's own traffic trace also found a narrower
-     *  `/ifps/callsign?callsign=X` endpoint, but its exact response shape (single object vs. a
-     *  one-element array) was never confirmed against a live flight -- this sticks to the
-     *  endpoint whose shape the issue's live test fully verified. */
-    suspend fun fetchDepartureAirportFlights(icao: String): List<CdmFlight>? =
-        get("$BaseUrl/ifps/depAirport?airport=$icao")
+    /** `/ifps/callsign?callsign=X&profile=false` -- the one flight tracked under [callsign]. Returns
+     *  a single object (not an array), per production use confirmed in issue #158. An untracked
+     *  callsign answers either 404 or HTTP 200 with an empty body; both are [CdmLookup.NoEntry], kept
+     *  distinct from [CdmLookup.Failed] so the caller can hold the current display through a blip. */
+    suspend fun fetchFlightByCallsign(callsign: String): CdmLookup = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BaseUrl/ifps/callsign?callsign=${URLEncoder.encode(callsign, "UTF-8")}&profile=false"
+            val request = Request.Builder().url(url).header("User-Agent", "Handoff-Android").build()
+            cdmHttp.newCall(request).execute().use { response ->
+                classifyCallsignResponse(response.code, response.body?.string())
+            }
+        } catch (e: Exception) {
+            CdmLookup.Failed
+        }
+    }
 
     private suspend inline fun <reified T> get(url: String): T? = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder().url(url).header("User-Agent", "Handoff-Android").build()
             cdmHttp.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                runCatching { cdmJson.decodeFromString<T>(body) }.getOrNull()
+                decodeCdmBody<T>(response.body?.string())
             }
         } catch (e: Exception) {
             null
