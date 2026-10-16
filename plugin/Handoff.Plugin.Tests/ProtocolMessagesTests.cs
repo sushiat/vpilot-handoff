@@ -398,6 +398,51 @@ namespace Handoff.Plugin.Tests
             Assert.Equal(23725, (int)alert["frequencies"][0]);
         }
 
+        // Issue #151 -- per-message id and sessionId on the chat message itself.
+
+        [Fact]
+        public void BuildChatMessage_IncludesSessionIdAndMessageId()
+        {
+            var message = new ChatMessage(ChatChannel.Private, ChatDirection.Incoming, "EGLL_TWR", "cleared for takeoff", null, DateTimeOffset.UtcNow)
+            {
+                Id = 41
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildChatMessage(new List<ChatMessage> { message }, new List<SelcalAlert>(), "b3f1c2e0"));
+
+            Assert.Equal("b3f1c2e0", (string)json["sessionId"]);
+            Assert.Equal(41, (long)json["messages"][0]["id"]);
+        }
+
+        [Fact]
+        public void BuildChatMessage_SessionIdOmitted_IsNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildChatMessage(new List<ChatMessage>(), new List<SelcalAlert>()));
+
+            Assert.Equal(JTokenType.Null, json["sessionId"].Type);
+        }
+
+        [Fact]
+        public void BuildChatReadStateMessage_IncludesSessionIdAndWatermarks()
+        {
+            var readThrough = new Dictionary<string, long> { ["radio"] = 38, ["EGLL_TWR"] = 41 };
+
+            var json = JObject.Parse(ProtocolMessages.BuildChatReadStateMessage("b3f1c2e0", readThrough));
+
+            Assert.Equal("chatReadState", (string)json["type"]);
+            Assert.Equal("b3f1c2e0", (string)json["sessionId"]);
+            Assert.Equal(38, (long)json["readThrough"]["radio"]);
+            Assert.Equal(41, (long)json["readThrough"]["EGLL_TWR"]);
+        }
+
+        [Fact]
+        public void BuildChatReadStateMessage_EmptyWatermarks_SerializesEmptyObject()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildChatReadStateMessage("b3f1c2e0", new Dictionary<string, long>()));
+
+            Assert.Empty((JObject)json["readThrough"]);
+        }
+
         [Fact]
         public void BuildRadioStateMessage_BeforeFirstRead_FrequenciesAreNull()
         {
@@ -791,6 +836,31 @@ namespace Handoff.Plugin.Tests
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"somethingElse\"}");
 
             Assert.Equal("somethingElse", command.Type);
+        }
+
+        [Fact]
+        public void BuildControllersMessage_IncludesContactMeText_OnlyWhileContactMe()
+        {
+            var controllers = new List<RankedController>
+            {
+                new RankedController(
+                    "EGLL_TWR", 23725, 0, 0, null, null, null, null,
+                    requestsContactMe: true, isCurrent: false, isContactMe: true,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    contactMeText: "contact me on 121.725"),
+                new RankedController(
+                    "EGLL_GND", 21800, 0, 0, null, null, null, null,
+                    requestsContactMe: true, isCurrent: true, isContactMe: false,
+                    isHighlighted: false, isNext: false, isLikelyNext: false,
+                    isPinned: false, isStandbyTuned: false, isSelcalActive: false,
+                    contactMeText: "stale text")
+            };
+
+            var json = JObject.Parse(ProtocolMessages.BuildControllersMessage(controllers));
+
+            Assert.Equal("contact me on 121.725", (string)json["controllers"][0]["contactMeText"]);
+            Assert.Equal(JTokenType.Null, json["controllers"][1]["contactMeText"].Type);
         }
     }
 }

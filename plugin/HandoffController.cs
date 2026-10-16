@@ -33,6 +33,13 @@ namespace Handoff.Plugin
         public DateTimeOffset? ContactMeExpiresAtUtc { get; }
         public DateTimeOffset? SelcalExpiresAtUtc { get; }
 
+        // The raw text of the outstanding "contact me" private message from a known controller.
+        // HandoffControllerStateModel swallows that message instead of letting it into the chat log
+        // and carries its text here, so the row can show it. Null whenever no contact-me is
+        // outstanding (always cleared together with ContactMeExpiresAtUtc), or for an off-list
+        // sender, whose message still goes to the chat log as before.
+        public string ContactMeText { get; }
+
         public bool IsPinned { get; }
 
         // A "contact me" arrived from a callsign never seen via IBroker.ControllerAdded (an ATC
@@ -50,7 +57,7 @@ namespace Handoff.Plugin
             string callsign, int frequency, double latitude, double longitude,
             bool isHidden = false, DateTimeOffset? hiddenSinceUtc = null,
             DateTimeOffset? contactMeExpiresAtUtc = null, DateTimeOffset? selcalExpiresAtUtc = null,
-            bool isPinned = false, bool isOffList = false)
+            bool isPinned = false, bool isOffList = false, string contactMeText = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -62,6 +69,7 @@ namespace Handoff.Plugin
             SelcalExpiresAtUtc = selcalExpiresAtUtc;
             IsPinned = isPinned;
             IsOffList = isOffList;
+            ContactMeText = contactMeText;
         }
 
         /// <summary>An off-list "contact me" (see <see cref="IsOffList"/>): a private "contact me" from a callsign never seen via ControllerAdded. Frequency is parsed from the message text when present, else 0 (unknown -- the pilot reads the original chat message).</summary>
@@ -69,30 +77,31 @@ namespace Handoff.Plugin
             new HandoffController(callsign, frequency, 0, 0, contactMeExpiresAtUtc: contactMeExpiresAtUtc, isOffList: true);
 
         internal HandoffController WithFrequency(int frequency) =>
-            new HandoffController(Callsign, frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList);
+            new HandoffController(Callsign, frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
 
         internal HandoffController WithLocation(double latitude, double longitude) =>
-            new HandoffController(Callsign, Frequency, latitude, longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList);
+            new HandoffController(Callsign, Frequency, latitude, longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
 
         /// <summary>ControllerAdded firing again for an already-known, currently-hidden callsign -- a reconnect within the expiry window. Every other field survives untouched.</summary>
         internal HandoffController Reconnected() =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
 
         /// <summary>A real ControllerAdded finally arrived for a callsign we'd only ever seen as an off-list contact-me -- adopt its real frequency/location and drop the synthetic marker, keeping any outstanding contact-me/SELCAL/pin.</summary>
         internal HandoffController Promoted(int frequency, double latitude, double longitude) =>
-            new HandoffController(Callsign, frequency, latitude, longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, false);
+            new HandoffController(Callsign, frequency, latitude, longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, false, ContactMeText);
 
         /// <summary>ControllerDeleted -- marked hidden rather than removed, so a brief reconnect can restore it via Reconnected() above.</summary>
         internal HandoffController Hidden(DateTimeOffset hiddenSinceUtc) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, true, hiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, true, hiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
 
-        internal HandoffController WithContactMeExpiry(DateTimeOffset? expiresAtUtc) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, expiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList);
+        /// <summary>Sets (or, with a null expiry, clears) the outstanding contact-me. The text always travels with it -- clearing the expiry drops any text too.</summary>
+        internal HandoffController WithContactMeExpiry(DateTimeOffset? expiresAtUtc, string contactMeText = null) =>
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, expiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, expiresAtUtc.HasValue ? contactMeText : null);
 
         internal HandoffController WithSelcalExpiry(DateTimeOffset? expiresAtUtc) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, expiresAtUtc, IsPinned, IsOffList);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, expiresAtUtc, IsPinned, IsOffList, ContactMeText);
 
         internal HandoffController WithPinned(bool isPinned) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, isPinned, IsOffList);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, isPinned, IsOffList, ContactMeText);
     }
 }

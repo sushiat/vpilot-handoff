@@ -34,6 +34,9 @@ namespace Handoff.Plugin
         public const string TypePinController = "pinController";
         public const string TypeClearPinnedController = "clearPinnedController";
         public const string TypeDismissSelcal = "dismissSelcal";
+        // Issue #151 -- advances a per-tab chat read watermark; see docs/protocol.md and
+        // ChatModel.MarkRead.
+        public const string TypeMarkChatRead = "markChatRead";
         public const string TypeConfirmDiversion = "confirmDiversion";
         public const string TypeDismissDiversion = "dismissDiversion";
         public const string TypePing = "ping";
@@ -106,6 +109,12 @@ namespace Handoff.Plugin
         public string Token { get; set; }
         public string PairingCode { get; set; }
         public string DeviceId { get; set; }
+
+        // markChatRead -- Tab is "radio" or a private peer's callsign; ThroughId is the highest
+        // message id the client has seen as read for that tab. The plugin applies max(existing,
+        // ThroughId), clamped to the newest known message id -- see ChatModel.MarkRead.
+        public string Tab { get; set; }
+        public long? ThroughId { get; set; }
 
         // setDebugMode -- Enabled (above) carries the payload.
         // saveDebugSnapshot -- client-generated GUID correlating the debugSnapshotSaved reply and

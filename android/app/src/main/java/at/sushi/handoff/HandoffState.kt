@@ -4,6 +4,7 @@ import at.sushi.handoff.network.AppUpdateInfo
 import at.sushi.handoff.network.UpdateSource
 import at.sushi.handoff.network.VersionSkew
 import at.sushi.handoff.protocol.ChatMessage
+import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
 import at.sushi.handoff.protocol.DebugSnapshotSavedMessage
@@ -142,6 +143,13 @@ object HandoffState {
 
     private val _chat = MutableStateFlow(ChatMessage(messages = emptyList(), selcalAlerts = emptyList()))
     val chat: StateFlow<ChatMessage> = _chat.asStateFlow()
+
+    // Issue #151 -- the plugin-owned per-tab chat read watermark. Deliberately NOT reset by
+    // clearLiveServerState() below, same as _chat itself: a dropped connection doesn't make
+    // already-read messages unread again, and the next connect's snapshot burst resends this
+    // right alongside a fresh `chat` anyway.
+    private val _chatReadState = MutableStateFlow(ChatReadStateMessage())
+    val chatReadState: StateFlow<ChatReadStateMessage> = _chatReadState.asStateFlow()
 
     private val _radioState = MutableStateFlow(RadioStateMessage(modeCEnabled = false))
     val radioState: StateFlow<RadioStateMessage> = _radioState.asStateFlow()
@@ -310,6 +318,10 @@ object HandoffState {
 
     fun update(message: ChatMessage) {
         _chat.value = message
+    }
+
+    fun update(message: ChatReadStateMessage) {
+        _chatReadState.value = message
     }
 
     fun update(message: RadioStateMessage) {

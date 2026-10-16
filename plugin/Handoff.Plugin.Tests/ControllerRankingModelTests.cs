@@ -1899,5 +1899,66 @@ namespace Handoff.Plugin.Tests
             await model.SyncAsync();
             return model;
         }
+
+        // ---- Contact-me text on the row (issue #151 follow-up) ----
+
+        [Fact]
+        public void KnownControllerContactMe_CarriesTextOnTheRankedController()
+        {
+            AddController("EGLL_GND", 21800);
+            var model = CreateModel();
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me on 121.725"));
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsContactMe);
+            Assert.Equal("contact me on 121.725", ranked.ContactMeText);
+            Assert.Empty(_chat.Messages);
+        }
+
+        [Fact]
+        public void TuningAFrequencyNamedInTheContactMeText_ClearsTheRequest()
+        {
+            AddController("EGLL_GND", 21800);
+            var model = CreateModel();
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me on 121.725"));
+            Assert.True(model.Current.Single().IsContactMe);
+
+            // The controller's own listed frequency (21800) isn't tuned -- only the one in the text.
+            _radio.Current = new RadioState(21725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            var ranked = model.Current.Single();
+            Assert.False(ranked.IsContactMe);
+            Assert.Null(ranked.ContactMeText);
+        }
+
+        [Fact]
+        public void TuningAnUnrelatedFrequency_LeavesTheContactMeRequestOutstanding()
+        {
+            AddController("EGLL_GND", 21800);
+            var model = CreateModel();
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me on 121.725"));
+
+            _radio.Current = new RadioState(23725, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsContactMe);
+            Assert.Equal("contact me on 121.725", ranked.ContactMeText);
+        }
+
+        [Fact]
+        public void TuningTheControllersOwnFrequency_ClearsTheTextToo()
+        {
+            AddController("EGLL_GND", 21800);
+            var model = CreateModel();
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_GND", "contact me"));
+
+            _radio.Current = new RadioState(21800, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+
+            Assert.Null(model.Current.Single().ContactMeText);
+        }
     }
 }
