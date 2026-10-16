@@ -1,5 +1,6 @@
 package at.sushi.handoff.protocol
 
+import at.sushi.handoff.ui.chat.readThroughByTab
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -298,6 +299,18 @@ class MessagesTest {
 
         val message = decodeServerMessage(json) as ChatReadStateMessage
         assertEquals(emptyMap<String, Long>(), message.readThrough)
+    }
+
+    // Issue #156 -- chat tab keys are matched case-insensitively.
+
+    @Test
+    fun readThroughByTab_FoldsPeerKeysToUpperCaseKeepsRadioAndTakesHighestOnCollision() {
+        val message = ChatReadStateMessage(
+            sessionId = "b3f1c2e0",
+            readThrough = mapOf("Radio" to 38L, "egll_twr" to 40L, "EGLL_TWR" to 41L, "EGLL_GND" to 7L)
+        )
+
+        assertEquals(mapOf("radio" to 38L, "EGLL_TWR" to 41L, "EGLL_GND" to 7L), message.readThroughByTab())
     }
 
     @Test

@@ -74,6 +74,8 @@ import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.chat.RADIO_TAB
 import at.sushi.handoff.ui.chat.mentionsCallsign
+import at.sushi.handoff.ui.chat.chatTabKey
+import at.sushi.handoff.ui.chat.readThroughByTab
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
@@ -175,7 +177,7 @@ private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationPr
  *  peer callsign, or [RADIO_TAB] for radio/broadcast. Null only for a malformed private entry
  *  with no peer at all. */
 private fun entryTab(entry: ChatEntry): String? =
-    if (entry.channel == "private") entry.peer else RADIO_TAB
+    if (entry.channel == "private") entry.peer?.let(::chatTabKey) else RADIO_TAB
 
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
@@ -384,7 +386,7 @@ private fun MainScreenContent() {
         }
     }
 
-    val serverReadThrough = if (chatReadState.sessionId == chat.sessionId) chatReadState.readThrough else emptyMap()
+    val serverReadThrough = if (chatReadState.sessionId == chat.sessionId) chatReadState.readThroughByTab() else emptyMap()
     val effectiveReadThrough = (optimisticReadThrough.keys + serverReadThrough.keys).associateWith { tab ->
         maxOf(optimisticReadThrough[tab] ?: 0L, serverReadThrough[tab] ?: 0L)
     }
