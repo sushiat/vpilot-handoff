@@ -8,98 +8,104 @@ import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
-/** Coarse urgency bucket for [CdmSlotDisplay]'s traffic-light dot -- derived purely from the time
- *  to/since the target ([CdmSlotDisplay.minutesUntil]), NOT a decode of the backend's own
- *  [CdmFlight.cdmSts] string
- *  (issue #143: cdmSts's exact status vocabulary and its relationship to the real vats.im/vdgs
- *  banner's own red/yellow/green were never confirmed, only guessed at as "presumably" related --
- *  [CdmSlotDisplay.statusText] carries that raw string alongside this so nothing is hidden, this
- *  just doesn't pretend to decode something that was never actually verified). */
-enum class CdmUrgency {
-    NEUTRAL,
-    /** Green. */
-    GOOD,
-    /** Yellow. */
-    ATTENTION,
-    /** Red. */
-    URGENT,
-    /** Alternating green/yellow -- the last minute of a TOBT/TSAT window. */
-    FLASHING
+/** Where the pilot stands relative to the start-up window (issue #165), mirroring the banner on the
+ *  vdgs site: yellow ("prepare") before it, green ("request start-up") inside it, red (missed) after.
+ *  [UNKNOWN] is the grey state: nothing to anchor a window to yet. */
+enum class CdmWindowPhase { UNKNOWN, BEFORE, OPEN, MISSED }
+
+// The site documents the window as roughly -5 to +6 minutes around the off-block reference time.
+private const val WindowOpensMinutesBefore = 5
+private const val WindowClosesMinutesAfter = 6
+
+/** Phase and the one number the chip shows for it, given [minutesUntilReference] (negative once the
+ *  reference has passed): minutes until the window opens (BEFORE), minutes left in it (OPEN) or minutes
+ *  since it closed (MISSED). With an ASRT on the flight the window never counts as missed -- the
+ *  pilot already asked for start-up -- and OPEN then carries no number. */
+fun cdmWindow(minutesUntilReference: Int, asrtSet: Boolean): Pair<CdmWindowPhase, Int?> = when {
+    minutesUntilReference > WindowOpensMinutesBefore ->
+        CdmWindowPhase.BEFORE to (minutesUntilReference - WindowOpensMinutesBefore)
+    minutesUntilReference >= -WindowClosesMinutesAfter ->
+        CdmWindowPhase.OPEN to (minutesUntilReference + WindowClosesMinutesAfter)
+    asrtSet -> CdmWindowPhase.OPEN to null
+    else -> CdmWindowPhase.MISSED to (-WindowClosesMinutesAfter - minutesUntilReference)
 }
 
 /** Everything the CDM tile needs to render, derived from a raw [CdmFlight] once per poll. The
- *  time-dependent parts ([minutesUntil], [urgency]) go stale between polls, so the UI re-derives
- *  them every second with [at]. */
+ *  time-dependent parts ([phase], [minutes]) go stale between polls, so the UI re-derives them
+ *  every second with [at]. */
 data class CdmSlotDisplay(
-    val statusText: String?,
+    /** The airport supports CDM but the backend isn't tracking the flight yet (placeholder). */
+    val waiting: Boolean,
+    val eobt: String?,
+    /** The accepted T/OBT ("tobt" on the wire). */
     val tobt: String?,
     val tsat: String?,
     val ctot: String?,
-    /** CTOT minus the airport's expected taxi-out time (EXOT) as "HHmm": the off-block reference
-     *  to plan around. Only set while a CTOT exists without a TSAT -- once a TSAT is assigned it is
-     *  the real reference and this derived guess would just be noise (issue #159). */
-    val ctotOffBlock: String?,
-    /** TOBT the pilot has asked for but the backend hasn't accepted into [tobt] yet. */
+    /** Expected taxi-out time in minutes, from the airport record. */
+    val exot: Int?,
+    /** T/OBT the pilot has asked for but the backend hasn't accepted yet. */
     val requestedTobt: String?,
-    /** Filed EOBT -- only ever the displayed target as a last resort, before any TOBT exists. */
-    val eobt: String?,
     /** Why the controller/flow system is holding the flight (cdmData.reason), when it is. */
     val reason: String?,
+    val atfcmStatus: String?,
     /** Assigned departure runway and SID, split out of cdmData.depInfo ("29/LANUX2C"). */
     val depRunway: String?,
     val sid: String?,
-    val targetLabel: String?,
-    /** The target's bare "HHmm" UTC time, kept so [at] can re-derive [minutesUntil]/[urgency]. */
-    val targetHhmm: String?,
-    val minutesUntil: Int?,
-    /** True when the target is only a request or the filed EOBT, not an accepted CDM time. */
-    val tentative: Boolean,
-    /** True for an accepted TOBT/TSAT target, which follow the plugin's +-5 minute window rules. */
-    val windowed: Boolean,
-    /** The backend has an ASRT (ready for start-up) for this flight -- the TOBT/TSAT window then
-     *  never expires, matching the CDM plugin's own "no ASRT" condition for invalidating times. */
+    /** Which time the window is anchored on: "TSAT", "CTOT-EXOT" or "T/OBT"; null when none exists
+     *  (a filed EOBT alone deliberately doesn't anchor a window). */
+    val referenceLabel: String?,
+    /** The reference's bare "HHmm" UTC time, kept so [at] can re-derive [phase]/[minutes]. */
+    val referenceHhmm: String?,
     val asrtSet: Boolean,
-    val urgency: CdmUrgency
+    val phase: CdmWindowPhase,
+    val minutes: Int?
 ) {
-    /** Same display with [minutesUntil]/[urgency] re-derived for [nowEpochMillis]. */
+    /** Same display with [phase]/[minutes] re-derived for [nowEpochMillis]. */
     fun at(nowEpochMillis: Long): CdmSlotDisplay {
-        val minutes = targetHhmm?.let { minutesUntilUtcHhmm(it, nowEpochMillis) }
-        return copy(minutesUntil = minutes, urgency = cdmUrgency(minutes, tentative, windowed, asrtSet))
+        val untilReference = referenceHhmm?.let { minutesUntilUtcHhmm(it, nowEpochMillis) }
+            ?: return copy(phase = CdmWindowPhase.UNKNOWN, minutes = null)
+        val (newPhase, newMinutes) = cdmWindow(untilReference, asrtSet)
+        return copy(phase = newPhase, minutes = newMinutes)
     }
 }
 
-// CTOT keeps the original first-guess thresholds (issue #143 lists the color mapping as an open
-// question) -- only TOBT/TSAT follow the plugin's real window rules, see [cdmUrgency].
-private const val AttentionThresholdMinutes = 15
-private const val UrgentThresholdMinutes = 5
+private fun formatMinutes(minutes: Int): String =
+    if (minutes >= 60) "${minutes / 60}h${minutes % 60}m" else "${minutes}m"
 
-// The rpuig2001/CDM EuroScope plugin's TOBT/TSAT window, in whole minutes either side of the time:
-// yellow before it opens, green inside it, flashing yellow/green as it runs out, and expired (red)
-// after that -- unless the flight already has an ASRT. The plugin itself flashes only for the
-// final minute; we start two minutes early (+4) because not every controller can take a flight
-// right at the edge of the window.
-private const val WindowMinutes = 5
-private const val FlashFromMinutesAfter = 4
-
-/** [minutes] is the time until the target (negative once it's passed). [windowed] is true for an
- *  accepted TOBT/TSAT; a CTOT (neither tentative nor windowed) keeps the old simple thresholds. */
-fun cdmUrgency(minutes: Int?, tentative: Boolean, windowed: Boolean, asrtSet: Boolean): CdmUrgency = when {
-    tentative || minutes == null -> CdmUrgency.NEUTRAL
-    windowed -> when {
-        minutes > WindowMinutes -> CdmUrgency.ATTENTION
-        minutes > -FlashFromMinutesAfter || asrtSet -> CdmUrgency.GOOD
-        minutes >= -WindowMinutes -> CdmUrgency.FLASHING
-        else -> CdmUrgency.URGENT
+/** The chip's text. [compact] is the narrowest layout, which has to drop the "STUP" prefix. */
+fun CdmSlotDisplay.chipText(compact: Boolean): String {
+    fun withPrefix(text: String) = if (compact) text else "STUP $text"
+    return when (phase) {
+        CdmWindowPhase.UNKNOWN -> withPrefix("T-?")
+        CdmWindowPhase.BEFORE -> withPrefix("T-${formatMinutes(minutes ?: 0)}")
+        CdmWindowPhase.OPEN -> when (minutes) {
+            null -> withPrefix("ok")
+            else -> if (compact) formatMinutes(minutes) else "STUP ${formatMinutes(minutes)} left"
+        }
+        // "MISS" has to stay readable as "start-up is gone" even when the number doesn't fit.
+        CdmWindowPhase.MISSED -> if (compact) "MISS" else "MISS +${formatMinutes(minutes ?: 0)}"
     }
-    minutes <= UrgentThresholdMinutes -> CdmUrgency.URGENT
-    minutes <= AttentionThresholdMinutes -> CdmUrgency.ATTENTION
-    else -> CdmUrgency.GOOD
 }
 
-/** Null only when [flight] is null, or has no milestone time and no filed EOBT at all. Falls back
- *  past the accepted CDM times to the pilot's requested TOBT, then the filed EOBT, so the tile is
- *  visible (marked [CdmSlotDisplay.tentative], shown with a trailing "?") as soon as the backend
- *  tracks the flight -- showing that the system is active even before a TOBT has been accepted. */
+/** The drawer's one-line explanation of [phase] -- the roomy version of [chipText]. */
+fun CdmSlotDisplay.windowSummary(): String {
+    val source = referenceLabel?.let { " ($it)" }.orEmpty()
+    return when (phase) {
+        CdmWindowPhase.UNKNOWN -> if (waiting) "waiting for flight" else "no T/OBT or TSAT yet"
+        CdmWindowPhase.BEFORE -> "opens in ${formatMinutes(minutes ?: 0)}$source"
+        CdmWindowPhase.OPEN ->
+            if (minutes == null) "open, start-up requested (ASRT)$source"
+            else "open, ${formatMinutes(minutes)} left$source"
+        CdmWindowPhase.MISSED -> "missed ${formatMinutes(minutes ?: 0)} ago$source - update T/OBT, coordinate"
+    }
+}
+
+/** Null only when [flight] is null, or has no milestone time and no filed EOBT at all.
+ *
+ *  The start-up window is anchored on the site's own off-block reference order: TSAT, then
+ *  CTOT minus the airport's expected taxi-out time, then the accepted T/OBT. A filed EOBT (last in
+ *  the site's order) and a merely requested T/OBT deliberately anchor nothing: the chip stays grey
+ *  until something is accepted, so a pilot who just hasn't set a T/OBT yet doesn't see "MISS". */
 fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long, taxiMinutes: Int? = null): CdmSlotDisplay? {
     flight ?: return null
     val data = flight.cdmData ?: CdmFlightData()
@@ -109,40 +115,32 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long, taxiMinutes: 
     val ctot = hhmm(data.ctot.ifBlank { flight.ctot.orEmpty() })
     val tsat = hhmm(data.tsat)
     val reqTobt = hhmm(data.reqTobt)
+    if (listOf(tobt, ctot, tsat, reqTobt).all { it.isBlank() } && eobt == null) return null
     val depParts = data.depInfo.split("/", limit = 2)
-    val depRunway = depParts[0].trim().ifEmpty { null }
-    val sid = depParts.getOrNull(1)?.trim()?.ifEmpty { null }
-    // Prefer whichever milestone is most actionable right now: CTOT (an assigned slot) outranks
-    // TSAT (a startup-approval target) outranks TOBT (the pilot's own target off-block time) --
-    // each is only ever set once its predecessor's phase is reached, so this is effectively "the
-    // latest milestone the backend has assigned," not an arbitrary priority. Below those, an
-    // as-yet-unaccepted requested TOBT, then the filed EOBT, both tentative.
-    val (targetLabel, targetHhmm, tentative) = when {
-        ctot.isNotBlank() -> Triple("CTOT", ctot, false)
-        tsat.isNotBlank() -> Triple("TSAT", tsat, false)
-        tobt.isNotBlank() -> Triple("TOBT", tobt, false)
-        reqTobt.isNotBlank() -> Triple("TOBT?", reqTobt, true)
-        eobt != null -> Triple("EOBT?", eobt, true)
-        else -> return null
+    val ctotMinusExot = taxiMinutes?.let { subtractMinutesHhmm(ctot, it) }
+    val (referenceLabel, referenceHhmm) = when {
+        tsat.isNotBlank() -> "TSAT" to tsat
+        ctotMinusExot != null -> "CTOT-EXOT" to ctotMinusExot
+        tobt.isNotBlank() -> "T/OBT" to tobt
+        else -> null to null
     }
     return CdmSlotDisplay(
-        statusText = flight.cdmSts?.takeIf { it.isNotBlank() },
+        waiting = false,
+        eobt = eobt,
         tobt = tobt.takeIf { it.isNotBlank() },
         tsat = tsat.takeIf { it.isNotBlank() },
         ctot = ctot.takeIf { it.isNotBlank() },
-        ctotOffBlock = if (tsat.isBlank() && taxiMinutes != null) subtractMinutesHhmm(ctot, taxiMinutes) else null,
-        requestedTobt = reqTobt.takeIf { it.isNotBlank() },
-        eobt = eobt,
+        exot = taxiMinutes,
+        requestedTobt = reqTobt.takeIf { it.isNotBlank() && it != tobt },
         reason = data.reason.takeIf { it.isNotBlank() },
-        depRunway = depRunway,
-        sid = sid,
-        targetLabel = targetLabel,
-        targetHhmm = targetHhmm,
-        minutesUntil = null,
-        tentative = tentative,
-        windowed = targetLabel == "TOBT" || targetLabel == "TSAT",
+        atfcmStatus = flight.atfcmStatus?.takeIf { it.isNotBlank() },
+        depRunway = depParts[0].trim().ifEmpty { null },
+        sid = depParts.getOrNull(1)?.trim()?.ifEmpty { null },
+        referenceLabel = referenceLabel,
+        referenceHhmm = referenceHhmm,
         asrtSet = data.asrt.isNotBlank(),
-        urgency = CdmUrgency.NEUTRAL
+        phase = CdmWindowPhase.UNKNOWN,
+        minutes = null
     ).at(nowEpochMillis)
 }
 
@@ -166,13 +164,13 @@ fun hhmm(raw: String?): String {
 }
 
 /** Placeholder for "this airport supports CDM but the backend isn't tracking the flight yet": a
- *  grey, time-less "TOBT -" chip whose drawer row reads "waiting for flight". */
+ *  grey "T-?" chip whose drawer row reads "waiting for flight". */
 fun cdmWaitingDisplay() = CdmSlotDisplay(
-    statusText = "waiting for flight",
-    tobt = null, tsat = null, ctot = null, ctotOffBlock = null, requestedTobt = null, eobt = null,
-    reason = null, depRunway = null, sid = null,
-    targetLabel = "TOBT", targetHhmm = null, minutesUntil = null,
-    tentative = true, windowed = false, asrtSet = false, urgency = CdmUrgency.NEUTRAL
+    waiting = true,
+    eobt = null, tobt = null, tsat = null, ctot = null, exot = null, requestedTobt = null,
+    reason = null, atfcmStatus = null, depRunway = null, sid = null,
+    referenceLabel = null, referenceHhmm = null, asrtSet = false,
+    phase = CdmWindowPhase.UNKNOWN, minutes = null
 )
 
 /** Parses a bare "HHmm" UTC time-of-day (A-CDM's wire format, e.g. "1725" for 17:25Z -- issue

@@ -44,8 +44,9 @@ import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.util.CdmSlotDisplay
-import at.sushi.handoff.util.CdmUrgency
-import kotlin.math.abs
+import at.sushi.handoff.util.CdmWindowPhase
+import at.sushi.handoff.util.chipText
+import at.sushi.handoff.util.windowSummary
 
 /** The controller list's footer: a "face" row (connection dot + status line, refresh + settings
  *  icons) that's the first/top child of this container, with the expandable detail content
@@ -391,7 +392,7 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
 }
 
 /** Re-derives [slot]'s time-dependent fields every second (the poll that produced it only runs
- *  once a minute, but the windows are +-5 minutes and the last-minute flash needs a 1s beat). */
+ *  once a minute, but the window is only a few minutes wide). */
 @Composable
 private fun rememberTickingCdmSlot(slot: CdmSlotDisplay): CdmSlotDisplay {
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -404,28 +405,20 @@ private fun rememberTickingCdmSlot(slot: CdmSlotDisplay): CdmSlotDisplay {
     return slot.at(nowMillis)
 }
 
-/** Issue #143's small "on-tablet status indicator" for the read-only VDGS/TOBT tile -- a colored
- *  dot ([CdmUrgency]) plus a compact "TOBT T-12m" style label counting to the target time. For an
- *  accepted TOBT/TSAT the dot follows the CDM plugin's +-5 minute window (see [cdmUrgency]); it is
- *  NOT a decode of the backend's own cdmSts string. */
+/** The on-tablet start-up-window indicator (issues #143, #165): a colored dot plus a very short label
+ *  (see [chipText]) -- yellow counting down to the window opening, green counting down to it
+ *  closing, red once missed, grey while nothing anchors a window. */
 @Composable
 private fun CdmChip(initial: CdmSlotDisplay, compact: Boolean, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     val slot = rememberTickingCdmSlot(initial)
-    val flashOn = (System.currentTimeMillis() / 1_000) % 2 == 0L
-    val dotColor = when (slot.urgency) {
-        CdmUrgency.GOOD -> colors.ok
-        CdmUrgency.ATTENTION -> colors.attention
-        CdmUrgency.URGENT -> at.sushi.handoff.ui.dialogs.outOfBandRed
-        CdmUrgency.FLASHING -> if (flashOn) colors.ok else colors.attention
-        CdmUrgency.NEUTRAL -> colors.textMuted
+    val dotColor = when (slot.phase) {
+        CdmWindowPhase.BEFORE -> colors.attention
+        CdmWindowPhase.OPEN -> colors.ok
+        CdmWindowPhase.MISSED -> at.sushi.handoff.ui.dialogs.outOfBandRed
+        CdmWindowPhase.UNKNOWN -> colors.textMuted
     }
-    val label = slot.minutesUntil?.let { minutes ->
-        val sign = if (minutes < 0) "+" else "T-"
-        // Compact (narrowest layout): drop the "TOBT"/"TSAT"/"CTOT" prefix, leaving just the dot and
-        // the countdown -- the drawer row and the dialog still say which milestone it is.
-        if (compact) "$sign${abs(minutes)}m" else "${slot.targetLabel} $sign${abs(minutes)}m"
-    } ?: if (slot.targetHhmm == null) "${slot.targetLabel ?: "CDM"} –" else (slot.targetLabel ?: slot.statusText ?: "CDM")
+    val label = slot.chipText(compact)
     Row(
         Modifier.clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
@@ -443,20 +436,16 @@ private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit) {
     slot.sid?.let { sid ->
         FlightPlanDetailRow("Departure", listOfNotNull(slot.depRunway?.let { "RWY $it" }, "SID $sid").joinToString(" · "), warning = false)
     }
-    slot.reason?.let { FlightPlanDetailRow("CDM reason", it, warning = true) }
-    FlightPlanDetailRow(
-        "TOBT/CDM",
-        listOfNotNull(
-            slot.tobt?.let { "TOBT $it" },
-            slot.tsat?.let { "TSAT $it" },
-            slot.ctot?.let { "CTOT $it" },
-            slot.ctotOffBlock?.let { "off-block ~$it" },
-            slot.requestedTobt?.takeIf { slot.tobt == null }?.let { "TOBT? $it" },
-            slot.eobt?.let { "EOBT $it" },
-            slot.statusText
-        ).joinToString(" · ").ifEmpty { "----" },
-        warning = slot.urgency == CdmUrgency.URGENT
-    )
+    FlightPlanDetailRow("Start-up window", slot.windowSummary(), warning = slot.phase == CdmWindowPhase.MISSED)
+    slot.eobt?.let { FlightPlanDetailRow("EOBT", it, warning = false) }
+    // A request the backend hasn't accepted yet is shown next to (or instead of) the accepted T/OBT.
+    val tobtValue = listOfNotNull(slot.tobt, slot.requestedTobt?.let { "pending $it" }).joinToString(" · ")
+    if (tobtValue.isNotEmpty()) FlightPlanDetailRow("T/OBT", tobtValue, warning = false)
+    slot.tsat?.let { FlightPlanDetailRow("TSAT", it, warning = false) }
+    slot.exot?.let { FlightPlanDetailRow("EXOT", "${it}m", warning = false) }
+    slot.ctot?.let { FlightPlanDetailRow("CTOT", it, warning = false) }
+    slot.reason?.let { FlightPlanDetailRow("Reason", it, warning = true) }
+    slot.atfcmStatus?.let { FlightPlanDetailRow("ATFCM", it, warning = false) }
     }
 }
 

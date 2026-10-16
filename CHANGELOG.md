@@ -19,17 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callsign the plugin doesn't know still arrives as an ordinary private message.
 - Android (issue #143): read-only TOBT/CDM status for the departure, polled from the public
   A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-enabled
-  airport. A footer chip shows the next target ("TOBT T-12m", counting to the
-  time) and the expanded footer adds a "TOBT/CDM" row, plus the assigned runway/SID and any
-  hold reason once the backend has them. The dot follows the CDM window: grey while only
-  requested ("TOBT?") or just the filed EOBT, yellow until 5 minutes before the TOBT/TSAT,
-  green inside the window, flashing green/yellow for its last two minutes, then red once it has
-  expired (unless an ASRT is set). It updates every second. Tapping the chip opens the VDGS
-  site in an embedded browser to log in with VATSIM and set the TOBT without leaving the app.
-  Until the backend tracks the flight (it can lag the filing by minutes), a grey "TOBT –"
-  chip shows instead, so the feature is visibly active and the site stays reachable. On the
-  narrowest layout the chip shrinks to just the dot and the countdown ("T-12m") rather than
-  disappearing.
+  airport. The footer chip tracks the start-up window the way the site's banner does (issue
+  #165): anchored on the TSAT, else CTOT minus the airport's taxi-out time, else the accepted
+  T/OBT, and running from 5 minutes before it to 6 minutes after. Yellow counts down to the
+  window opening ("STUP T-8m"), green shows the time left in it ("STUP 4m left"), red reads
+  "MISS +3m" once it has passed (unless an ASRT is set). It updates every second. The expanded
+  footer lists the site's own fields (EOBT, T/OBT incl. a pending request, TSAT, EXOT, CTOT,
+  Reason, ATFCM) plus the assigned runway/SID and a plain-words start-up window summary.
+  Tapping the chip opens the VDGS site in an embedded browser to log in with VATSIM and set the
+  T/OBT without leaving the app. Until the backend tracks the flight (it can lag the filing by
+  minutes), or while only an EOBT or a requested T/OBT exists, a grey "STUP T-?" chip shows
+  instead, so the feature is visibly active and the site stays reachable. On the narrowest
+  layout the chip drops the "STUP" prefix ("T-8m", "4m", "MISS") rather than disappearing.
 
 ### Fixed
 

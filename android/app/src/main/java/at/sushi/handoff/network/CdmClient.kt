@@ -27,9 +27,9 @@ data class CdmFlightData(
 
 /** One flight's A-CDM record from api.viffsys.com (issue #143) -- the same undocumented,
  *  reverse-engineered backend behind the EuroScope `rpuig2001/CDM` plugin and vats.im/vdgs.
- *  [cdmSts] is the network-wide compliance status (e.g. "COMPLY", "FLS-NRA") the real site's own
- *  color banner is presumably derived from -- deliberately NOT decoded into a color here (its
- *  exact vocabulary/mapping was never confirmed, see [at.sushi.handoff.util.CdmUrgency]'s doc).
+ *  [cdmSts] is the network-wide compliance status (e.g. "COMPLY", "FLS-NRA"); it is decoded but
+ *  unused -- the start-up-window colors come from the site's documented -5/+6 rule instead (see
+ *  [at.sushi.handoff.util.CdmWindowPhase]).
  *  [atot] (actual takeoff time) is the signal that this flight has already departed -- once set,
  *  TOBT/CDM tracking is over for it, see HandoffConnectionService's polling loop. */
 @Serializable
@@ -44,6 +44,7 @@ data class CdmFlight(
     // Same top-level-vs-cdmData split as tobt: seen live with a CTOT only on the flight itself.
     val ctot: String? = null,
     val atot: String? = null,
+    val atfcmStatus: String? = null,
     val cdmSts: String? = null,
     val cdmData: CdmFlightData? = null
 )
