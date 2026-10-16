@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android (issue #169): a demo mode, reachable from the not-connected screen's "Try demo"
+  button or a Settings toggle, fills the app with made-up sample controllers, chat, radio
+  state, flight plan and a TOBT/start-up chip so it can be looked at without the Windows
+  plugin (Play review, trying the app before setting up the plugin, screenshots). Marked as
+  demo in the footer status and the Settings toggle's warning line; nothing leaves the device
+  while it's on -- taps (tuning, pin/unpin, transponder, TX/RX, sending chat) answer the
+  sample state locally instead. Not persisted: every launch starts in the real mode, and
+  enabling/disabling it clears whichever state (real or sample) was there before.
 - Plugin/Android (issue #151): a known controller's "contact me" private message is no longer
   put in the chat log. The plugin turns it into the row's contact-me flag and sends the text
   with it, and the Android row grows a full-width line under the existing content showing what

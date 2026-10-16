@@ -22,6 +22,7 @@ import androidx.core.app.ServiceCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import at.sushi.handoff.demo.DemoMode
 import at.sushi.handoff.network.CdmClient
 import at.sushi.handoff.network.CdmLookup
 import at.sushi.handoff.network.CertTrustStore
@@ -283,12 +284,45 @@ class HandoffConnectionService : Service() {
     /** Called by the settings screen after the server IP changes, to reconnect immediately
      *  rather than waiting for the current backoff delay to elapse. */
     fun reconnectNow() {
+        // Issue #169 -- a reconnect while demo mode is on would start dialing out from
+        // underneath it (Settings' Save button calls this unconditionally on every close);
+        // leaving demo mode is the only door back to a real connection, see disableDemoMode.
+        if (HandoffState.demoModeEnabled.value) return
         connectionJob?.cancel()
         reconnectLoop()
     }
 
+    /** Issue #169's hard stop -- the one chokepoint every outbound command from the UI goes
+     *  through (MainScreen's own `send()` helper and every other direct caller all land here).
+     *  While demo mode is on, nothing reaches [client] at all; [DemoMode.handleCommand] answers
+     *  whatever has a local equivalent instead, so a command added later can't reach a real
+     *  plugin by forgetting a check in its own call site. */
     fun sendCommand(command: ClientCommand) {
+        if (HandoffState.demoModeEnabled.value) {
+            DemoMode.handleCommand(command)
+            return
+        }
         client.send(command)
+    }
+
+    /** Switches into demo mode (issue #169): tears down whatever real connection/reconnect
+     *  attempt is running, then hands off to [DemoMode] to clear live state and fill in the
+     *  sample data. Also stops the CDM polling loop -- nothing should hit api.viffsys.com (or,
+     *  via [sendCommand] above, the plugin) while demo mode is on. */
+    fun enableDemoMode() {
+        DemoMode.enable(stopRealConnection = {
+            connectionJob?.cancel()
+            cdmPollingJob?.cancel()
+            client.close()
+        })
+    }
+
+    /** Leaves demo mode and resumes the real connection/CDM-polling loops from scratch. */
+    fun disableDemoMode() {
+        DemoMode.disable(resumeRealConnection = {
+            reconnectLoop()
+            startCdmPollingLoop()
+        })
     }
 
     /** Issue #73a -- must be called after MediaProjection consent is granted (the screen-capture

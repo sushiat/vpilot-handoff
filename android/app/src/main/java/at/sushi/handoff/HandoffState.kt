@@ -275,6 +275,14 @@ object HandoffState {
     private val _debugSnapshotNamed = MutableStateFlow<DebugSnapshotNamedMessage?>(null)
     val debugSnapshotNamed: StateFlow<DebugSnapshotNamedMessage?> = _debugSnapshotNamed.asStateFlow()
 
+    // Issue #169 -- demo mode: the app filled with made-up sample data (at.sushi.handoff.demo)
+    // so it can be looked at without the Windows plugin (Play review, trying the app before
+    // setting up the plugin, screenshots). Deliberately not persisted, same reasoning as
+    // debugModeEnabled above -- every launch starts in the real mode, so a sample row can never
+    // show up next to a real flight just because the app was closed mid-demo.
+    private val _demoModeEnabled = MutableStateFlow(false)
+    val demoModeEnabled: StateFlow<Boolean> = _demoModeEnabled.asStateFlow()
+
     fun setConnectionStatus(status: ConnectionStatus) {
         _connectionStatus.value = status
         if (status == ConnectionStatus.DISCONNECTED) clearLiveServerState()
@@ -446,5 +454,9 @@ object HandoffState {
 
     fun setVersionMismatch(mismatch: VersionMismatch?) {
         _versionMismatch.value = mismatch
+    }
+
+    fun setDemoModeEnabled(enabled: Boolean) {
+        _demoModeEnabled.value = enabled
     }
 }

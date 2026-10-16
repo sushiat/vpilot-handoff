@@ -62,6 +62,12 @@ import at.sushi.handoff.util.windowSummary
 @Composable
 fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
+    // Issue #169 -- one of the two required "marked as demo" spots (the Settings toggle's
+    // warning line is the other). Overrides the status dot/label below regardless of
+    // connectionStatus, which stays truthfully DISCONNECTED while demo mode is on (there is no
+    // real plugin link) -- this is purely a display override, not a claim that a connection
+    // exists.
+    demoModeEnabled: Boolean,
     origin: String?,
     destination: String?,
     // True when the SimBrief and VATSIM-filed plans disagree, or the pilot is connected with
@@ -176,6 +182,7 @@ fun FooterStatusBar(
                 !subsystemStatus.vatsimDataFeedConnected ||
                 flightPlanMismatch
             val dotColor = when {
+                demoModeEnabled -> colors.attention
                 connectionStatus != ConnectionStatus.CONNECTED -> at.sushi.handoff.ui.dialogs.outOfBandRed
                 degraded -> colors.attention
                 else -> colors.ok
@@ -187,10 +194,11 @@ fun FooterStatusBar(
             // there's an actual callsign, "Connected" itself is redundant with it (a callsign only
             // exists once truly connected) -- dropped so the line doesn't grow every time it's the
             // one piece of the layout most likely to need retuning across widths.
-            val statusLabel = when (connectionStatus) {
-                ConnectionStatus.CONNECTED -> activeCallsign ?: "Connected"
-                ConnectionStatus.CONNECTING -> "Connecting"
-                ConnectionStatus.DISCONNECTED -> "Disconnected"
+            val statusLabel = when {
+                demoModeEnabled -> "DEMO - sample data, no plugin"
+                connectionStatus == ConnectionStatus.CONNECTED -> activeCallsign ?: "Connected"
+                connectionStatus == ConnectionStatus.CONNECTING -> "Connecting"
+                else -> "Disconnected"
             }
             // Unlike every other placeholder in this footer/drawer, "---- -> ----" reads badly --
             // there's no real airport code sitting next to it to make the dashes look like part
@@ -294,7 +302,10 @@ fun FooterStatusBar(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 visibleOperations.forEach { state -> OperationProgressRow(state) }
-                SubsystemStatusRow("Connected to Handoff vPilot plugin", connectionStatus == ConnectionStatus.CONNECTED)
+                SubsystemStatusRow(
+                    if (demoModeEnabled) "Demo mode -- no plugin" else "Connected to Handoff vPilot plugin",
+                    demoModeEnabled || connectionStatus == ConnectionStatus.CONNECTED
+                )
                 SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
                 SubsystemStatusRow("Connected to Simulator", subsystemStatus.simulatorConnected)
                 SubsystemStatusRow("Connected to Vatsim Info", subsystemStatus.vatsimDataFeedConnected)
