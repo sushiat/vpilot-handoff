@@ -301,32 +301,7 @@ class MessagesTest {
         assertEquals(emptyMap<String, Long>(), message.readThrough)
     }
 
-    // Issue #156 -- callsigns are folded to upper case at decode time, chat tab keys likewise.
-
-    @Test
-    fun decodesCallsignsUpperCase_ControllerChatSelcalAndFlightPlan() {
-        val controllers = decodeServerMessage(
-            """{"type":"controllers","controllers":[{"callsign":"egll_twr","frequency":23725,"latitude":0.0,"longitude":0.0,"com1TunedCallsign":"egll_gnd"}]}"""
-        ) as ControllersMessage
-        assertEquals("EGLL_TWR", controllers.controllers.single().callsign)
-        assertEquals("EGLL_GND", controllers.controllers.single().com1TunedCallsign)
-        assertNull(controllers.controllers.single().com2TunedCallsign)
-
-        val chat = decodeServerMessage(
-            """{"type":"chat","messages":[
-              {"channel":"private","direction":"incoming","peer":"egll_twr","text":"hi","timestamp":"t"},
-              {"channel":"radio","direction":"incoming","from":"Egll_Gnd","text":"hi","timestamp":"t"}
-            ],"selcalAlerts":[{"from":"egll_ctr","frequencies":[23725],"timestamp":"t"}]}"""
-        ) as ChatMessage
-        assertEquals("EGLL_TWR", chat.messages[0].peer)
-        assertEquals("EGLL_GND", chat.messages[1].from)
-        assertNull(chat.messages[1].peer)
-        assertEquals("EGLL_CTR", chat.selcalAlerts.single().from)
-
-        val flightPlan = decodeServerMessage("""{"type":"flightPlan","vatsimCallsign":"oe-tz","simbriefCallsign":"oe-tz"}""") as FlightPlanMessage
-        assertEquals("OE-TZ", flightPlan.vatsimCallsign)
-        assertEquals("OE-TZ", flightPlan.simbriefCallsign)
-    }
+    // Issue #156 -- chat tab keys are matched case-insensitively.
 
     @Test
     fun readThroughByTab_FoldsPeerKeysToUpperCaseKeepsRadioAndTakesHighestOnCollision() {

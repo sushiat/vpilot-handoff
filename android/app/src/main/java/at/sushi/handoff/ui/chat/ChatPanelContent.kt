@@ -62,14 +62,17 @@ import at.sushi.handoff.util.formatLocalTime
 // messages as this file uses for the RADIO tab's own unread lookup.
 internal const val RADIO_TAB = "radio"
 
-/** Issue #156 -- the plugin matches chat tab keys case-insensitively and echoes each one in the
- *  casing it first saw, which need not equal ours. Callsigns are upper case everywhere in this
- *  client (see CallsignSerializer), so fold the plugin's keys the same way before looking a tab
- *  up; keys the plugin considers one tab but that differ in case collapse to their highest
- *  watermark. [RADIO_TAB] stays lower case. */
+/** Issue #156 -- chat tab keys are case-insensitive (docs/protocol.md): the plugin echoes each
+ *  key in the casing it first saw, which need not equal ours. Fold peers to upper case so a
+ *  tab and its watermark always meet; [RADIO_TAB] stays lower case. */
+internal fun chatTabKey(tab: String): String =
+    if (tab.equals(RADIO_TAB, ignoreCase = true)) RADIO_TAB else tab.uppercase()
+
+/** The plugin's `readThrough` keyed by [chatTabKey]; keys that differ only in case collapse to
+ *  their highest watermark. */
 internal fun ChatReadStateMessage.readThroughByTab(): Map<String, Long> =
     readThrough.entries
-        .groupBy({ if (it.key.equals(RADIO_TAB, ignoreCase = true)) RADIO_TAB else it.key.uppercase() }, { it.value })
+        .groupBy({ chatTabKey(it.key) }, { it.value })
         .mapValues { (_, ids) -> ids.max() }
 
 /** Whether [text] mentions [ownCallsign] as a whole word (word-boundary matched, not a plain

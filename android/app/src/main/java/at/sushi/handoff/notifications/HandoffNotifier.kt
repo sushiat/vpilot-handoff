@@ -9,6 +9,7 @@ import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.ui.chat.RADIO_TAB
+import at.sushi.handoff.ui.chat.chatTabKey
 import at.sushi.handoff.ui.chat.readThroughByTab
 
 /** Per-category background alerts: contact-me requests, SELCAL alerts, incoming radio messages,
@@ -126,7 +127,7 @@ class HandoffNotifier(private val context: Context) {
                 if (entry.direction != "incoming" || entry in previousChatMessages) return@forEach
                 // Issue #131 -- text can arrive null if a plugin-side encoding bug blanks it.
                 val body = entry.text ?: "⚠ Message received without content"
-                val tab = if (entry.channel == "private") entry.peer else RADIO_TAB
+                val tab = if (entry.channel == "private") entry.peer?.let(::chatTabKey) else RADIO_TAB
                 val notificationId = when (entry.channel) {
                     "radio" -> notify(ChannelIncomingRadio, "radio:${entry.timestamp}", "Radio message", body)
                     "private" -> notify(ChannelIncomingPrivate, "private:${entry.peer}:${entry.timestamp}", entry.peer ?: "Private message", body)
