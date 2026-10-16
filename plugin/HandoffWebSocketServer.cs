@@ -130,7 +130,10 @@ namespace Handoff.Plugin
                 _broadcastTimer?.Change(interval, interval);
                 Broadcast(BuildSubsystemStatusMessage);
             };
-            _chatModel.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
+            _chatModel.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts, _chatModel.SessionId));
+            // Issue #151 -- the read watermark changes far more often than the log itself, so it's
+            // broadcast only on its own ReadStateChanged event, never piggybacked on every Changed.
+            _chatModel.ReadStateChanged += (s, e) => Broadcast(() => ProtocolMessages.BuildChatReadStateMessage(_chatModel.SessionId, _chatModel.ReadThrough));
             _radioState.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
 
             // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
@@ -257,7 +260,8 @@ namespace Handoff.Plugin
         {
             socket.Send(ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
             socket.Send(ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
-            socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts));
+            socket.Send(ProtocolMessages.BuildChatMessage(_chatModel.Messages, _chatModel.SelcalAlerts, _chatModel.SessionId));
+            socket.Send(ProtocolMessages.BuildChatReadStateMessage(_chatModel.SessionId, _chatModel.ReadThrough));
             socket.Send(ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
             socket.Send(BuildFlightPlanMessage());
             socket.Send(ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
@@ -412,6 +416,9 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeDismissSelcal:
                     _controllerState.ClearSelcal(command.Callsign);
+                    break;
+                case ClientCommand.TypeMarkChatRead:
+                    if (command.ThroughId.HasValue) _chatModel.MarkRead(command.Tab, command.ThroughId.Value);
                     break;
                 case ClientCommand.TypeConfirmDiversion:
                     _controllerRanking.ConfirmDiversion();

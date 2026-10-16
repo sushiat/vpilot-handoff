@@ -238,11 +238,10 @@ fun FooterStatusBar(
                     )
                 }
             }
-            // Issue #143 -- only shown once there's room for the full "Connected · route" label;
-            // on a narrower layout it just disappears rather than competing for space with
-            // anything the existing width-tuned logic above already fights for.
-            if (cdmSlot != null && showStatusLabel) {
-                CdmChip(cdmSlot, onClick = onOpenCdm)
+            // Issue #143 -- on the narrowest layout (where the status label and callsign already
+            // dropped) the chip shrinks to just the dot and countdown instead of disappearing.
+            if (cdmSlot != null) {
+                CdmChip(cdmSlot, compact = !showStatusLabel, onClick = onOpenCdm)
             }
             // Tight boxes with a 2px gap, same pattern as ControllerList's pin/message icons --
             // Material3's IconButton reserves a 48dp touch target plus its own internal padding,
@@ -410,7 +409,7 @@ private fun rememberTickingCdmSlot(slot: CdmSlotDisplay): CdmSlotDisplay {
  *  accepted TOBT/TSAT the dot follows the CDM plugin's +-5 minute window (see [cdmUrgency]); it is
  *  NOT a decode of the backend's own cdmSts string. */
 @Composable
-private fun CdmChip(initial: CdmSlotDisplay, onClick: () -> Unit) {
+private fun CdmChip(initial: CdmSlotDisplay, compact: Boolean, onClick: () -> Unit) {
     val colors = LocalHandoffColors.current
     val slot = rememberTickingCdmSlot(initial)
     val flashOn = (System.currentTimeMillis() / 1_000) % 2 == 0L
@@ -423,7 +422,9 @@ private fun CdmChip(initial: CdmSlotDisplay, onClick: () -> Unit) {
     }
     val label = slot.minutesUntil?.let { minutes ->
         val sign = if (minutes < 0) "+" else "T-"
-        "${slot.targetLabel} $sign${abs(minutes)}m"
+        // Compact (narrowest layout): drop the "TOBT"/"TSAT"/"CTOT" prefix, leaving just the dot and
+        // the countdown -- the drawer row and the dialog still say which milestone it is.
+        if (compact) "$sign${abs(minutes)}m" else "${slot.targetLabel} $sign${abs(minutes)}m"
     } ?: if (slot.targetHhmm == null) "${slot.targetLabel ?: "CDM"} –" else (slot.targetLabel ?: slot.statusText ?: "CDM")
     Row(
         Modifier.clickable(onClick = onClick),
@@ -449,6 +450,7 @@ private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit) {
             slot.tobt?.let { "TOBT $it" },
             slot.tsat?.let { "TSAT $it" },
             slot.ctot?.let { "CTOT $it" },
+            slot.ctotOffBlock?.let { "off-block ~$it" },
             slot.requestedTobt?.takeIf { slot.tobt == null }?.let { "TOBT? $it" },
             slot.eobt?.let { "EOBT $it" },
             slot.statusText

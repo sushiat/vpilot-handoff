@@ -3,6 +3,7 @@ package at.sushi.handoff.ui.main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -63,8 +65,11 @@ import at.sushi.handoff.ui.theme.controllerBadges
 import at.sushi.handoff.ui.theme.controllerRowColors
 import at.sushi.handoff.ui.theme.controllerRowGroup
 import at.sushi.handoff.ui.theme.facilitySuffixName
+import at.sushi.handoff.ui.theme.isContactMeResolved
 import at.sushi.handoff.ui.theme.oklch
 import at.sushi.handoff.ui.theme.rememberFlashPhaseA
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** The reference's fixed "phase B" text color for a flashing row/badge (`--flash-text-b:#111`),
@@ -217,6 +222,42 @@ fun ControllerList(
             previousHideTuned = hideTuned
         }
 
+        // The badge-change snap above only covers a *set* change. Any other reorder while the
+        // pilot is parked at the top (a row ranking above the current first row without gaining a
+        // badge, a re-added row, ...) is silently absorbed by LazyColumn's key-based scroll anchor:
+        // it keeps the old first row in view and pushes the new top row above the viewport, hiding
+        // exactly the station that's supposed to be topmost. So until the pilot has actually
+        // dragged the list themselves (a DragInteraction -- programmatic scrolls don't emit one),
+        // keep it pinned to index 0 on every list update. Dragging back to the very top hands
+        // control back.
+        var userScrolled by remember { mutableStateOf(false) }
+        LaunchedEffect(listState) {
+            launch {
+                listState.interactionSource.interactions.collect { interaction ->
+                    if (interaction is DragInteraction.Start) userScrolled = true
+                }
+            }
+            snapshotFlow {
+                listState.firstVisibleItemIndex == 0 &&
+                    listState.firstVisibleItemScrollOffset == 0 &&
+                    !listState.isScrollInProgress
+            }.collect { settledAtTop -> if (settledAtTop) userScrolled = false }
+        }
+        LaunchedEffect(visibleControllers) {
+            if (!userScrolled) listState.scrollToItem(0)
+        }
+        // A pilot who scrolled and then walked away shouldn't come back to a list that's stopped
+        // following the top: once the list has sat untouched for UserScrollResetMillis, hand
+        // control back and snap up. Keyed on isScrollInProgress so any new scroll restarts the wait.
+        val scrollInProgress = listState.isScrollInProgress
+        LaunchedEffect(userScrolled, scrollInProgress) {
+            if (userScrolled && !scrollInProgress) {
+                delay(UserScrollResetMillis)
+                userScrolled = false
+                listState.scrollToItem(0)
+            }
+        }
+
         // Reference container is `padding:0 10px 14px;display:flex;flex-direction:column;
         // gap:6px` -- rows are individually rounded cards with their own border/gap between
         // them, not a plain divided list (no HorizontalDivider in the reference at all).
@@ -259,6 +300,9 @@ fun ControllerList(
         }
     }
 }
+
+/** How long the list may sit untouched after a manual scroll before it resumes following the top. */
+private const val UserScrollResetMillis = 60_000L
 
 // Fixed quantities of the row's non-frequency, non-callsign content, used to precisely compute
 // how much space is actually left over for the frequency text -- a blanket row-width threshold
@@ -519,6 +563,24 @@ private fun ControllerRow(
                     // (making the callsign column's own height closer to the row's height, so the
                     // slack is much smaller to begin with).
                     FrequencyText(Modifier.padding(top = if (badges.isEmpty()) 0.dp else 6.dp))
+                }
+
+                // The controller's own "contact me" wording, across the full row width below
+                // everything else. The plugin clears isContactMe (and with it this text) once the
+                // controller's frequency, or any frequency named in the message, is tuned.
+                val contactMeText = controller.contactMeText
+                if (controller.isContactMe && !contactMeText.isNullOrBlank() &&
+                    !isContactMeResolved(controller, com1Active, com2Active)
+                ) {
+                    Text(
+                        contactMeText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = text,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                    )
                 }
             }
 

@@ -66,6 +66,29 @@ namespace Handoff.Plugin
             broker.ControllerFrequencyChanged += OnControllerFrequencyChanged;
             broker.ControllerLocationChanged += OnControllerLocationChanged;
             chatModel.Changed += (s, e) => OnChatChanged(chatModel);
+            chatModel.IncomingPrivateFilter = HandleIncomingPrivate;
+        }
+
+        /// <summary>
+        /// A known controller's private "contact me" is turned into the row's contact-me signal
+        /// (flag + the message text) and swallowed, so it never reaches the chat log -- the row
+        /// renders it better than a chat message would, and there's nothing left to blink or stay
+        /// unread once the pilot tunes. Returns true when swallowed. An off-list sender (no row yet)
+        /// or any other private message returns false and goes to the chat log as before; the
+        /// off-list case is then picked up by <see cref="OnChatChanged"/>.
+        /// </summary>
+        private bool HandleIncomingPrivate(string from, string text)
+        {
+            if (from == null || text == null) return false;
+            if (text.IndexOf(ContactMePhrase, StringComparison.OrdinalIgnoreCase) < 0) return false;
+
+            lock (_gate)
+            {
+                if (!_controllers.TryGetValue(from, out var controller) || controller.IsOffList) return false;
+                _controllers[from] = controller.WithContactMeExpiry(_now() + ContactMeExpiryWindow, text);
+            }
+            RaiseChanged();
+            return true;
         }
 
         /// <summary>Point-in-time snapshot of all currently-visible (not hidden) stations, expiry-pruned first.</summary>
@@ -192,9 +215,10 @@ namespace Handoff.Plugin
             RaiseChanged();
         }
 
-        // Mirrors the old ContactMeModel's chat-trigger condition exactly, plus SelcalActiveModel's
-        // "only process alerts new since last call" bookkeeping -- both folded into one handler
-        // since they're both driven by the same ChatModel.Changed event.
+        // Handles what's still in the chat log after HandleIncomingPrivate: an off-list sender's
+        // "contact me" (a known controller's is swallowed before it gets here), plus
+        // SelcalActiveModel's "only process alerts new since last call" bookkeeping -- both folded
+        // into one handler since they're both driven by the same ChatModel.Changed event.
         private void OnChatChanged(ChatModel chatModel)
         {
             var changed = false;
@@ -272,13 +296,26 @@ namespace Handoff.Plugin
         }
 
         /// <summary>Compressed-integer frequency (e.g. 28950 for 128.950) pulled from a free-text "contact me", or 0 when none is found -- the pilot then reads the original chat message for the frequency.</summary>
-        private static int ParseContactMeFrequency(string text)
+        private static int ParseContactMeFrequency(string text) => ParseContactMeFrequencies(text).FirstOrDefault();
+
+        /// <summary>
+        /// Every VHF airband frequency named in a free-text "contact me", as compressed integers
+        /// (e.g. 28950 for 128.950), in order of appearance. A controller can name more than one
+        /// (a primary and a backup) or one that differs from their listed frequency, so tuning any
+        /// of them counts as answering the request -- see ControllerRankingModel.RecomputeLocked.
+        /// </summary>
+        public static IReadOnlyList<int> ParseContactMeFrequencies(string text)
         {
-            var match = ContactMeFrequencyRegex.Match(text);
-            if (!match.Success) return 0;
-            if (!double.TryParse(match.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var megahertz)) return 0;
-            if (megahertz < 118.0 || megahertz >= 137.0) return 0;
-            return (int)Math.Round((megahertz - 100.0) * 1000.0);
+            var result = new List<int>();
+            if (string.IsNullOrEmpty(text)) return result;
+
+            foreach (Match match in ContactMeFrequencyRegex.Matches(text))
+            {
+                if (!double.TryParse(match.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var megahertz)) continue;
+                if (megahertz < 118.0 || megahertz >= 137.0) continue;
+                result.Add((int)Math.Round((megahertz - 100.0) * 1000.0));
+            }
+            return result;
         }
 
         private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);

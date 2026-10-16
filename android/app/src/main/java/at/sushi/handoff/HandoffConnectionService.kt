@@ -23,6 +23,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import at.sushi.handoff.network.CdmClient
+import at.sushi.handoff.network.CdmLookup
 import at.sushi.handoff.network.CertTrustStore
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.network.HandoffWebSocketClient
@@ -32,6 +33,7 @@ import at.sushi.handoff.notifications.HandoffNotifier
 import at.sushi.handoff.protocol.AuthResultMessage
 import at.sushi.handoff.protocol.AuthenticateCommand
 import at.sushi.handoff.protocol.ChatMessage
+import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ClientCommand
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.DebugSnapshotNamedMessage
@@ -564,6 +566,7 @@ class HandoffConnectionService : Service() {
         when (message) {
             is ControllersMessage -> { HandoffState.update(message); notifier.onControllersUpdate(message) }
             is ChatMessage -> { HandoffState.update(message); notifier.onChatUpdate(message) }
+            is ChatReadStateMessage -> { HandoffState.update(message); notifier.onChatReadStateUpdate(message) }
             is RadioStateMessage -> HandoffState.update(message)
             is FlightPlanMessage -> HandoffState.update(message)
             is DiversionPendingMessage -> HandoffState.update(message)
@@ -640,14 +643,16 @@ class HandoffConnectionService : Service() {
                         return@collectLatest
                     }
                     while (true) {
-                        val flights = CdmClient.fetchDepartureAirportFlights(origin)
-                        if (flights == null) {
-                            // Fetch failed (network/shape): keep whatever is showing rather than
-                            // flipping the chip to "waiting" on a blip.
-                            delay(CdmPollIntervalMillis)
-                            continue
+                        val mine = when (val lookup = CdmClient.fetchFlightByCallsign(callsign)) {
+                            is CdmLookup.Found -> lookup.flight
+                            CdmLookup.NoEntry -> null
+                            CdmLookup.Failed -> {
+                                // Fetch failed (network/shape): keep whatever is showing rather than
+                                // flipping the chip to "waiting" on a blip.
+                                delay(CdmPollIntervalMillis)
+                                continue
+                            }
                         }
-                        val mine = flights.find { it.callsign.equals(callsign, ignoreCase = true) }
                         if (mine != null && !mine.atot.isNullOrBlank()) {
                             // Already departed -- TOBT/CDM tracking is only meaningful
                             // pre-departure. Stop polling this flight rather than keep hitting the
@@ -659,7 +664,7 @@ class HandoffConnectionService : Service() {
                         // The airport qualifies but the backend doesn't track this flight (yet) -- it can lag
                         // a filed plan by minutes to an hour -- so show a placeholder instead of nothing:
                         // proves the feature is active and keeps the TOBT dialog reachable.
-                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis()) ?: cdmWaitingDisplay())
+                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis(), airport?.taxiTime) ?: cdmWaitingDisplay())
                         delay(CdmPollIntervalMillis)
                     }
                 }
