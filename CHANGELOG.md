@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   case share one read watermark instead of silently diverging. `docs/protocol.md` now also
   states which tab a message belongs to: private messages to their peer, radio *and* broadcast
   messages to `"radio"`.
+- Android (issue #156): callsigns are now upper case everywhere, whatever casing the plugin
+  sends (controller rows, chat tabs and labels, SELCAL, COM stations, your own callsign), and
+  chat read-state keys are matched case-insensitively, so one peer can no longer end up in two
+  chat tabs or keep an unread marker that another device already cleared.
 - Plugin (issue #148): the COM standby (and active) frequency on the Fenix A320 didn't update
   in the app after setting it. The Fenix keeps its radio management panel frequencies in
   its own L:vars instead of the standard `COM ... FREQUENCY` SimVars, so the radio helper now
