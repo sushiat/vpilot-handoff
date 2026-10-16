@@ -111,6 +111,28 @@ ADR_U|Adria Radar Upper|LJLA,LDZO
         }
 
         [Fact]
+        public void ParseVatSpyDat_AirportCoordinates_ParsedWhenValid_NullWhenBlankOrMalformed()
+        {
+            var text = @"
+[Airports]
+EDDW|Bremen|53.0475|8.786667|BRE|EDWW|0
+EGLL|Heathrow|51.4775|-0.461389|LHR|EGTT|0
+XXXX|No Coordinates|||XXX|EDWW|0
+YYYY|Malformed|north|east|YYY|EDWW|0
+";
+
+            var airports = VatSpyDataClient.ParseVatSpyDat(text).AirportsByIcao;
+
+            Assert.Equal(53.0475, airports["EDDW"].Latitude);
+            Assert.Equal(8.786667, airports["EDDW"].Longitude);
+            Assert.Equal(-0.461389, airports["EGLL"].Longitude);
+            // Rows without usable coordinates stay in the dictionary (names still work), just positionless.
+            Assert.Equal("No Coordinates", airports["XXXX"].Name);
+            Assert.Null(airports["XXXX"].Latitude);
+            Assert.Null(airports["YYYY"].Longitude);
+        }
+
+        [Fact]
         public void ParseVatSpyDat_UnknownSections_AreIgnored()
         {
             var dat = VatSpyDataClient.ParseVatSpyDat("[IDL]\n90.0|-180.0\n");

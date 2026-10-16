@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Plugin (issue #167): arrival handovers now flag the right station. After landing, ground is
+  marked next once you're on the runway (TWR tuned -> GND next; it used to look upward and mark
+  approach instead, so GND never got the flag). On final, a tower on your flight plan is marked
+  next from 20 nm out as long as you're heading roughly at the airport (within 60 degrees of its
+  bearing; inside 10 nm the heading no longer matters), instead of only inside 10 nm. The distance
+  is measured from the airport itself, not the controller's reported position, which can sit
+  well away from the field; if the airport isn't in the VATSpy data it's a plain 20 nm radius.
 - Plugin/protocol (issue #156): chat read tracking (`chatReadState`/`markChatRead`) now
   treats tab keys case-insensitively, so two clients that differ only in a peer callsign's
   case share one read watermark instead of silently diverging. `docs/protocol.md` now also
