@@ -520,9 +520,9 @@ namespace Handoff.Plugin
             // `controllers` above is a pre-clear snapshot, so also remember who was just answered
             // this way and treat them as resolved in this very pass's output below.
             var answeredContactMeCallsigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var c in controllers.Where(c => c.ContactMeText != null))
+            foreach (var c in controllers.Where(c => c.ContactMeText != null &&
+                HandoffControllerStateModel.ParseContactMeFrequencies(c.ContactMeText).Any(tunedFrequencies.Contains)))
             {
-                if (!HandoffControllerStateModel.ParseContactMeFrequencies(c.ContactMeText).Any(tunedFrequencies.Contains)) continue;
                 answeredContactMeCallsigns.Add(c.Callsign);
                 _controllerState.ClearContactMe(c.Callsign);
             }
