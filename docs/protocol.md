@@ -40,6 +40,23 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #151 follow-up -- contact-me text on the controller row. New nullable field
+`controllers[].contactMeText` (see `isContactMe`). For a known controller the "contact me"
+private message no longer appears in `chat`: it becomes `isContactMe` + `contactMeText` instead.
+Additive per the Compatibility section -- an older client still flashes the row from
+`isContactMe` but never shows the text (and no longer gets the message as chat); a newer client
+talking to an older plugin sees no field and keeps today's behavior.
+
+Issue #151 -- plugin-owned chat read/ack state, so unread counts survive an app restart and
+sync across multiple paired clients. New field `id` (per-message, monotonically increasing for
+the plugin's process lifetime) and `sessionId` (changes on every plugin restart) on `chat`. New
+server→client `chatReadState` (`sessionId` + `readThrough`, a tab -> highest-read-id map), sent
+in the per-connect snapshot and rebroadcast whenever a watermark advances. New client→server
+`markChatRead` (`tab` + `throughId`). All additive/optional per this document's Compatibility
+section -- an older client ignores the new fields and keeps its local-only tracking; an older
+plugin logs `markChatRead` as an unrecognized type and never sends `chatReadState`, so a newer
+client talking to it falls back the same way.
+
 Issue #88 -- adjustable update interval. New client→server `setUpdateInterval` (tier
 `fast`/`normal`/`slow`, persisted plugin-side, edited from the client). New field `updateInterval`
 on `subsystemStatus` reflecting the plugin's current tier -- carried on every per-connect snapshot
@@ -177,12 +194,12 @@ The plugin replies with `authResult`:
   displayed one (mistyped, or it expired — codes are only valid for a few minutes). The client
   should let the pilot retry.
 
-Once a socket is authenticated, the plugin immediately sends a `controllers`, a `chat`, and a
-`radioState` message — the client's full current state, with no need to wait for the next
-change. After that, each message type is re-sent in full (not as an incremental diff) whenever
-its backing state changes. This is deliberately simple: resending full state is cheap on a LAN
-and avoids an entire class of missed-message/reconnect bugs that incremental delivery would
-introduce.
+Once a socket is authenticated, the plugin immediately sends a `controllers`, a `chat`, a
+`chatReadState`, and a `radioState` message — the client's full current state, with no need to
+wait for the next change. After that, each message type is re-sent in full (not as an
+incremental diff) whenever its backing state changes. This is deliberately simple: resending
+full state is cheap on a LAN and avoids an entire class of missed-message/reconnect bugs that
+incremental delivery would introduce.
 
 `controllers` is the one exception to "resent whenever its backing state changes": the
 ranking recompute itself stays fully event-driven/reactive (any controller/radio/flight-plan/
@@ -226,6 +243,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "requestsContactMe": false,
       "isCurrent": true,
       "isContactMe": false,
+      "contactMeText": null,
       "isHighlighted": false,
       "isNext": false,
       "isLikelyNext": false,
@@ -278,7 +296,13 @@ The boolean fields are what clients actually consume, each driving its own badge
   set this (see `pinController` below) -- pinning must never displace whatever's actually tuned.
 - `isStandbyTuned`: loaded into COM1 or COM2 standby, ready to swap to active the moment a
   handoff comes.
-- `isContactMe`: this controller sent an outstanding "contact me" request.
+- `isContactMe`: this controller sent an outstanding "contact me" request. Cleared once the
+  controller's own frequency **or any airband frequency named in the request's text** is active
+  on COM1/COM2, or after 5 minutes.
+- `contactMeText`: the text of that request, a string while `isContactMe` is true and `null`
+  otherwise. For a controller the plugin already knows about, the plugin turns a private message
+  containing "contact me" into this flag + text and does **not** deliver the message in `chat`;
+  a sender the plugin has no controller record for still gets the message in `chat` as before.
 - `isSelcalActive`: a currently-active SELCAL alert. Unlike `isContactMe`, tuning the alerting
   frequency does **not** clear this -- only an explicit `dismissSelcal` or the alert's own expiry
   does (see `dismissSelcal` below).
@@ -376,8 +400,10 @@ outgoing) or alert arrives.
 ```json
 {
   "type": "chat",
+  "sessionId": "b3f1c2e0",
   "messages": [
     {
+      "id": 41,
       "channel": "private",
       "direction": "incoming",
       "peer": "EGLL_TWR",
@@ -386,6 +412,7 @@ outgoing) or alert arrives.
       "timestamp": "2026-07-25T10:15:30Z"
     },
     {
+      "id": 42,
       "channel": "radio",
       "direction": "incoming",
       "peer": null,
@@ -406,6 +433,37 @@ outgoing) or alert arrives.
 frequency identifies the channel instead). `from` is the transmitting station's callsign for
 incoming `radio` messages, `null` otherwise (private/broadcast already carry this in `peer`).
 `frequencies` is populated only for `radio` messages and SELCAL alerts, `null` otherwise.
+
+`id` (issue #151) is a per-message id, monotonically increasing for as long as this plugin
+process runs — not persisted, and not reused across a plugin restart. `sessionId` changes
+whenever the plugin process restarts (the log and its ids reset together); a client should
+compare it against the `sessionId` on the most recent `chatReadState` (below) and drop any
+cached local read-tracking state if they don't match. Both fields are omitted/`null` from an
+older plugin that predates issue #151 — see `chatReadState` and `markChatRead` for the rest of
+that feature, and this document's Compatibility section for how a client should degrade when
+they're absent.
+
+### `chatReadState`
+
+The per-tab chat read watermark (issue #151) — kept as its own message, separate from `chat`,
+because it changes far more often than the log itself and shouldn't resend up to 200 entries
+each time it does. Sent in the per-connect snapshot and rebroadcast whenever a watermark
+advances, from any connected client's `markChatRead`.
+
+```json
+{
+  "type": "chatReadState",
+  "sessionId": "b3f1c2e0",
+  "readThrough": {"radio": 38, "EGLL_TWR": 41}
+}
+```
+
+`readThrough` maps a tab (`"radio"`, or a private peer's callsign) to the highest message `id`
+read on that tab so far; a tab with nothing read yet is simply absent from the map, not present
+with a `0`/`null` value. A client should ignore a `chatReadState` whose `sessionId` doesn't
+match the latest `chat`'s — a mismatch means one of the two hasn't caught up yet after a plugin
+restart. Unread, per tab, is a pure client-side derivation: every message in that tab with
+`id > readThrough[tab]`.
 
 ### `radioState`
 
@@ -887,6 +945,28 @@ whether the alert's been seen.
 ```json
 {"type": "dismissSelcal", "callsign": "EGLL_CTR"}
 ```
+
+### `markChatRead`
+
+Advances the read watermark for one tab (issue #151) — see the `chatReadState` message above
+for the full design. `tab` is `"radio"` for the radio/broadcast tab, otherwise a private peer's
+callsign. The plugin applies `max(existing watermark, throughId)` and clamps `throughId` to the
+newest message `id` it's actually assigned, so a stale or bogus value can never claim more as
+read than exists; it rebroadcasts `chatReadState` to every connected client only if the
+watermark genuinely advanced (a repeat/no-op send is silent). Send this when a tab becomes the
+actively-viewed one (panel opens, tab switches), and again whenever a new message arrives for a
+tab that's already being viewed — otherwise a message read live on one device would still show
+unread on another. In a wide fullscreen layout, only the actually-active tab counts as viewed
+(the open radio or private tab); other open private tabs stay as they were.
+
+```json
+{"type": "markChatRead", "tab": "EGLL_TWR", "throughId": 41}
+```
+
+An older plugin that predates issue #151 has no handler for this type at all — it's logged and
+ignored (same as any other unrecognized client message), which is harmless: that plugin never
+sends `chatReadState` either, so a client talking to it has already fallen back to its own
+local-only read tracking.
 
 ### `confirmDiversion` / `dismissDiversion`
 

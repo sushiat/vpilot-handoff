@@ -49,6 +49,10 @@ namespace Handoff.Plugin
         public bool IsCurrent { get; }
         public bool IsContactMe { get; }
 
+        // The text of the controller's outstanding "contact me" message, shown on the row while
+        // IsContactMe is true. Null when there's no such message (or no contact-me at all).
+        public string ContactMeText { get; }
+
         // Since issue #18 (docs/controller-ranking.md): three-flag design, not the old two-flag
         // IsLikelyNextCandidate/IsApproaching split.
         //   - IsHighlighted: relevance/visibility -- "worth seeing," independent of whether it's
@@ -97,7 +101,7 @@ namespace Handoff.Plugin
             bool isHighlighted, bool isNext, bool isLikelyNext,
             bool isPinned, bool isStandbyTuned, bool isSelcalActive,
             string stationName = null, IReadOnlyList<string> textAtis = null,
-            ControllerDebugExplain debugExplain = null, double? etaMinutes = null)
+            ControllerDebugExplain debugExplain = null, double? etaMinutes = null, string contactMeText = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -110,6 +114,7 @@ namespace Handoff.Plugin
             RequestsContactMe = requestsContactMe;
             IsCurrent = isCurrent;
             IsContactMe = isContactMe;
+            ContactMeText = isContactMe ? contactMeText : null;
             IsHighlighted = isHighlighted;
             IsNext = isNext;
             IsLikelyNext = isLikelyNext;

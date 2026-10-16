@@ -174,4 +174,23 @@ class CdmSlotStatusTest {
         assertNull(waiting.at(utcMillis(12, 0)).minutesUntil)
         assertEquals("waiting for flight", waiting.statusText)
     }
+
+    @Test
+    fun ctotOffBlock_isCtotMinusTaxiTimeWhenNoTsat() {
+        val flight = CdmFlight(callsign = "EIDGX", ctot = "1725")
+        assertEquals("1710", deriveCdmSlotDisplay(flight, utcMillis(17, 0), taxiMinutes = 15)!!.ctotOffBlock)
+        assertNull(deriveCdmSlotDisplay(flight, utcMillis(17, 0))!!.ctotOffBlock)
+    }
+
+    @Test
+    fun ctotOffBlock_hiddenOnceTsatExists() {
+        val flight = CdmFlight(callsign = "EIDGX", ctot = "1725", cdmData = CdmFlightData(tsat = "1712"))
+        assertNull(deriveCdmSlotDisplay(flight, utcMillis(17, 0), taxiMinutes = 15)!!.ctotOffBlock)
+    }
+
+    @Test
+    fun subtractMinutesHhmm_wrapsPastMidnight() {
+        assertEquals("2355", subtractMinutesHhmm("0010", 15))
+        assertNull(subtractMinutesHhmm("", 15))
+    }
 }

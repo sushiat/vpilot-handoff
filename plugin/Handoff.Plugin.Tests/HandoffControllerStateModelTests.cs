@@ -180,5 +180,119 @@ namespace Handoff.Plugin.Tests
             Assert.True(synth.IsOffList);
             Assert.Equal(now + TimeSpan.FromMinutes(5), synth.ContactMeExpiresAtUtc);
         }
+
+        // ---- Contact-me swallowed into the row (issue #151 follow-up) ----
+
+        [Fact]
+        public void KnownControllerContactMe_IsSwallowed_NotAddedToChatLog()
+        {
+            var model = CreateModel();
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "Please contact me on 121.725"));
+
+            Assert.Empty(_chat.Messages);
+            var controller = model.Controllers.Single();
+            Assert.NotNull(controller.ContactMeExpiresAtUtc);
+            Assert.Equal("Please contact me on 121.725", controller.ContactMeText);
+        }
+
+        [Fact]
+        public void KnownControllerContactMe_MatchesPhraseCaseInsensitively()
+        {
+            var model = CreateModel();
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "CONTACT ME"));
+
+            Assert.Empty(_chat.Messages);
+            Assert.Equal("CONTACT ME", model.Controllers.Single().ContactMeText);
+        }
+
+        [Fact]
+        public void KnownControllerOrdinaryPrivateMessage_StaysInChatLog()
+        {
+            var model = CreateModel();
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "wilco, thanks"));
+
+            Assert.Single(_chat.Messages);
+            Assert.Null(model.Controllers.Single().ContactMeExpiresAtUtc);
+            Assert.Null(model.Controllers.Single().ContactMeText);
+        }
+
+        [Fact]
+        public void OffListContactMe_StaysInChatLog_AndCarriesNoText()
+        {
+            var model = CreateModel();
+
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EDDF_R_APP", "contact me on 128.950"));
+
+            Assert.Single(_chat.Messages);
+            Assert.Null(model.Controllers.Single().ContactMeText);
+        }
+
+        [Fact]
+        public void RepeatContactMe_ReplacesTheText_AndRenewsExpiry()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "contact me"));
+
+            now = now.AddMinutes(3);
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "contact me on 121.725"));
+
+            var controller = model.Controllers.Single();
+            Assert.Equal("contact me on 121.725", controller.ContactMeText);
+            Assert.Equal(now + TimeSpan.FromMinutes(5), controller.ContactMeExpiresAtUtc);
+        }
+
+        [Fact]
+        public void ContactMeText_ClearsWithItsExpiry()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "contact me"));
+
+            now = now.AddMinutes(6);
+
+            var controller = model.Controllers.Single();
+            Assert.Null(controller.ContactMeExpiresAtUtc);
+            Assert.Null(controller.ContactMeText);
+        }
+
+        [Fact]
+        public void ContactMeText_SurvivesReconnectWithinHiddenWindow()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+            _broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "contact me"));
+
+            _broker.RaiseControllerDeleted(new ControllerDeletedEventArgs("EGLL_TWR"));
+            now = now.AddMinutes(2);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            Assert.Equal("contact me", model.Controllers.Single().ContactMeText);
+        }
+
+        [Fact]
+        public void ParseContactMeFrequencies_ReturnsEveryAirbandFrequencyInOrder_IgnoringOthers()
+        {
+            var result = HandoffControllerStateModel.ParseContactMeFrequencies(
+                "contact me on 121.725 or 128.950, squawk 7000 at 14.30, not 99.500");
+
+            Assert.Equal(new[] { 21725, 28950 }, result);
+        }
+
+        [Fact]
+        public void ParseContactMeFrequencies_NoFrequency_ReturnsEmpty()
+        {
+            Assert.Empty(HandoffControllerStateModel.ParseContactMeFrequencies("contact me"));
+            Assert.Empty(HandoffControllerStateModel.ParseContactMeFrequencies(null));
+        }
     }
 }

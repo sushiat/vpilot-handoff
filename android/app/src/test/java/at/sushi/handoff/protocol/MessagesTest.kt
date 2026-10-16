@@ -86,6 +86,25 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesControllersMessage_ContactMeText_PresentOrAbsent() {
+        val json = """
+            {"type":"controllers","controllers":[
+              {"callsign":"EGLL_TWR","frequency":23725,"latitude":0,"longitude":0,
+               "requestsContactMe":true,"isCurrent":false,"isContactMe":true,"contactMeText":"contact me on 121.725"},
+              {"callsign":"EGLL_GND","frequency":21800,"latitude":0,"longitude":0,
+               "requestsContactMe":false,"isCurrent":false,"isContactMe":false,"contactMeText":null},
+              {"callsign":"EGLL_APP","frequency":12900,"latitude":0,"longitude":0}
+            ]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ControllersMessage
+
+        assertEquals("contact me on 121.725", message.controllers[0].contactMeText)
+        assertNull(message.controllers[1].contactMeText)
+        assertNull(message.controllers[2].contactMeText)
+    }
+
+    @Test
     fun decodesControllersMessage_NoDebugField_DebugStaysNull() {
         val json = """
             {"type":"controllers","controllers":[
@@ -233,6 +252,59 @@ class MessagesTest {
 
         val message = decodeServerMessage(json) as ChatMessage
         assertNull(message.messages.single().text)
+    }
+
+    // Issue #151 -- per-message id, chat sessionId, chatReadState, markChatRead.
+
+    @Test
+    fun decodesChatMessageWithSessionIdAndMessageIds() {
+        val json = """
+            {"type":"chat","sessionId":"b3f1c2e0","messages":[
+              {"id":41,"channel":"private","direction":"incoming","peer":"EGLL_TWR","text":"cleared for takeoff","frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertEquals("b3f1c2e0", message.sessionId)
+        assertEquals(41L, message.messages.single().id)
+    }
+
+    @Test
+    fun decodesChatMessageWithoutSessionIdOrMessageIds_OlderPlugin() {
+        val json = """
+            {"type":"chat","messages":[
+              {"channel":"private","direction":"incoming","peer":"EGLL_TWR","text":"hello","frequencies":null,"timestamp":"2026-07-25T10:15:30Z"}
+            ],"selcalAlerts":[]}
+        """.trimIndent()
+
+        val message = decodeServerMessage(json) as ChatMessage
+        assertNull(message.sessionId)
+        assertNull(message.messages.single().id)
+    }
+
+    @Test
+    fun decodesChatReadStateMessage() {
+        val json = """{"type":"chatReadState","sessionId":"b3f1c2e0","readThrough":{"radio":38,"EGLL_TWR":41}}"""
+
+        val message = decodeServerMessage(json) as ChatReadStateMessage
+        assertEquals("b3f1c2e0", message.sessionId)
+        assertEquals(38L, message.readThrough["radio"])
+        assertEquals(41L, message.readThrough["EGLL_TWR"])
+    }
+
+    @Test
+    fun decodesChatReadStateMessageWithEmptyReadThrough() {
+        val json = """{"type":"chatReadState","sessionId":"b3f1c2e0","readThrough":{}}"""
+
+        val message = decodeServerMessage(json) as ChatReadStateMessage
+        assertEquals(emptyMap<String, Long>(), message.readThrough)
+    }
+
+    @Test
+    fun encodesMarkChatReadCommand() {
+        val json = MarkChatReadCommand(tab = "EGLL_TWR", throughId = 41).encode()
+
+        assertEquals("""{"type":"markChatRead","tab":"EGLL_TWR","throughId":41}""", json)
     }
 
     @Test

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin/Android (issue #151): a known controller's "contact me" private message is no longer
+  put in the chat log. The plugin turns it into the row's contact-me flag and sends the text
+  with it, and the Android row grows a full-width line under the existing content showing what
+  the controller actually wrote. The request clears when the controller's own frequency, or any
+  frequency named in the message, goes active on COM1/COM2 (or after 5 minutes). This also ends
+  the MSG badge and private tab blinking after you'd already tuned: there's no chat message
+  left to acknowledge. The contact-me notification shows the text too. A "contact me" from a
+  callsign the plugin doesn't know still arrives as an ordinary private message.
 - Android (issue #143): read-only TOBT/CDM status for the departure, polled from the public
   A-CDM backend behind vats.im/vdgs once a VATSIM flight plan is filed at a CDM-enabled
   airport. A footer chip shows the next target ("TOBT T-12m", counting to the
@@ -19,7 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expired (unless an ASRT is set). It updates every second. Tapping the chip opens the VDGS
   site in an embedded browser to log in with VATSIM and set the TOBT without leaving the app.
   Until the backend tracks the flight (it can lag the filing by minutes), a grey "TOBT –"
-  chip shows instead, so the feature is visibly active and the site stays reachable.
+  chip shows instead, so the feature is visibly active and the site stays reachable. On the
+  narrowest layout the chip shrinks to just the dot and the countdown ("T-12m") rather than
+  disappearing.
 
 ### Fixed
 
@@ -33,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pilot's filed flight plan and the VATSIM row stayed "MISSING" for as long as the duplicate
   lasted. Duplicate callsigns are now tolerated (last entry wins) instead of failing the whole
   poll.
+- Android: the controller list could leave the tuned (or other topmost) station hidden above
+  the viewport without you having scrolled, when the list reordered in a way that didn't change
+  which stations carry a badge. Until you drag the list yourself it now stays on the first row
+  through every update, and it resumes following the top after a minute without scrolling.
 
 ## [0.6.0] - 2026-09-20
 

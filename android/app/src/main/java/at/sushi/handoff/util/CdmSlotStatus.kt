@@ -35,6 +35,10 @@ data class CdmSlotDisplay(
     val tobt: String?,
     val tsat: String?,
     val ctot: String?,
+    /** CTOT minus the airport's expected taxi-out time (EXOT) as "HHmm": the off-block reference
+     *  to plan around. Only set while a CTOT exists without a TSAT -- once a TSAT is assigned it is
+     *  the real reference and this derived guess would just be noise (issue #159). */
+    val ctotOffBlock: String?,
     /** TOBT the pilot has asked for but the backend hasn't accepted into [tobt] yet. */
     val requestedTobt: String?,
     /** Filed EOBT -- only ever the displayed target as a last resort, before any TOBT exists. */
@@ -96,7 +100,7 @@ fun cdmUrgency(minutes: Int?, tentative: Boolean, windowed: Boolean, asrtSet: Bo
  *  past the accepted CDM times to the pilot's requested TOBT, then the filed EOBT, so the tile is
  *  visible (marked [CdmSlotDisplay.tentative], shown with a trailing "?") as soon as the backend
  *  tracks the flight -- showing that the system is active even before a TOBT has been accepted. */
-fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDisplay? {
+fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long, taxiMinutes: Int? = null): CdmSlotDisplay? {
     flight ?: return null
     val data = flight.cdmData ?: CdmFlightData()
     val eobt = hhmm(flight.eobt).takeIf { it.isNotBlank() }
@@ -126,6 +130,7 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDispl
         tobt = tobt.takeIf { it.isNotBlank() },
         tsat = tsat.takeIf { it.isNotBlank() },
         ctot = ctot.takeIf { it.isNotBlank() },
+        ctotOffBlock = if (tsat.isBlank() && taxiMinutes != null) subtractMinutesHhmm(ctot, taxiMinutes) else null,
         requestedTobt = reqTobt.takeIf { it.isNotBlank() },
         eobt = eobt,
         reason = data.reason.takeIf { it.isNotBlank() },
@@ -141,6 +146,17 @@ fun deriveCdmSlotDisplay(flight: CdmFlight?, nowEpochMillis: Long): CdmSlotDispl
     ).at(nowEpochMillis)
 }
 
+/** [hhmm] minus [minutes], wrapping past midnight; null for a blank/malformed time. */
+fun subtractMinutesHhmm(hhmm: String, minutes: Int): String? {
+    val t = hhmm.trim()
+    if (t.length != 4 || t.any { !it.isDigit() }) return null
+    val hour = t.substring(0, 2).toInt()
+    val minute = t.substring(2, 4).toInt()
+    if (hour !in 0..23 || minute !in 0..59) return null
+    val total = Math.floorMod(hour * 60 + minute - minutes, 24 * 60)
+    return "%02d%02d".format(total / 60, total % 60)
+}
+
 /** The backend sends the same time as "HHmm" (flight-level fields) or "HHmmss" (the CDM sequencer's
  *  cdmData tobt/tsat/ttot, seen live once a TOBT is processed) -- normalized to "HHmm", since the
  *  UI works in whole minutes. Blank/unrecognized strings pass through unchanged. */
@@ -153,7 +169,7 @@ fun hhmm(raw: String?): String {
  *  grey, time-less "TOBT -" chip whose drawer row reads "waiting for flight". */
 fun cdmWaitingDisplay() = CdmSlotDisplay(
     statusText = "waiting for flight",
-    tobt = null, tsat = null, ctot = null, requestedTobt = null, eobt = null,
+    tobt = null, tsat = null, ctot = null, ctotOffBlock = null, requestedTobt = null, eobt = null,
     reason = null, depRunway = null, sid = null,
     targetLabel = "TOBT", targetHhmm = null, minutesUntil = null,
     tentative = true, windowed = false, asrtSet = false, urgency = CdmUrgency.NEUTRAL
