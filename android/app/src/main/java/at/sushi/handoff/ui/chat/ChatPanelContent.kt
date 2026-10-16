@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.ChatEntry
 import at.sushi.handoff.protocol.ChatMessage
+import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.ui.theme.HandoffTextField
@@ -60,6 +61,16 @@ import at.sushi.handoff.util.formatLocalTime
 // Not private: MainScreen.kt's unread-tracking needs the same tab key for radio/broadcast
 // messages as this file uses for the RADIO tab's own unread lookup.
 internal const val RADIO_TAB = "radio"
+
+/** Issue #156 -- the plugin matches chat tab keys case-insensitively and echoes each one in the
+ *  casing it first saw, which need not equal ours. Callsigns are upper case everywhere in this
+ *  client (see CallsignSerializer), so fold the plugin's keys the same way before looking a tab
+ *  up; keys the plugin considers one tab but that differ in case collapse to their highest
+ *  watermark. [RADIO_TAB] stays lower case. */
+internal fun ChatReadStateMessage.readThroughByTab(): Map<String, Long> =
+    readThrough.entries
+        .groupBy({ if (it.key.equals(RADIO_TAB, ignoreCase = true)) RADIO_TAB else it.key.uppercase() }, { it.value })
+        .mapValues { (_, ids) -> ids.max() }
 
 /** Whether [text] mentions [ownCallsign] as a whole word (word-boundary matched, not a plain
  *  substring, so e.g. callsign "OE-TZ" doesn't false-positive inside "OE-TZZ"). Shared between

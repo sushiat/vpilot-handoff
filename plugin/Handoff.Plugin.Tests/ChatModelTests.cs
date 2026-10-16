@@ -353,6 +353,65 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void MarkRead_DifferingCase_AdvancesTheSameWatermark()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "one"));
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "two"));
+            var raiseCount = 0;
+            model.ReadStateChanged += (s, e) => raiseCount++;
+
+            model.MarkRead("egll_twr", 1);
+            model.MarkRead("EGLL_TWR", 2);
+            model.MarkRead("Egll_Twr", 1); // backwards, no-op
+
+            var readThrough = model.ReadThrough;
+            Assert.Single(readThrough);
+            Assert.Equal(2, readThrough["EGLL_TWR"]);
+            Assert.Equal(2, readThrough["egll_twr"]);
+            Assert.Equal(2, raiseCount);
+        }
+
+        [Fact]
+        public void MarkRead_StoresPeerKeyWithCasingFromTheLog()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
+
+            model.MarkRead("egll_twr", 1);
+
+            Assert.Equal("EGLL_TWR", Assert.Single(model.ReadThrough.Keys));
+        }
+
+        [Fact]
+        public void MarkRead_RadioTabIsCaseInsensitiveAndCanonicalisedToLowercase()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            model.SendRadioMessage("wilco");
+
+            model.MarkRead("RADIO", 1);
+
+            Assert.Equal("radio", Assert.Single(model.ReadThrough.Keys));
+            Assert.Equal(1, model.ReadThrough["Radio"]);
+        }
+
+        [Fact]
+        public void MarkRead_BroadcastSenderIsNotATab_RadioWatermarkCoversBroadcasts()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaiseBroadcastMessageReceived(new BroadcastMessageReceivedEventArgs("EGLL_TWR", "wx update"));
+
+            model.MarkRead("radio", 1);
+
+            Assert.Equal(1, model.ReadThrough["radio"]);
+            Assert.False(model.ReadThrough.ContainsKey("EGLL_TWR"));
+        }
+
+        [Fact]
         public void IncomingPrivateFilter_ReturningTrue_SwallowsMessageWithoutConsumingAnId()
         {
             var broker = new FakeBroker();

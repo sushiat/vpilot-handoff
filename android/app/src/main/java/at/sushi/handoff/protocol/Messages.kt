@@ -1,10 +1,26 @@
 package at.sushi.handoff.protocol
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+
+/** Issue #156 -- callsigns are upper case everywhere in the client, whatever casing the plugin
+ *  (or the network data behind it) sends: folded once here at decode time so every comparison,
+ *  chat tab key, and on-screen label agrees without each call site having to remember. Encoding
+ *  is unchanged -- the plugin matches callsigns case-insensitively. */
+object CallsignSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("Callsign", PrimitiveKind.STRING)
+    override fun deserialize(decoder: Decoder): String = decoder.decodeString().uppercase()
+    override fun serialize(encoder: Encoder, value: String) = encoder.encodeString(value)
+}
 
 /** Message shapes from docs/protocol.md. All fields camelCase, frequencies are vPilot's
  *  compressed-integer format (e.g. 123.725 MHz -> 23725), never plain MHz. */
@@ -12,7 +28,7 @@ sealed interface ServerMessage
 
 @Serializable
 data class Controller(
-    val callsign: String,
+    @Serializable(with = CallsignSerializer::class) val callsign: String,
     val frequency: Int,
     val latitude: Double,
     val longitude: Double,
@@ -104,8 +120,8 @@ data class RankingDebug(
     val ownshipGroundspeedKt: Double? = null,
     val ownshipHeadingTrue: Double? = null,
     val ownshipTrackTrue: Double? = null,
-    val com1TunedCallsign: String? = null,
-    val com2TunedCallsign: String? = null,
+    @Serializable(with = CallsignSerializer::class) val com1TunedCallsign: String? = null,
+    @Serializable(with = CallsignSerializer::class) val com2TunedCallsign: String? = null,
     val activeRouteWaypoint: String? = null,
     val lastPassedWaypoint: String? = null,
     // Bearing (true, 0-360)/distance from ownship's current position to each named waypoint
@@ -140,8 +156,8 @@ data class ChatEntry(
     val id: Long? = null,
     val channel: String,
     val direction: String,
-    val peer: String? = null,
-    val from: String? = null,
+    @Serializable(with = CallsignSerializer::class) val peer: String? = null,
+    @Serializable(with = CallsignSerializer::class) val from: String? = null,
     // Issue #131 -- a plugin-side encoding bug once left this null/absent instead of the
     // sent text. Nullable so a recurrence degrades to a visible placeholder in the UI
     // instead of failing to deserialize the whole chat batch.
@@ -152,7 +168,7 @@ data class ChatEntry(
 
 @Serializable
 data class SelcalAlert(
-    val from: String,
+    @Serializable(with = CallsignSerializer::class) val from: String,
     val frequencies: List<Int>,
     val timestamp: String
 )
@@ -194,11 +210,11 @@ data class ChatReadStateMessage(
 @Serializable
 data class FlightPlanMessage(
     val type: String = "flightPlan",
-    val simbriefCallsign: String? = null,
+    @Serializable(with = CallsignSerializer::class) val simbriefCallsign: String? = null,
     val simbriefOrigin: String? = null,
     val simbriefDestination: String? = null,
     val simbriefAlternate: String? = null,
-    val vatsimCallsign: String? = null,
+    @Serializable(with = CallsignSerializer::class) val vatsimCallsign: String? = null,
     val vatsimOrigin: String? = null,
     val vatsimDestination: String? = null,
     // Issue #68 -- the plugin's own on-ground sanity gate: true when ownship's position doesn't
@@ -248,7 +264,7 @@ data class RadioStateMessage(
 
 @Serializable
 data class NearbyAircraft(
-    val callsign: String,
+    @Serializable(with = CallsignSerializer::class) val callsign: String,
     val aircraftType: String? = null,
     val distanceNm: Double
 )

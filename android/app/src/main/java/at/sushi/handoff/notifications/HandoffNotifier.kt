@@ -9,6 +9,7 @@ import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.ui.chat.RADIO_TAB
+import at.sushi.handoff.ui.chat.readThroughByTab
 
 /** Per-category background alerts: contact-me requests, SELCAL alerts, incoming radio messages,
  *  incoming private messages -- each its own [NotificationChannel] so the user can toggle them
@@ -156,7 +157,7 @@ class HandoffNotifier(private val context: Context) {
     fun onChatReadStateUpdate(message: ChatReadStateMessage) {
         if (message.sessionId != HandoffState.chat.value.sessionId) return
 
-        message.readThrough.forEach { (tab, throughId) ->
+        message.readThroughByTab().forEach { (tab, throughId) ->
             val ids = activeChatNotificationIds[tab] ?: return@forEach
             val iterator = ids.iterator()
             while (iterator.hasNext()) {

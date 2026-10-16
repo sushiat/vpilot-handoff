@@ -38,7 +38,12 @@ namespace Handoff.Plugin
         // Issue #151 -- per-tab read watermark ("radio" or a private peer's callsign -> highest
         // message id read). In-memory only, same lifetime as _messages: the log itself isn't
         // persisted across a plugin restart, so persisting just the watermark would be meaningless.
-        private readonly Dictionary<string, long> _readThrough = new Dictionary<string, long>();
+        // Issue #156 -- case-insensitive, so two clients that differ only in a peer callsign's case
+        // share one watermark instead of silently diverging. The dictionary keeps the casing of the
+        // first insert; MarkRead makes that the peer's casing as it appears in the log.
+        private readonly Dictionary<string, long> _readThrough = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        private const string RadioTab = "radio";
 
         /// <summary>
         /// Issue #151 -- changes whenever this ChatModel instance is constructed (i.e. every plugin
@@ -91,7 +96,7 @@ namespace Handoff.Plugin
 
         public IReadOnlyDictionary<string, long> ReadThrough
         {
-            get { lock (_gate) { return new Dictionary<string, long>(_readThrough); } }
+            get { lock (_gate) { return new Dictionary<string, long>(_readThrough, _readThrough.Comparer); } }
         }
 
         /// <summary>
@@ -100,6 +105,11 @@ namespace Handoff.Plugin
         /// so a stale/bogus client value can never claim more as read than actually exists. Raises
         /// ReadStateChanged only if the watermark genuinely advanced -- a no-op resend never
         /// triggers a rebroadcast.
+        ///
+        /// Issue #156 -- tab matching is case-insensitive. The first time a tab is marked, its key
+        /// is stored with the casing the peer has in the log (private messages only; broadcasts
+        /// belong to "radio"), falling back to the casing the client sent if the peer isn't in the
+        /// log (anymore).
         /// </summary>
         public void MarkRead(string tab, long throughId)
         {
@@ -112,10 +122,28 @@ namespace Handoff.Plugin
                 var current = _readThrough.TryGetValue(tab, out var existing) ? existing : 0;
                 var next = Math.Max(current, clamped);
                 advanced = next > current;
-                if (advanced) _readThrough[tab] = next;
+                if (advanced)
+                {
+                    if (!_readThrough.ContainsKey(tab)) tab = CanonicalTab(tab);
+                    _readThrough[tab] = next;
+                }
             }
 
             if (advanced) ReadStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Assumes the caller already holds _gate.</summary>
+        private string CanonicalTab(string tab)
+        {
+            if (string.Equals(tab, RadioTab, StringComparison.OrdinalIgnoreCase)) return RadioTab;
+
+            foreach (var message in _messages)
+            {
+                if (message.Channel == ChatChannel.Private && string.Equals(message.Peer, tab, StringComparison.OrdinalIgnoreCase))
+                    return message.Peer;
+            }
+
+            return tab;
         }
 
         public void SendPrivateMessage(string to, string message)

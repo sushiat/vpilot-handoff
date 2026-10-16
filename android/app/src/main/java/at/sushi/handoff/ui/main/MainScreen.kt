@@ -74,6 +74,7 @@ import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
 import at.sushi.handoff.ui.chat.RADIO_TAB
 import at.sushi.handoff.ui.chat.mentionsCallsign
+import at.sushi.handoff.ui.chat.readThroughByTab
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
@@ -384,7 +385,7 @@ private fun MainScreenContent() {
         }
     }
 
-    val serverReadThrough = if (chatReadState.sessionId == chat.sessionId) chatReadState.readThrough else emptyMap()
+    val serverReadThrough = if (chatReadState.sessionId == chat.sessionId) chatReadState.readThroughByTab() else emptyMap()
     val effectiveReadThrough = (optimisticReadThrough.keys + serverReadThrough.keys).associateWith { tab ->
         maxOf(optimisticReadThrough[tab] ?: 0L, serverReadThrough[tab] ?: 0L)
     }

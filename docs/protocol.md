@@ -429,6 +429,8 @@ outgoing) or alert arrives.
 ```
 
 `channel` is one of `private` | `radio` | `broadcast`. `direction` is `incoming` | `outgoing`.
+For read tracking (see `chatReadState`), `private` messages belong to their peer's tab and
+`radio`/`broadcast` messages both belong to the `"radio"` tab.
 `peer` is the other party's callsign for `private`/`broadcast`, `null` for `radio` (the
 frequency identifies the channel instead). `from` is the transmitting station's callsign for
 incoming `radio` messages, `null` otherwise (private/broadcast already carry this in `peer`).
@@ -464,6 +466,24 @@ with a `0`/`null` value. A client should ignore a `chatReadState` whose `session
 match the latest `chat`'s — a mismatch means one of the two hasn't caught up yet after a plugin
 restart. Unread, per tab, is a pure client-side derivation: every message in that tab with
 `id > readThrough[tab]`.
+
+**Which tab a message belongs to** (issue #156) is derived from its `channel`, and every client
+must use the same rule or watermarks stop lining up:
+
+- `private` → the tab keyed by `peer` (the other party's callsign), for both `incoming` and
+  `outgoing`.
+- `radio` **and `broadcast`** → the single `"radio"` tab. A `broadcast` message's `peer` is its
+  sender, but that is *not* a tab key — broadcasts have no tab of their own and never appear as a
+  key in `readThrough`.
+
+**Tab keys are case-insensitive** (issue #156). `"EGLL_TWR"`, `"egll_twr"` and `"Egll_Twr"` (and
+`"radio"` / `"RADIO"`) are the same tab, and the plugin treats them as one watermark, so clients
+that disagree on a callsign's case still stay in sync. Clients should compare keys
+case-insensitively too — both when looking up `readThrough[tab]` and when matching a tab against a
+message's `peer`. The plugin stores each key in a canonical casing (`"radio"` in lowercase; a peer
+exactly as it appears in the `chat` log's `peer` field) and sends that back in `chatReadState`;
+a client may keep its own display casing, but must not rely on the map's key casing equalling its
+own.
 
 ### `radioState`
 
@@ -949,8 +969,9 @@ whether the alert's been seen.
 ### `markChatRead`
 
 Advances the read watermark for one tab (issue #151) — see the `chatReadState` message above
-for the full design. `tab` is `"radio"` for the radio/broadcast tab, otherwise a private peer's
-callsign. The plugin applies `max(existing watermark, throughId)` and clamps `throughId` to the
+for the full design. `tab` is `"radio"` for the radio/broadcast tab (radio *and* broadcast
+messages share it), otherwise a private peer's callsign; matching is case-insensitive (see
+`chatReadState` for the tab rules). The plugin applies `max(existing watermark, throughId)` and clamps `throughId` to the
 newest message `id` it's actually assigned, so a stale or bogus value can never claim more as
 read than exists; it rebroadcasts `chatReadState` to every connected client only if the
 watermark genuinely advanced (a repeat/no-op send is silent). Send this when a tab becomes the
