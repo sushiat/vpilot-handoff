@@ -84,10 +84,12 @@ reporting SDKs.
   preferences.
 - **Sent over the local network, to the user's own plugin:** chat messages the user types,
   commands (tune a radio, pin a controller, etc.).
-- **Network requests to third parties:** `api.viffsys.com` (public CDM/TOBT data, requests carry an
-  airport code only), and for the sideload build `api.github.com` (release check, not in the Play
+- **Network requests to third parties:** `api.viffsys.com` (public CDM/TOBT data; the departure
+  slot lookup carries the flight's VATSIM callsign, the airport list nothing about the user), and
+  for the sideload build `api.github.com` (release check, not in the Play
   build). The optional VDGS panel is an embedded WebView of `vdgs.vatsimspain.es`, a third-party
-  site where the pilot logs in with VATSIM themselves; the app does not see those credentials.
+  site where the pilot logs in with VATSIM themselves; the app does not see those credentials, but
+  the WebView keeps that site's login cookie on the device between openings.
 - **Encryption in transit:** the plugin connection is TLS with a pinned certificate fingerprint
   (see `docs/protocol.md`); third-party requests are HTTPS.
 - **Data deletion:** nothing is kept on any server of the developer's; uninstalling removes the
