@@ -250,5 +250,133 @@ namespace Handoff.Plugin.Tests
 
             Assert.Equal(2, raiseCount);
         }
+
+        // Issue #151 -- per-message id and the per-tab read watermark.
+
+        [Fact]
+        public void Messages_AreAssignedMonotonicallyIncreasingIds()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "one"));
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "two"));
+            model.SendRadioMessage("three");
+
+            Assert.Equal(new[] { 1L, 2L, 3L }, model.Messages.Select(m => m.Id));
+        }
+
+        [Fact]
+        public void SessionId_IsStableAcrossMultipleReads()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+
+            Assert.Equal(model.SessionId, model.SessionId);
+            Assert.NotEmpty(model.SessionId);
+        }
+
+        [Fact]
+        public void SessionId_DiffersAcrossInstances()
+        {
+            var first = new ChatModel(new FakeBroker());
+            var second = new ChatModel(new FakeBroker());
+
+            Assert.NotEqual(first.SessionId, second.SessionId);
+        }
+
+        [Fact]
+        public void MarkRead_SetsWatermarkForTab()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
+
+            model.MarkRead("EGLL_TWR", 1);
+
+            Assert.Equal(1, model.ReadThrough["EGLL_TWR"]);
+        }
+
+        [Fact]
+        public void MarkRead_NeverMovesWatermarkBackwards()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "one"));
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "two"));
+            model.MarkRead("EGLL_TWR", 2);
+
+            model.MarkRead("EGLL_TWR", 1);
+
+            Assert.Equal(2, model.ReadThrough["EGLL_TWR"]);
+        }
+
+        [Fact]
+        public void MarkRead_ClampsToNewestKnownMessageId()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
+
+            model.MarkRead("EGLL_TWR", 999);
+
+            Assert.Equal(1, model.ReadThrough["EGLL_TWR"]);
+        }
+
+        [Fact]
+        public void MarkRead_RaisesReadStateChangedOnlyWhenWatermarkAdvances()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
+            var raiseCount = 0;
+            model.ReadStateChanged += (s, e) => raiseCount++;
+
+            model.MarkRead("EGLL_TWR", 1);
+            model.MarkRead("EGLL_TWR", 1); // no-op resend
+            model.MarkRead("EGLL_TWR", 0); // backwards, also a no-op
+
+            Assert.Equal(1, raiseCount);
+        }
+
+        [Fact]
+        public void MarkRead_DoesNotAffectOtherTabs()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "hello"));
+            model.SendRadioMessage("wilco");
+
+            model.MarkRead("EGLL_TWR", 1);
+
+            Assert.False(model.ReadThrough.ContainsKey("radio"));
+        }
+
+        [Fact]
+        public void IncomingPrivateFilter_ReturningTrue_SwallowsMessageWithoutConsumingAnId()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            model.IncomingPrivateFilter = (from, text) => text == "swallow me";
+
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "swallow me"));
+            broker.RaisePrivateMessageReceived(new PrivateMessageReceivedEventArgs("EGLL_TWR", "keep me"));
+
+            var message = Assert.Single(model.Messages);
+            Assert.Equal("keep me", message.Text);
+            Assert.Equal(1, message.Id); // the swallowed message never took id 1
+        }
+
+        [Fact]
+        public void IncomingPrivateFilter_DoesNotAffectRadioMessages()
+        {
+            var broker = new FakeBroker();
+            var model = new ChatModel(broker);
+            model.IncomingPrivateFilter = (from, text) => true;
+
+            broker.RaiseRadioMessageReceived(new RadioMessageReceivedEventArgs(new[] { 23725 }, "EGLL_TWR", "contact me"));
+
+            Assert.Single(model.Messages);
+        }
     }
 }

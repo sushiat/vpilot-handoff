@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Handoff.Plugin
@@ -66,6 +67,7 @@ namespace Handoff.Plugin
                     requestsContactMe = c.RequestsContactMe,
                     isCurrent = c.IsCurrent,
                     isContactMe = c.IsContactMe,
+                    contactMeText = c.ContactMeText,
                     isHighlighted = c.IsHighlighted,
                     isNext = c.IsNext,
                     isLikelyNext = c.IsLikelyNext,
@@ -93,13 +95,20 @@ namespace Handoff.Plugin
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }
 
-        public static string BuildChatMessage(IReadOnlyList<ChatMessage> messages, IReadOnlyList<SelcalAlert> selcalAlerts)
+        /// <summary>`sessionId` (issue #151) is optional/nullable only for the older overload below
+        /// kept for direct unit tests that don't care about it -- HandoffWebSocketServer always
+        /// passes ChatModel.SessionId. Each message's `id` is ChatModel's own per-process
+        /// monotonically increasing counter, 0 for a ChatMessage never routed through
+        /// ChatModel.AddMessage (e.g. built directly in a test).</summary>
+        public static string BuildChatMessage(IReadOnlyList<ChatMessage> messages, IReadOnlyList<SelcalAlert> selcalAlerts, string sessionId = null)
         {
             var payload = new
             {
                 type = "chat",
+                sessionId,
                 messages = messages.Select(m => new
                 {
+                    id = m.Id,
                     channel = m.Channel,
                     direction = m.Direction,
                     peer = m.Peer,
@@ -114,6 +123,28 @@ namespace Handoff.Plugin
                     frequencies = a.Frequencies,
                     timestamp = a.Timestamp.UtcDateTime
                 })
+            };
+            return JsonConvert.SerializeObject(payload, SerializerSettings);
+        }
+
+        /// <summary>
+        /// Issue #151 -- the per-tab chat read watermark, kept as its own message rather than
+        /// folded into `chat` because it changes far more often than the log and shouldn't resend
+        /// up to 200 chat entries each time. Sent in the per-connect snapshot and rebroadcast
+        /// whenever a watermark advances (ChatModel.ReadStateChanged). `readThrough` only has
+        /// entries for tabs with at least one read message -- an absent tab means nothing's been
+        /// read there yet. Clients should ignore a chatReadState whose sessionId doesn't match the
+        /// latest `chat`'s (a plugin restart invalidates both the log and these ids together).
+        /// </summary>
+        public static string BuildChatReadStateMessage(string sessionId, IReadOnlyDictionary<string, long> readThrough)
+        {
+            var payload = new
+            {
+                type = "chatReadState",
+                sessionId,
+                // A JObject, not the dictionary itself: the camel-case resolver above also rewrites
+                // dictionary keys, which would turn the peer callsign "EGLL_TWR" into "eGLL_TWR".
+                readThrough = JObject.FromObject(readThrough)
             };
             return JsonConvert.SerializeObject(payload, SerializerSettings);
         }

@@ -12,6 +12,12 @@ namespace Handoff.Plugin
     /// </summary>
     public sealed class ChatMessage
     {
+        // Issue #151 -- monotonically increasing per plugin process, assigned by ChatModel.AddMessage
+        // (not the constructor) once the message is actually appended, so every message gets exactly
+        // one id in append order regardless of which of the four call sites constructed it. Defaults
+        // to 0 for a message that was never added through ChatModel (e.g. built directly in a test).
+        public long Id { get; internal set; }
+
         public ChatChannel Channel { get; }
         public ChatDirection Direction { get; }
 

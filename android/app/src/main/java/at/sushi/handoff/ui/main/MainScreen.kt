@@ -171,6 +171,12 @@ private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationPr
     }
 }
 
+/** Issue #151 -- the same tab key the plugin's own `readThrough` map uses: a private entry's
+ *  peer callsign, or [RADIO_TAB] for radio/broadcast. Null only for a malformed private entry
+ *  with no peer at all. */
+private fun entryTab(entry: ChatEntry): String? =
+    if (entry.channel == "private") entry.peer else RADIO_TAB
+
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
@@ -226,6 +232,9 @@ private fun MainScreenContent() {
 
     val controllers by HandoffState.controllers.collectAsState()
     val chat by HandoffState.chat.collectAsState()
+    // Issue #151 -- plugin-owned per-tab chat read watermark; see MainScreen's unread-tracking
+    // block below for how this and chat.sessionId combine with the per-device optimistic overlay.
+    val chatReadState by HandoffState.chatReadState.collectAsState()
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
@@ -333,21 +342,6 @@ private fun MainScreenContent() {
     // also changes just from the user pressing a controller's msg button with nothing received
     // yet (issue #53: that button must not make the top bar claim a message arrived).
     var lastReceivedPeer by remember { mutableStateOf<String?>(null) }
-    var unreadByTab by remember { mutableStateOf(mapOf<String, Int>()) }
-    // Tabs currently holding at least one unread message directed at the pilot (a private
-    // message, or a radio message mentioning ownCallsign) -- feeds TopBar's flashing
-    // orange/hazard-yellow badge treatment, distinct from the ambient/blue case (issue #32).
-    var directedUnreadTabs by remember { mutableStateOf(setOf<String>()) }
-    // Per-tab bookkeeping for issue #128: which unread-directed tabs are still explained
-    // *entirely* by an outstanding contact-me request (so tuning the requester can relax the
-    // MSG button's blink for them) vs tabs that have earned their directed-unread status some
-    // other way (a private message, or a radio call mentioning ownCallsign that ISN'T a
-    // contact-me) and so must keep blinking regardless of tuning. pendingContactMeByTab maps
-    // tab -> set of contact-me callers whose message hasn't been read yet; membership alone
-    // doesn't mean "still blinking" -- see unresolvedContactMeTabs below, which re-checks
-    // isContactMeResolved live against current radio state.
-    var pendingContactMeByTab by remember { mutableStateOf(mapOf<String, Set<String>>()) }
-    var nonContactMeDirectedTabs by remember { mutableStateOf(setOf<String>()) }
     var selcalDismissedTimestamp by remember { mutableStateOf<String?>(null) }
 
     val latestSelcalAlert = chat.selcalAlerts.maxByOrNull { it.timestamp }
@@ -355,43 +349,109 @@ private fun MainScreenContent() {
 
     fun send(command: at.sushi.handoff.protocol.ClientCommand) = HandoffConnectionService.instance?.sendCommand(command)
 
-    fun clearUnread(tab: String) {
-        unreadByTab = unreadByTab - tab
-        directedUnreadTabs = directedUnreadTabs - tab
-        pendingContactMeByTab = pendingContactMeByTab - tab
-        nonContactMeDirectedTabs = nonContactMeDirectedTabs - tab
+    // In wide fullscreen the chat panel is always on screen (chatOpen only gates the
+    // split-screen overlay's/narrow-fullscreen's own visibility -- see the onToggleChat comment
+    // below), so a tab sitting in plain sight there must never be flagged unread just because
+    // chatOpen itself never flips true in that layout. Narrow (phone-class) fullscreen behaves
+    // like split here: chat only counts as "on screen" while its tab is the active one (issue
+    // #123's narrowFullscreen).
+    val chatPanelVisible = if (layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) true else chatOpen
+    fun isCurrentlyViewing(tab: String) =
+        chatPanelVisible && (activeChatTab == tab || (tab == RADIO_TAB && activeChatTab == null))
+
+    // Issue #151 -- true once the connected plugin reports a chat.sessionId, i.e. it's new
+    // enough to also own the per-tab read watermark (chatReadState/markChatRead). An older
+    // plugin leaves this null forever, and the legacy* state/logic below (unchanged from before
+    // this issue) is the fallback for that case.
+    val pluginSupportsChatReadState = chat.sessionId != null
+
+    // Issue #151 -- this device's own optimistic view of the watermark: updated immediately on
+    // every markRead() call (below) so the UI reflects "read" without waiting for the plugin to
+    // echo chatReadState back, then merged with the plugin's own value once it arrives. Reset
+    // whenever chat.sessionId changes (a plugin restart invalidates every id it refers to).
+    var optimisticReadThrough by remember { mutableStateOf(mapOf<String, Long>()) }
+    var knownChatSessionId by remember { mutableStateOf<String?>(null) }
+    // Ids already classified once (contact-me-caused or not, tab auto-opened, lastReceivedPeer
+    // updated) -- see the classification LaunchedEffect below. Reset alongside the watermark.
+    var classifiedMessageIds by remember { mutableStateOf(setOf<Long>()) }
+    var contactMeCausedMessageIds by remember { mutableStateOf(setOf<Long>()) }
+    LaunchedEffect(chat.sessionId) {
+        if (chat.sessionId != knownChatSessionId) {
+            knownChatSessionId = chat.sessionId
+            optimisticReadThrough = emptyMap()
+            classifiedMessageIds = emptySet()
+            contactMeCausedMessageIds = emptySet()
+        }
+    }
+
+    val serverReadThrough = if (chatReadState.sessionId == chat.sessionId) chatReadState.readThrough else emptyMap()
+    val effectiveReadThrough = (optimisticReadThrough.keys + serverReadThrough.keys).associateWith { tab ->
+        maxOf(optimisticReadThrough[tab] ?: 0L, serverReadThrough[tab] ?: 0L)
+    }
+
+    // Advances tab's watermark to (at least) throughId -- updates the optimistic overlay above
+    // immediately, then tells the plugin, which rebroadcasts chatReadState to every other
+    // connected client. Harmless no-op against an older plugin (logged, ignored -- see
+    // docs/protocol.md's markChatRead).
+    fun markRead(tab: String, throughId: Long) {
+        optimisticReadThrough = optimisticReadThrough + (tab to maxOf(optimisticReadThrough[tab] ?: 0L, throughId))
+        send(at.sushi.handoff.protocol.MarkChatReadCommand(tab = tab, throughId = throughId))
+    }
+
+    // ---- Legacy (pre-issue-#151 plugin) local-only read tracking -- unchanged in spirit from
+    // before this issue, kept only as the fallback once pluginSupportsChatReadState is false.
+    // Lost on an app restart or a second device, exactly as it always was for such a plugin. ----
+    var legacyUnreadByTab by remember { mutableStateOf(mapOf<String, Int>()) }
+    var legacyDirectedUnreadTabs by remember { mutableStateOf(setOf<String>()) }
+    var legacyPendingContactMeByTab by remember { mutableStateOf(mapOf<String, Set<String>>()) }
+    var legacyNonContactMeDirectedTabs by remember { mutableStateOf(setOf<String>()) }
+    var previousChatMessages by remember { mutableStateOf(listOf<ChatEntry>()) }
+
+    fun legacyClearUnread(tab: String) {
+        legacyUnreadByTab = legacyUnreadByTab - tab
+        legacyDirectedUnreadTabs = legacyDirectedUnreadTabs - tab
+        legacyPendingContactMeByTab = legacyPendingContactMeByTab - tab
+        legacyNonContactMeDirectedTabs = legacyNonContactMeDirectedTabs - tab
+    }
+
+    // Marks everything currently known in `tab` as read -- called when a tab becomes the
+    // actively-viewed one (opening it, switching to it, expanding the chat panel).
+    fun markTabFullyRead(tab: String) {
+        if (pluginSupportsChatReadState) {
+            val highestId = chat.messages.filter { entryTab(it) == tab }.maxOfOrNull { it.id ?: 0L }
+            if (highestId != null) markRead(tab, highestId)
+        } else {
+            legacyClearUnread(tab)
+        }
     }
 
     fun openChatWith(callsign: String) {
         if (callsign !in openChatTabs) openChatTabs = openChatTabs + callsign
         activeChatTab = callsign
         chatOpen = true
-        clearUnread(callsign)
+        markTabFullyRead(callsign)
     }
 
-    // Diffs the full chat log (docs/protocol.md: `chat` is always resent in full, not as an
-    // incremental delta) against what was last processed, to find genuinely new incoming entries
-    // to count as unread. Guards against the log ever shrinking/changing underneath a matching
-    // prefix (a reconnect starting a fresh plugin session) -- in that case there's no reliable
-    // "new since last time" answer, so it just resyncs without incrementing anything rather than
-    // risk flooding the badge with entries that were already seen last session.
-    var previousChatMessages by remember { mutableStateOf(listOf<ChatEntry>()) }
-    LaunchedEffect(chat.messages) {
-        val current = chat.messages
-        val previous = previousChatMessages
-        val isAppend = current.size >= previous.size &&
-            current.subList(0, previous.size) == previous
-        val newEntries = if (isAppend) current.subList(previous.size, current.size) else emptyList()
-        previousChatMessages = current
-
-        for (entry in newEntries) {
+    // Issue #151 -- processes every incoming entry's id exactly once (ever, per plugin session):
+    // tab auto-open / lastReceivedPeer for a new private sender, the issue #128 contact-me-vs-not
+    // classification snapshot, and sending markRead immediately for a message that arrives on a
+    // tab already being viewed (otherwise a message read live on one device would still show
+    // unread on another, and in fullscreen the always-visible tab would wrongly accumulate
+    // unread). Unlike the old position-diff approach, this derives "new" from the message id
+    // itself, so it's correct across an app restart or a second device -- see
+    // effectiveReadThrough above for the actual unread/blink derivation this feeds.
+    LaunchedEffect(chat.messages, chat.sessionId) {
+        if (!pluginSupportsChatReadState) return@LaunchedEffect
+        for (entry in chat.messages) {
             if (entry.direction != "incoming") continue
+            val id = entry.id ?: continue
+            if (id in classifiedMessageIds) continue
+            classifiedMessageIds = classifiedMessageIds + id
+
             val tab: String
-            val directed: Boolean
             if (entry.channel == "private") {
                 val peer = entry.peer ?: continue
                 tab = peer
-                directed = true
                 lastReceivedPeer = peer
                 // Silently opens a tab for a peer who messages first, without switching focus to
                 // it or popping the chat panel open -- matches how openChatWith already creates a
@@ -399,50 +459,110 @@ private fun MainScreenContent() {
                 if (peer !in openChatTabs) openChatTabs = openChatTabs + peer
             } else {
                 tab = RADIO_TAB
-                directed = entry.text?.let { mentionsCallsign(it, flightPlan.vatsimCallsign) } == true
-            }
-            // In wide fullscreen the chat panel is always on screen (chatOpen only gates the
-            // split-screen overlay's/narrow-fullscreen's own visibility -- see the onToggleChat
-            // comment below), so a tab sitting in plain sight there must never be flagged unread
-            // just because chatOpen itself never flips true in that layout. Narrow (phone-class)
-            // fullscreen behaves like split here: chat only counts as "on screen" while its tab is
-            // the active one (see issue #123's narrowFullscreen).
-            val chatPanelVisible = if (layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) true else chatOpen
-            val currentlyViewing = chatPanelVisible && (activeChatTab == tab || (tab == RADIO_TAB && activeChatTab == null))
-            if (currentlyViewing) continue
-            unreadByTab = unreadByTab + (tab to ((unreadByTab[tab] ?: 0) + 1))
-            if (directed) {
-                directedUnreadTabs = directedUnreadTabs + tab
                 // Issue #128: only a radio entry from a station currently flagged isContactMe
                 // counts as contact-me-caused -- everything else (private messages, ordinary
-                // radio calls mentioning ownCallsign) marks the tab as needing to keep blinking
-                // regardless of tuning.
+                // radio calls mentioning ownCallsign) must keep blinking regardless of tuning.
                 val sender = entry.from
                 val senderController = sender?.let { s -> controllers.controllers.find { it.callsign == s } }
-                if (entry.channel != "private" && senderController?.isContactMe == true) {
-                    pendingContactMeByTab = pendingContactMeByTab +
-                        (tab to ((pendingContactMeByTab[tab] ?: emptySet()) + sender))
-                } else {
-                    nonContactMeDirectedTabs = nonContactMeDirectedTabs + tab
-                }
+                if (senderController?.isContactMe == true) contactMeCausedMessageIds = contactMeCausedMessageIds + id
             }
+
+            if (isCurrentlyViewing(tab)) markRead(tab, id)
         }
     }
 
-    // Issue #128: a tab's directed-unread only keeps blinking the MSG button if either (a) it
-    // has a directed-unread message unrelated to contact-me, or (b) at least one of its pending
-    // contact-me senders is still un-tuned (or still flagged isContactMe at all) -- recomputed
-    // live off controllers/radioState, same as the row's own isContactMeResolved check, so
-    // tuning the requester relaxes both at the same moment.
-    val unresolvedContactMeTabs = pendingContactMeByTab.filterValues { senders ->
-        senders.any { s ->
-            val c = controllers.controllers.find { it.callsign == s }
-            c?.isContactMe == true && !isContactMeResolved(c, radioState.com1Frequency, radioState.com2Frequency)
+    // Issue #151 -- unread is a pure derivation from the log once the plugin supports it: every
+    // incoming entry in a tab whose id is past that tab's watermark. blinkingDirectedTabs keeps
+    // issue #128's two-case rule (an ordinary directed message always blinks; a contact-me-caused
+    // one only blinks while that controller is still un-tuned/still requesting) over that same
+    // derived unread set.
+    val unreadByTab: Map<String, Int>
+    val blinkingDirectedTabs: Set<String>
+    if (pluginSupportsChatReadState) {
+        val unreadEntries = chat.messages.filter { entry ->
+            entry.direction == "incoming" && (entry.id ?: 0L) > (effectiveReadThrough[entryTab(entry) ?: RADIO_TAB] ?: 0L)
         }
-    }.keys
-    val blinkingDirectedTabs = directedUnreadTabs.filter {
-        it in nonContactMeDirectedTabs || it in unresolvedContactMeTabs
-    }.toSet()
+        unreadByTab = unreadEntries.groupingBy { entryTab(it) ?: RADIO_TAB }.eachCount()
+
+        val blinking = mutableSetOf<String>()
+        for (entry in unreadEntries) {
+            val tab = entryTab(entry) ?: continue
+            val directed = entry.channel == "private" ||
+                (entry.text?.let { mentionsCallsign(it, flightPlan.vatsimCallsign) } == true)
+            if (!directed) continue
+            val id = entry.id ?: continue
+            val contactMeCaused = entry.channel != "private" && id in contactMeCausedMessageIds
+            if (!contactMeCaused) {
+                blinking += tab
+                continue
+            }
+            val senderController = entry.from?.let { s -> controllers.controllers.find { it.callsign == s } }
+            if (senderController?.isContactMe == true &&
+                !isContactMeResolved(senderController, radioState.com1Frequency, radioState.com2Frequency)
+            ) {
+                blinking += tab
+            }
+        }
+        blinkingDirectedTabs = blinking
+    } else {
+        // Diffs the full chat log (docs/protocol.md: `chat` is always resent in full, not as an
+        // incremental delta) against what was last processed, to find genuinely new incoming
+        // entries to count as unread. Guards against the log ever shrinking/changing underneath
+        // a matching prefix (a reconnect starting a fresh plugin session) -- in that case there's
+        // no reliable "new since last time" answer, so it just resyncs without incrementing
+        // anything rather than risk flooding the badge with entries that were already seen last
+        // session. This is exactly the behavior from before issue #151 -- still lost on an app
+        // restart or a second device, which is the whole reason that issue exists, but there's
+        // nothing better available without the plugin's own cooperation.
+        LaunchedEffect(chat.messages) {
+            val current = chat.messages
+            val previous = previousChatMessages
+            val isAppend = current.size >= previous.size &&
+                current.subList(0, previous.size) == previous
+            val newEntries = if (isAppend) current.subList(previous.size, current.size) else emptyList()
+            previousChatMessages = current
+
+            for (entry in newEntries) {
+                if (entry.direction != "incoming") continue
+                val tab: String
+                val directed: Boolean
+                if (entry.channel == "private") {
+                    val peer = entry.peer ?: continue
+                    tab = peer
+                    directed = true
+                    lastReceivedPeer = peer
+                    if (peer !in openChatTabs) openChatTabs = openChatTabs + peer
+                } else {
+                    tab = RADIO_TAB
+                    directed = entry.text?.let { mentionsCallsign(it, flightPlan.vatsimCallsign) } == true
+                }
+                if (isCurrentlyViewing(tab)) continue
+                legacyUnreadByTab = legacyUnreadByTab + (tab to ((legacyUnreadByTab[tab] ?: 0) + 1))
+                if (directed) {
+                    legacyDirectedUnreadTabs = legacyDirectedUnreadTabs + tab
+                    val sender = entry.from
+                    val senderController = sender?.let { s -> controllers.controllers.find { it.callsign == s } }
+                    if (entry.channel != "private" && senderController?.isContactMe == true) {
+                        legacyPendingContactMeByTab = legacyPendingContactMeByTab +
+                            (tab to ((legacyPendingContactMeByTab[tab] ?: emptySet()) + sender))
+                    } else {
+                        legacyNonContactMeDirectedTabs = legacyNonContactMeDirectedTabs + tab
+                    }
+                }
+            }
+        }
+
+        val unresolvedContactMeTabs = legacyPendingContactMeByTab.filterValues { senders ->
+            senders.any { s ->
+                val c = controllers.controllers.find { it.callsign == s }
+                c?.isContactMe == true && !isContactMeResolved(c, radioState.com1Frequency, radioState.com2Frequency)
+            }
+        }.keys
+        unreadByTab = legacyUnreadByTab
+        blinkingDirectedTabs = legacyDirectedUnreadTabs.filter {
+            it in legacyNonContactMeDirectedTabs || it in unresolvedContactMeTabs
+        }.toSet()
+    }
 
     // The nearby-aircraft dialog is folded in here (rendered as plain inline content layered
     // over the chat panel, not a system Dialog) rather than as a standalone top-level dialog --
@@ -466,7 +586,7 @@ private fun MainScreenContent() {
                 ownCallsign = flightPlan.vatsimCallsign,
                 onSelectTab = { tab ->
                     activeChatTab = tab
-                    clearUnread(tab ?: RADIO_TAB)
+                    markTabFullyRead(tab ?: RADIO_TAB)
                 },
                 onCloseTab = { peer ->
                     openChatTabs = openChatTabs - peer
@@ -648,7 +768,7 @@ private fun MainScreenContent() {
                 onToggleChat = {
                     val opening = !chatOpen
                     chatOpen = opening
-                    if (opening) clearUnread(activeChatTab ?: RADIO_TAB)
+                    if (opening) markTabFullyRead(activeChatTab ?: RADIO_TAB)
                 }
             )
 
