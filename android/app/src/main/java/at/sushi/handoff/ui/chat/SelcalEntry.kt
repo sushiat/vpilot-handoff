@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.protocol.SelcalAlert
+import at.sushi.handoff.util.formatLocalTime
 import at.sushi.handoff.ui.theme.FacilityColors
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import kotlinx.coroutines.delay
@@ -66,7 +67,7 @@ fun SelcalEntry(alert: SelcalAlert, isActive: Boolean) {
                 .padding(horizontal = 12.dp, vertical = 7.dp)
         ) {
             Text(
-                "📻 SELCAL — ${alert.from} on ${alert.frequencies.joinToString { RadioFrequency.format(it) }} · ${alert.timestamp}",
+                "📻 SELCAL — ${alert.from} on ${alert.frequencies.joinToString { RadioFrequency.format(it) }} · ${formatLocalTime(alert.timestamp)}",
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Bold,
                 color = textColor

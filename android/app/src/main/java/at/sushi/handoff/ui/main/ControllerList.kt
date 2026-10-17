@@ -160,13 +160,23 @@ fun ControllerList(
                 )
             }
         }
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
         // Shared across every row so the frequency column lines up regardless of individual
-        // callsign length -- matches the original JS reference's own formula exactly
-        // (`Math.max(90, longestCallsign * 8.5 + 10)`), just carried over from a static
-        // `widthIn(min = 90.dp)` that never actually read the list's real callsigns.
-        val callsignColWidth = remember(visibleControllers) {
-            val longest = visibleControllers.maxOfOrNull { it.callsign.length } ?: 0
-            maxOf(90f, longest * 8.5f + 10f).dp
+        // callsign length. Measured at the callsign Text's exact style (issue #174) rather than
+        // the JS reference's `max(90, longest * 8.5 + 10)` guess, which came out narrower than
+        // the real glyph width at phone density and font scale, so the last characters of long
+        // callsigns (LOWW_GND -> "LOWW_GNI") were clipped. 90.dp stays as the minimum, plus a
+        // little slack for the clip edge.
+        val callsignColWidth = remember(visibleControllers, textMeasurer, density) {
+            val longest = visibleControllers.maxByOrNull { it.callsign.length }?.callsign.orEmpty()
+            val widthPx = if (longest.isEmpty()) 0 else textMeasurer.measure(
+                text = longest,
+                style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = RobotoMono),
+                maxLines = 1,
+                softWrap = false
+            ).size.width
+            maxOf(90.dp, with(density) { widthPx.toDp() } + 4.dp)
         }
         // Measured once (the format is always exactly "DDD.DDD", per RadioFrequency.format --
         // fixed shape regardless of which controller) rather than guessed at, so ControllerRow
@@ -174,8 +184,6 @@ fun ControllerList(
         // blanket row-width threshold that didn't account for how much the callsign column and
         // icon group already consume -- that mismatch was clipping/hiding frequency entirely at
         // exactly the widths it was supposed to still fit.
-        val textMeasurer = rememberTextMeasurer()
-        val density = LocalDensity.current
         val frequencyTextWidth = remember(textMeasurer) {
             val widthPx = textMeasurer.measure(
                 text = "123.725",
