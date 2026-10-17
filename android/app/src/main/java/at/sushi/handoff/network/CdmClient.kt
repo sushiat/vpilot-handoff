@@ -70,9 +70,9 @@ private val cdmHttp = OkHttpClient()
 sealed interface CdmLookup {
     data class Found(val flight: CdmFlight) : CdmLookup
     /** Backend answered but doesn't track this callsign (404, or 200 with an empty body). */
-    data object NoEntry : CdmLookup
+    object NoEntry : CdmLookup
     /** Network error, server error or an unexpected body -- unknown, not "absent". */
-    data object Failed : CdmLookup
+    object Failed : CdmLookup
 }
 
 internal fun classifyCallsignResponse(code: Int, body: String?): CdmLookup = when {
