@@ -6,6 +6,11 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,9 +20,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import at.sushi.handoff.LayoutMode
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
 import at.sushi.handoff.ThemeMode
@@ -174,8 +183,21 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     // naming it at all -- no command sent, nothing for the plugin to do.
     val onSkipName: () -> Unit = { lastSavedSnapshotId = null }
 
-    DisposableEffect(visible, debugModeEnabled) {
-        if (visible && debugModeEnabled) {
+    // Issue #177 -- without the overlay permission the floating window can't exist at all. In
+    // fullscreen the same content is shown as an ordinary in-app dialog instead; in split-screen
+    // there's no room for it, so MainScreen explains why it can't open and the toggle resets.
+    val layoutMode by HandoffState.layoutMode.collectAsState()
+    val overlayAllowed = DebugOverlayWindow.hasOverlayPermission(context)
+    val inWindowDebug = visible && debugModeEnabled && !overlayAllowed && layoutMode == LayoutMode.FULLSCREEN
+
+    DisposableEffect(visible, debugModeEnabled, overlayAllowed, layoutMode) {
+        if (visible && debugModeEnabled && !overlayAllowed) {
+            overlay.hide()
+            if (layoutMode == LayoutMode.SPLIT) {
+                HandoffState.setDebugWindowOpen(false)
+                HandoffState.setDebugOverlayPermissionMissing(true)
+            }
+        } else if (visible && debugModeEnabled) {
             val widthPx = DebugOverlayWindowState.widthPx ?: with(density) { DefaultDebugWindowWidth.roundToPx() }
             val heightPx = DebugOverlayWindowState.heightPx ?: with(density) { DefaultDebugWindowHeight.roundToPx() }
             val xPx = DebugOverlayWindowState.xPx ?: with(density) { 24.dp.roundToPx() }
@@ -225,6 +247,33 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
         onDispose {
             overlay.hide()
             lastSavedSnapshotId = null
+        }
+    }
+
+    if (inWindowDebug) {
+        Dialog(
+            onDismissRequest = { HandoffState.setDebugWindowOpen(false) },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(0.9f).widthIn(max = DefaultDebugWindowWidth)
+                    .fillMaxHeight(0.9f).heightIn(max = DefaultDebugWindowHeight)
+            ) {
+                DebugOverlayContent(
+                    controllers = controllers,
+                    subsystemStatus = subsystemStatus,
+                    onDragTitleBar = { _, _ -> },
+                    onClose = { HandoffState.setDebugWindowOpen(false) },
+                    onSaveSnapshot = onSaveSnapshot,
+                    snapshotStatus = snapshotStatus,
+                    awaitingName = lastSavedSnapshotId != null,
+                    onNameSnapshot = onNameSnapshot,
+                    onSkipName = onSkipName,
+                    fullDeviceCapture = fullDeviceCapture,
+                    onFullDeviceCaptureChange = onFullDeviceCaptureChange
+                )
+            }
         }
     }
 }

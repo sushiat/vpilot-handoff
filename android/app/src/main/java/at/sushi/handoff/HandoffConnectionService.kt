@@ -77,6 +77,8 @@ class HandoffConnectionService : Service() {
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
+        // Issue #177 -- pilot answered "I don't want that" to the floating-chat permission explainer.
+        const val PrefKeyFloatingChatDeclined = "floating_chat_declined"
         // Issue #88 -- last known update-interval tier, so the settings dialog can show a sensible
         // choice before the plugin's subsystemStatus (the authoritative source) arrives.
         const val PrefKeyUpdateInterval = "update_interval"
@@ -415,6 +417,7 @@ class HandoffConnectionService : Service() {
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
         }
         HandoffState.setHideTunedControllers(prefs.getBoolean(PrefKeyHideTunedControllers, false))
+        HandoffState.setFloatingChatDeclined(prefs.getBoolean(PrefKeyFloatingChatDeclined, false))
         // Issue #21 -- resolves the persisted active row-color theme id against the saved list /
         // built-in presets, falling back to DefaultRowColorPalette (RowColorThemeStore's own
         // default) if unset/deleted.

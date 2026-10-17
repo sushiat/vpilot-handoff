@@ -35,11 +35,11 @@ lines in that manifest. Nothing else.
 
 ### If Google refuses `SYSTEM_ALERT_WINDOW`
 
-Planned as a follow-up (not built yet): set `FloatingOverlay = false` for `play`, remove the
-permission in the Play manifest overlay, and make split mode use the same in-window chat that narrow
-fullscreen already has (chat swaps in over the controller list instead of floating). The debug window
-would become an in-window dialog or be hidden in the Play build. The sideload channel keeps the
-floating overlay either way.
+The in-window chat fallback already exists (issue #177): split mode uses it whenever the overlay
+permission is missing or declined, with chat swapping in over the controller list instead of
+floating. What's left is to set `FloatingOverlay = false` for `play` and remove the permission in the
+Play manifest overlay. The debug window would become an in-window dialog or be hidden in the Play
+build. The sideload channel keeps the floating overlay either way.
 
 ## Signing: Play's app signing key differs from the sideload key
 
