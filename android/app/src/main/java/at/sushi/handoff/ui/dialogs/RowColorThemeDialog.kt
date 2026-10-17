@@ -380,11 +380,7 @@ fun RowColorThemeDialog(
                         }
                     }
                 }
-                ScrollbarTrack(
-                    scrollState,
-                    colors.border,
-                    modifier = Modifier.width(4.dp).fillMaxHeight().padding(start = 6.dp)
-                )
+                ScrollbarTrack(scrollState, colors.border)
                 }
             }
         }

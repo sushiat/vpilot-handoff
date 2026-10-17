@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -383,11 +382,7 @@ fun SettingsDialog(
                             }
                         }
                     }
-                    ScrollbarTrack(
-                        scrollState,
-                        colors.border,
-                        modifier = Modifier.width(4.dp).fillMaxHeight().padding(start = 6.dp)
-                    )
+                    ScrollbarTrack(scrollState, colors.border)
                 }
             }
         }
