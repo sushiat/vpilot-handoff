@@ -175,7 +175,13 @@ fun DebugOverlayHost(themeMode: ThemeMode) {
     val onSkipName: () -> Unit = { lastSavedSnapshotId = null }
 
     DisposableEffect(visible, debugModeEnabled) {
-        if (visible && debugModeEnabled) {
+        if (visible && debugModeEnabled && !DebugOverlayWindow.hasOverlayPermission(context)) {
+            // Issue #177 -- show() would silently no-op, leaving the toggle looking dead; close the
+            // window state again and let MainScreen explain why via a message dialog instead.
+            overlay.hide()
+            HandoffState.setDebugWindowOpen(false)
+            HandoffState.setDebugOverlayPermissionMissing(true)
+        } else if (visible && debugModeEnabled) {
             val widthPx = DebugOverlayWindowState.widthPx ?: with(density) { DefaultDebugWindowWidth.roundToPx() }
             val heightPx = DebugOverlayWindowState.heightPx ?: with(density) { DefaultDebugWindowHeight.roundToPx() }
             val xPx = DebugOverlayWindowState.xPx ?: with(density) { 24.dp.roundToPx() }

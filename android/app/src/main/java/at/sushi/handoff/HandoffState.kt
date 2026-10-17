@@ -213,6 +213,22 @@ object HandoffState {
     private val _hideTunedControllers = MutableStateFlow(false)
     val hideTunedControllers: StateFlow<Boolean> = _hideTunedControllers.asStateFlow()
 
+    // Issue #177 -- persisted "I don't want that" answer to the floating-chat overlay-permission
+    // explainer: split-screen then uses the in-window chat instead, and the explainer never shows.
+    private val _floatingChatDeclined = MutableStateFlow(false)
+    val floatingChatDeclined: StateFlow<Boolean> = _floatingChatDeclined.asStateFlow()
+
+    // Issue #177 -- session-only "Not now" on the same explainer. Lives here rather than in the
+    // composable so it survives Activity recreation (rotation, split-screen resize) but resets on
+    // the next process start.
+    private val _overlayExplainerSnoozed = MutableStateFlow(false)
+    val overlayExplainerSnoozed: StateFlow<Boolean> = _overlayExplainerSnoozed.asStateFlow()
+
+    // Issue #177 -- raised when the debug window is asked to open without the overlay permission;
+    // MainScreen shows a message dialog for it.
+    private val _debugOverlayPermissionMissing = MutableStateFlow(false)
+    val debugOverlayPermissionMissing: StateFlow<Boolean> = _debugOverlayPermissionMissing.asStateFlow()
+
     private val _keypadBlockMode = MutableStateFlow(KeypadBlockMode.BLOCK_INVALID)
     val keypadBlockMode: StateFlow<KeypadBlockMode> = _keypadBlockMode.asStateFlow()
 
@@ -388,6 +404,18 @@ object HandoffState {
 
     fun setHideTunedControllers(hide: Boolean) {
         _hideTunedControllers.value = hide
+    }
+
+    fun setFloatingChatDeclined(declined: Boolean) {
+        _floatingChatDeclined.value = declined
+    }
+
+    fun setOverlayExplainerSnoozed(snoozed: Boolean) {
+        _overlayExplainerSnoozed.value = snoozed
+    }
+
+    fun setDebugOverlayPermissionMissing(missing: Boolean) {
+        _debugOverlayPermissionMissing.value = missing
     }
 
     fun setKeypadBlockMode(mode: KeypadBlockMode) {

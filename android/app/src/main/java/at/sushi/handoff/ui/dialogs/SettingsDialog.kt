@@ -94,6 +94,7 @@ fun SettingsDialog(
     initialTheme: ThemeMode,
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
+    initialFloatingChat: Boolean,
     initialUpdateInterval: UpdateInterval,
     initialIgnoredDeviceCount: Int,
     onClearIgnoredDevices: () -> Unit,
@@ -106,6 +107,7 @@ fun SettingsDialog(
         theme: ThemeMode,
         channelSpacing: ChannelSpacing,
         keypadBlockMode: KeypadBlockMode,
+        floatingChat: Boolean,
         updateInterval: UpdateInterval
     ) -> Unit
 ) {
@@ -117,6 +119,7 @@ fun SettingsDialog(
     var theme by remember { mutableStateOf(initialTheme) }
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
+    var floatingChat by remember { mutableStateOf(initialFloatingChat) }
     var updateInterval by remember { mutableStateOf(initialUpdateInterval) }
     var discoveryStatus by remember { mutableStateOf("") }
     var ignoredDeviceCount by remember { mutableStateOf(initialIgnoredDeviceCount) }
@@ -158,6 +161,7 @@ fun SettingsDialog(
             theme,
             channelSpacing,
             keypadBlockMode,
+            floatingChat,
             updateInterval
         )
         onDismiss()
@@ -352,6 +356,19 @@ fun SettingsDialog(
                                     ),
                                     keypadBlockMode
                                 ) { keypadBlockMode = it }
+
+                                // Issue #177 -- Off = in-window chat in split-screen; turning On
+                                // without the permission re-opens the explainer on close (MainScreen).
+                                if (at.sushi.handoff.ChannelFeatures.FloatingOverlay) {
+                                    SectionLabel("FLOATING CHAT IN SPLIT-SCREEN")
+                                    ToggleRow(
+                                        listOf(
+                                            ToggleOption(true, "On"),
+                                            ToggleOption(false, "Off")
+                                        ),
+                                        floatingChat
+                                    ) { floatingChat = it }
+                                }
 
                                 // Issue #88 -- how often the plugin polls the sim and broadcasts to us.
                                 // The plugin owns the actual cadences each tier maps to and is the

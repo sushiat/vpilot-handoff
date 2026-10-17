@@ -81,6 +81,10 @@ import at.sushi.handoff.ui.chat.mentionsCallsign
 import at.sushi.handoff.ui.chat.chatTabKey
 import at.sushi.handoff.ui.chat.readThroughByTab
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
+import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
+import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
+import at.sushi.handoff.util.shouldPromptOverlayExplainer
+import at.sushi.handoff.util.useFloatingChat
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
 import at.sushi.handoff.ui.dialogs.PairingCodeDialog
 import at.sushi.handoff.ui.dialogs.ComTuningDialog
@@ -245,22 +249,41 @@ private fun MainScreenContent() {
     val prefs = remember { context.getSharedPreferences(HandoffConnectionService.PrefsName, android.content.Context.MODE_PRIVATE) }
 
     val configuration = LocalConfiguration.current
-    // Issue #123 -- requested lazily, only the first time real split-screen is actually detected
-    // and not yet granted, rather than unconditionally at every app launch (MainActivity used to
-    // do this eagerly regardless of whether the device would ever use ChatOverlayWindow at all).
-    // This flag is per-Activity-lifetime, not persisted -- MainActivity already re-runs its own
-    // onCreate-time setup on every relaunch (rotation, split-screen resize), so re-asking once per
-    // recreation while still ungranted is consistent with that existing tolerance, not a new nag.
-    var overlayPermissionRequested by remember { mutableStateOf(false) }
+    // Issue #123 -- the overlay permission is only asked about lazily, the first time real
+    // split-screen is actually detected, rather than unconditionally at every app launch.
+    // Issue #177 -- but never straight into Android's raw settings page: an explainer dialog comes
+    // first, "Not now" is remembered for the process (HandoffState.overlayExplainerSnoozed, so
+    // rotation/resize recreation doesn't re-ask) and "I don't want that" is persisted, after which
+    // split-screen uses the in-window chat instead of the floating overlay.
+    val floatingChatDeclined by HandoffState.floatingChatDeclined.collectAsState()
+    val overlayExplainerSnoozed by HandoffState.overlayExplainerSnoozed.collectAsState()
+    val debugOverlayPermissionMissing by HandoffState.debugOverlayPermissionMissing.collectAsState()
+    var hasOverlayPermission by remember { mutableStateOf(ChatOverlayWindow.hasOverlayPermission(context)) }
+    var overlayExplainerOpen by remember { mutableStateOf(false) }
+    // Coming back from the system permission screen (or any other app) must re-read the grant.
+    val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = ChatOverlayWindow.hasOverlayPermission(context)
+            }
+        }
+        lifecycleOwner?.lifecycle?.addObserver(observer)
+        onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+    }
     LaunchedEffect(configuration) {
         val split = isSplitScreen(context, configuration)
         HandoffState.setLayoutMode(if (split) LayoutMode.SPLIT else LayoutMode.FULLSCREEN)
         if (split) {
             HandoffState.setSplitSide(detectSplitSide(context))
-            if (ChannelFeatures.FloatingOverlay && !overlayPermissionRequested && !ChatOverlayWindow.hasOverlayPermission(context)) {
-                overlayPermissionRequested = true
-                context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
-            }
+        }
+    }
+    val layoutMode by HandoffState.layoutMode.collectAsState()
+    LaunchedEffect(layoutMode, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed) {
+        if (layoutMode == LayoutMode.SPLIT &&
+            shouldPromptOverlayExplainer(ChannelFeatures.FloatingOverlay, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed)
+        ) {
+            overlayExplainerOpen = true
         }
     }
 
@@ -354,7 +377,6 @@ private fun MainScreenContent() {
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
     val theme by HandoffState.theme.collectAsState()
-    val layoutMode by HandoffState.layoutMode.collectAsState()
     val splitSide by HandoffState.splitSide.collectAsState()
     // Issue #123 -- phones are portrait-locked (MainActivity), so "phone-class" alone (no width
     // arithmetic) is enough to decide fullscreen needs a single-pane, tab-switched layout instead
@@ -363,6 +385,12 @@ private fun MainScreenContent() {
     // smallestScreenWidthDp, not screenWidthDp, is the right classifier here.
     val isPhoneClass = configuration.smallestScreenWidthDp < at.sushi.handoff.PhoneClassMaxSmallestWidthDp
     val narrowFullscreen = layoutMode == LayoutMode.FULLSCREEN && isPhoneClass
+    // Issue #177 -- split-screen without a usable floating overlay (permission missing, or the
+    // pilot opted out) shows chat in-window, swapping over the controller list exactly like
+    // narrow fullscreen does.
+    val floatingChat = useFloatingChat(ChannelFeatures.FloatingOverlay, hasOverlayPermission, floatingChatDeclined)
+    val inlineChatInSplit = layoutMode == LayoutMode.SPLIT && !floatingChat
+    val singlePaneChat = narrowFullscreen || inlineChatInSplit
     val nearbyAircraft by HandoffState.nearbyAircraft.collectAsState()
     val subsystemStatus by HandoffState.subsystemStatus.collectAsState()
     val resolvedHost by HandoffState.resolvedHost.collectAsState()
@@ -660,7 +688,7 @@ private fun MainScreenContent() {
                 // fullscreen's collapse button is ordinary in-Activity content, same as wide
                 // fullscreen's persistent side panel, and must not get that overlay-specific
                 // rounding just because it also has a collapse button.
-                isFloatingOverlay = layoutMode == LayoutMode.SPLIT,
+                isFloatingOverlay = layoutMode == LayoutMode.SPLIT && floatingChat,
                 onSend = { text ->
                     val tab = activeChatTab
                     if (tab == null) {
@@ -672,7 +700,7 @@ private fun MainScreenContent() {
                 // Reference's chatPanelStyle always has a border facing the controller list/app:
                 // fullscreen is always START (chat sits to the right of the list); split/overlay
                 // mode faces whichever edge is adjacent to the app based on splitSide.
-                borderSide = if (layoutMode == LayoutMode.FULLSCREEN) {
+                borderSide = if (layoutMode == LayoutMode.FULLSCREEN || inlineChatInSplit) {
                     at.sushi.handoff.ui.chat.ChatPanelBorderSide.START
                 } else if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
                     at.sushi.handoff.ui.chat.ChatPanelBorderSide.START
@@ -690,7 +718,7 @@ private fun MainScreenContent() {
         }
     }
 
-    if (layoutMode == LayoutMode.SPLIT) {
+    if (layoutMode == LayoutMode.SPLIT && floatingChat) {
         ChatOverlayHost(visible = chatOpen, splitSide = splitSide, themeMode = theme, content = chatContent)
     }
     // Issue #65 -- unlike chat, the debug window is a floating overlay in both fullscreen and
@@ -711,7 +739,7 @@ private fun MainScreenContent() {
         // while the overlay is open; the far (outer, screen-facing) edge stays rounded, and with
         // the overlay closed there's nothing to butt up against, so all four corners round again.
         val mainPanelShape = if (layoutMode == LayoutMode.SPLIT) {
-            if (chatOpen) {
+            if (chatOpen && floatingChat) {
                 if (splitSide == at.sushi.handoff.SplitSide.LEFT) {
                     RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomStart = 16.dp, bottomEnd = 0.dp)
                 } else {
@@ -732,11 +760,11 @@ private fun MainScreenContent() {
         // extends past its own edge into this exact margin width (see ChatOverlayOuterOverlap) to
         // physically cover it. This margin is what makes that safe: guaranteed empty, so the
         // overlap can never land on a real control.
-        val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT) 8.dp else 0.dp
+        val touchingMarginDp = if (layoutMode == LayoutMode.SPLIT && floatingChat) 8.dp else 0.dp
         // Issue #123 -- narrow (phone-class) fullscreen is single-pane: the main panel is hidden
         // entirely while chat is the active tab, instead of squeezing beside it (there's no room
         // for both at a usable size on a phone-width screen).
-        val mainPanelVisible = !narrowFullscreen || !chatOpen
+        val mainPanelVisible = !singlePaneChat || !chatOpen
         if (mainPanelVisible) {
         Row(
             Modifier
@@ -912,7 +940,7 @@ private fun MainScreenContent() {
         // Wide fullscreen: chat is always on screen, persistent side panel (unchanged). Narrow
         // (phone-class) fullscreen: chat is the other half of the single-pane tab switch, shown
         // only while it's the active tab -- see mainPanelVisible above for the list's own half.
-        if ((layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) || (narrowFullscreen && chatOpen)) {
+        if ((layoutMode == LayoutMode.FULLSCREEN && !narrowFullscreen) || (singlePaneChat && chatOpen)) {
             Column(Modifier.fillMaxSize()) {
                 chatContent()
             }
@@ -1020,6 +1048,37 @@ private fun MainScreenContent() {
         CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
     }
 
+    if (overlayExplainerOpen) {
+        OverlayPermissionDialog(
+            onContinue = {
+                // Snoozed too, so coming back from the system screen without granting doesn't loop.
+                HandoffState.setOverlayExplainerSnoozed(true)
+                overlayExplainerOpen = false
+                context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
+            },
+            onNotNow = {
+                HandoffState.setOverlayExplainerSnoozed(true)
+                overlayExplainerOpen = false
+            },
+            onDecline = {
+                prefs.edit { putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, true) }
+                HandoffState.setFloatingChatDeclined(true)
+                overlayExplainerOpen = false
+            }
+        )
+    }
+
+    if (debugOverlayPermissionMissing) {
+        DebugOverlayPermissionDialog(
+            isSplitScreen = layoutMode == LayoutMode.SPLIT,
+            onGrant = {
+                HandoffState.setDebugOverlayPermissionMissing(false)
+                context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
+            },
+            onDismiss = { HandoffState.setDebugOverlayPermissionMissing(false) }
+        )
+    }
+
     if (settingsDialogOpen) {
         SettingsDialog(
             connectionStatus = connectionStatus,
@@ -1029,6 +1088,7 @@ private fun MainScreenContent() {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
+            initialFloatingChat = !floatingChatDeclined,
             // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
             // our own last-saved pref, so the dialog reflects the real live state. Falls back to
             // the pref (then Normal) only when the plugin hasn't reported one -- an older plugin,
@@ -1041,8 +1101,9 @@ private fun MainScreenContent() {
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newUpdateInterval ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
                 prefs.edit {
+                    putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)
                     putString(HandoffConnectionService.PrefKeyHost, host)
                     putString(HandoffConnectionService.PrefKeySimbriefUserId, simbriefUserId)
                     putString(HandoffConnectionService.PrefKeySimbriefUsername, simbriefUsername)
@@ -1054,6 +1115,10 @@ private fun MainScreenContent() {
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
                 HandoffState.setKeypadBlockMode(newKeypadMode)
+                // Issue #177 -- turning it back On also forgets this session's "Not now", so the
+                // explainer can come straight back if the permission is still missing.
+                if (newFloatingChat) HandoffState.setOverlayExplainerSnoozed(false)
+                HandoffState.setFloatingChatDeclined(!newFloatingChat)
                 HandoffConnectionService.instance?.reconnectNow()
                 send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
                 send(RefreshFlightPlanCommand())

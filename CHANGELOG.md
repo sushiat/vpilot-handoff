@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android (issue #177): entering split-screen without the "display over other apps" permission
+  now shows a short explainer first instead of dropping straight into Android's settings page,
+  with **Continue**, **Not now** (asks again next app start, not on every rotation or resize) and
+  **I don't want that** (never asks again). Without the permission, or after opting out, the chat
+  opens in the split window in place of the controller list, the same way it does on a phone. A new
+  "Floating chat in split-screen" setting changes the decision later. The debug window now says
+  why it can't open when the permission is missing instead of doing nothing.
+
 ### Fixed
 
 - Android (issue #174): the Settings dialog's scrollbar no longer draws over the right edge of
