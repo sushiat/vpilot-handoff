@@ -10,10 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Android (issue #169): a demo mode, reachable from the not-connected screen's "Try demo"
-  button or a Settings toggle, fills the app with made-up sample controllers, chat, radio
+  button and left via "Exit demo mode" in the footer's status drawer, fills the app with made-up sample controllers, chat, radio
   state, flight plan and a TOBT/start-up chip so it can be looked at without the Windows
   plugin (Play review, trying the app before setting up the plugin, screenshots). Marked as
-  demo in the footer status and the Settings toggle's warning line; nothing leaves the device
+  demo in the footer status; the TOBT dialog shows a static sample page instead of the live
+  site (which needs a VATSIM login); nothing leaves the device
   while it's on -- taps (tuning, pin/unpin, transponder, TX/RX, sending chat) answer the
   sample state locally instead. Not persisted: every launch starts in the real mode, and
   enabling/disabling it clears whichever state (real or sample) was there before.

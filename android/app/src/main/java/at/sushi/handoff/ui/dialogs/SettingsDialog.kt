@@ -307,34 +307,6 @@ fun SettingsDialog(
                             if (discoveryStatus.isNotBlank()) {
                                 Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
                             }
-
-                            // Issue #169 -- demo mode: fills the app with made-up sample data
-                            // instead of a real plugin connection, for Play review/trying the app
-                            // without the Windows plugin. Second of the two required "marked as
-                            // demo" spots (the footer's orange status is the other) -- the warning
-                            // line here is permanent, not just shown while on, so turning it on
-                            // is never a surprise.
-                            SectionLabel("DEMO MODE")
-                            val demoModeEnabled by HandoffState.demoModeEnabled.collectAsState()
-                            ToggleRow(
-                                listOf(
-                                    ToggleOption(false, "Off"),
-                                    ToggleOption(true, "On")
-                                ),
-                                demoModeEnabled
-                            ) { enabled ->
-                                if (enabled) {
-                                    HandoffConnectionService.instance?.enableDemoMode()
-                                } else {
-                                    HandoffConnectionService.instance?.disableDemoMode()
-                                }
-                            }
-                            Text(
-                                "Sample controllers/chat/flight plan, no plugin needed -- nothing is sent anywhere while this is on. Turn this off to reconnect to a real plugin.",
-                                fontSize = 10.sp,
-                                color = colors.textMuted,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
                             // Issue #15 -- no per-device management UI yet, just a way back from
                             // "Ignore this machine" (PairingCodeDialog's cancel flow) without
                             // that being a one-way door. Only shown once there's actually

@@ -62,8 +62,7 @@ import at.sushi.handoff.util.windowSummary
 @Composable
 fun FooterStatusBar(
     connectionStatus: ConnectionStatus,
-    // Issue #169 -- one of the two required "marked as demo" spots (the Settings toggle's
-    // warning line is the other). Overrides the status dot/label below regardless of
+    // Issue #169 -- the "marked as demo" spot. Overrides the status dot/label below regardless of
     // connectionStatus, which stays truthfully DISCONNECTED while demo mode is on (there is no
     // real plugin link) -- this is purely a display override, not a claim that a connection
     // exists.
@@ -195,7 +194,7 @@ fun FooterStatusBar(
             // exists once truly connected) -- dropped so the line doesn't grow every time it's the
             // one piece of the layout most likely to need retuning across widths.
             val statusLabel = when {
-                demoModeEnabled -> "DEMO - sample data, no plugin"
+                demoModeEnabled -> "DEMO"
                 connectionStatus == ConnectionStatus.CONNECTED -> activeCallsign ?: "Connected"
                 connectionStatus == ConnectionStatus.CONNECTING -> "Connecting"
                 else -> "Disconnected"
@@ -306,6 +305,19 @@ fun FooterStatusBar(
                     if (demoModeEnabled) "Demo mode -- no plugin" else "Connected to Handoff vPilot plugin",
                     demoModeEnabled || connectionStatus == ConnectionStatus.CONNECTED
                 )
+                // Issue #169 -- the only way out of demo mode (Settings has no toggle for it);
+                // only present while demo mode is on.
+                if (demoModeEnabled) {
+                    androidx.compose.material3.Text(
+                        "Exit demo mode",
+                        color = colors.accent,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        modifier = Modifier
+                            .clickable { at.sushi.handoff.HandoffConnectionService.instance?.disableDemoMode() }
+                            .padding(vertical = 4.dp)
+                    )
+                }
                 SubsystemStatusRow("Connected to RadioHost", subsystemStatus.radioHostConnected)
                 SubsystemStatusRow("Connected to Simulator", subsystemStatus.simulatorConnected)
                 SubsystemStatusRow("Connected to Vatsim Info", subsystemStatus.vatsimDataFeedConnected)

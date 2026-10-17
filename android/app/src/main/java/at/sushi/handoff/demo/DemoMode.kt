@@ -7,6 +7,7 @@ import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
 import at.sushi.handoff.protocol.ClientCommand
+import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.DismissSelcalCommand
 import at.sushi.handoff.protocol.MarkChatReadCommand
 import at.sushi.handoff.protocol.PinControllerCommand
@@ -80,6 +81,48 @@ object DemoMode {
         HandoffState.update(DemoData.subsystemStatus())
         HandoffState.update(DemoData.nearbyAircraft())
         HandoffState.setCdmSlot(DemoData.cdmSlot(nowEpochMillis))
+        refreshControllerFlags()
+    }
+
+    /** Stand-in for the plugin's ranking (docs/controller-ranking.md) so a tap in demo mode moves
+     *  the list the way a real session would: the flags derive from the current radio/pin/selcal
+     *  state, contact-me clears once the station is tuned, and the rows are re-sorted into the
+     *  bucket order (current, standby, contact-me, selcal, pinned, rest). Only the parts of the
+     *  ranking the sample data exercises -- NEXT is just the next facility in the DEL->GND->TWR->
+     *  APP->CTR chain after whatever COM1 is tuned to. */
+    private fun refreshControllerFlags() {
+        val radio = HandoffState.radioState.value
+        val current = HandoffState.controllers.value
+        val chain = listOf("DEL", "GND", "TWR", "APP", "CTR")
+        fun tier(callsign: String) = chain.indexOf(callsign.substringAfterLast('_'))
+        val com1Tier = current.controllers.firstOrNull { it.frequency == radio.com1Frequency }
+            ?.let { tier(it.callsign) } ?: -1
+        val nextCallsign = if (com1Tier < 0) null else current.controllers
+            .filter { tier(it.callsign) > com1Tier }
+            .minByOrNull { tier(it.callsign) }?.callsign
+
+        val updated = current.controllers.map {
+            val tuned = it.frequency == radio.com1Frequency || it.frequency == radio.com2Frequency
+            it.copy(
+                isCurrent = tuned,
+                isStandbyTuned = it.frequency == radio.com1StandbyFrequency || it.frequency == radio.com2StandbyFrequency,
+                isContactMe = it.isContactMe && !tuned,
+                contactMeText = if (tuned) null else it.contactMeText,
+                isNext = it.callsign == nextCallsign
+            )
+        }
+        val demoOrder = DemoData.callsignOrder
+        val sorted = updated.sortedWith(
+            compareBy<Controller>(
+                { if (it.isCurrent) (if (it.frequency == radio.com1Frequency) 0 else 1) else 2 },
+                { if (it.isStandbyTuned) 0 else 1 },
+                { if (it.isContactMe) 0 else 1 },
+                { if (it.isSelcalActive) 0 else 1 },
+                { if (it.isPinned) 0 else 1 },
+                { demoOrder.indexOf(it.callsign) }
+            )
+        )
+        HandoffState.update(current.copy(controllers = sorted))
     }
 
     /** Called only while [HandoffState.demoModeEnabled] is true (see
@@ -122,6 +165,7 @@ object DemoMode {
 
     private fun updateRadio(transform: (RadioStateMessage) -> RadioStateMessage) {
         HandoffState.update(transform(HandoffState.radioState.value))
+        refreshControllerFlags()
     }
 
     private fun setPinned(callsign: String, pinned: Boolean) {
@@ -131,6 +175,7 @@ object DemoMode {
                 if (it.callsign == callsign) it.copy(isPinned = pinned) else it
             })
         )
+        refreshControllerFlags()
     }
 
     private fun dismissSelcal(callsign: String) {
@@ -140,6 +185,7 @@ object DemoMode {
                 if (it.callsign == callsign) it.copy(isSelcalActive = false) else it
             })
         )
+        refreshControllerFlags()
         val chat = HandoffState.chat.value
         HandoffState.update(chat.copy(selcalAlerts = chat.selcalAlerts.filterNot { it.from == callsign }))
     }

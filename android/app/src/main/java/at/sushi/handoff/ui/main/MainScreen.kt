@@ -1,12 +1,14 @@
 package at.sushi.handoff.ui.main
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -20,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
@@ -27,6 +30,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -181,8 +185,8 @@ private fun entryTab(entry: ChatEntry): String? =
 
 /** Issue #169 -- the controller list's empty state while there's truly nothing connected:
  *  explains why the list is empty (rather than leaving a reviewer or a pilot who hasn't set up
- *  the plugin yet staring at a blank panel) and offers the second, more discoverable entry point
- *  into demo mode (the first being the Settings dialog's own toggle). Plain centered content
+ *  the plugin yet staring at a blank panel) and offers the way into demo mode (the only one --
+ *  Settings has no toggle for it). Plain centered content
  *  over the list's own background, not a dialog -- this needs no explicit "way out" of its own
  *  since it simply stops being shown the moment demo data (or a real connection) exists. */
 @Composable
@@ -858,8 +862,9 @@ private fun MainScreenContent() {
             // Issue #169 -- the first thing a Play reviewer (or a pilot who hasn't set up the
             // plugin yet) sees: a fresh install with nothing connected and an empty list, with no
             // explanation otherwise. Only shown while there's truly nothing else going on (not
-            // mid-reconnect, not already showing demo data) so it never covers a real session.
-            if (connectionStatus == ConnectionStatus.DISCONNECTED && !demoModeEnabled && controllers.controllers.isEmpty()) {
+            // already showing demo data) so it never covers a real session. CONNECTING counts as not
+            // connected yet, otherwise the overlay flickers away on every reconnect attempt.
+            if (connectionStatus != ConnectionStatus.CONNECTED && !demoModeEnabled && controllers.controllers.isEmpty()) {
                 NotConnectedOverlay(onTryDemo = { HandoffConnectionService.instance?.enableDemoMode() })
             }
             }
@@ -1012,7 +1017,7 @@ private fun MainScreenContent() {
     }
 
     if (cdmWebOpen) {
-        CdmWebDialog(onDismiss = { cdmWebOpen = false })
+        CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
     }
 
     if (settingsDialogOpen) {

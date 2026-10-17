@@ -27,9 +27,9 @@ import java.time.format.DateTimeFormatter
  *  (https://github.com/MANFahrer-GF/vpilot-handoff-ios, MIT, `Handoff/Store/DemoData.swift`) --
  *  re-derived for this protocol's own message types, nothing copied verbatim. */
 object DemoData {
-    /** Our own demo flight: taxiing out at JFK for a transatlantic to Heathrow. */
-    const val OwnCallsign = "DAL123"
-    private const val Origin = "KJFK"
+    /** Our own demo flight: taxiing out at Vienna for a flight to Heathrow. */
+    const val OwnCallsign = "AUA81"
+    private const val Origin = "LOWW"
     private const val Destination = "EGLL"
     private const val Alternate = "EGKK"
 
@@ -41,75 +41,78 @@ object DemoData {
 
     // Demo station frequencies, reused between the controller rows below and radioState so the
     // tuned/standby badges line up with what's actually loaded.
-    private const val GroundMhz = 121.9
-    private const val TowerMhz = 119.1
-    private const val DeliveryMhz = 121.65
-    private const val ApproachMhz = 132.4
-    private const val OceanicMhz = 127.9
-    private const val AtisMhz = 128.075
+    private const val GroundMhz = 121.6
+    private const val TowerMhz = 119.4
+    private const val DeliveryMhz = 122.125
+    private const val ApproachMhz = 134.675
+    private const val CenterMhz = 132.8
+    private const val AtisMhz = 121.73
+
+    /** The sample stations' base order, the final tiebreak when [DemoMode] re-sorts them. */
+    val callsignOrder = listOf("LOWW_GND", "LOWW_TWR", "LOWW_DEL", "LOWW_APP", "LOVV_CTR", "LOWW_D_ATIS")
 
     fun controllers(nowEpochMillis: Long): ControllersMessage = ControllersMessage(
         controllers = listOf(
             Controller(
-                callsign = "KJFK_GND",
+                callsign = "LOWW_GND",
                 frequency = freq(GroundMhz),
-                latitude = 40.6398,
-                longitude = -73.7789,
-                stationName = "JFK Ground",
+                latitude = 48.1120,
+                longitude = 16.5650,
+                stationName = "Wien Ground",
                 isCurrent = true,
                 isHighlighted = true
             ),
             Controller(
-                callsign = "KJFK_TWR",
+                callsign = "LOWW_TWR",
                 frequency = freq(TowerMhz),
-                latitude = 40.6413,
-                longitude = -73.7781,
+                latitude = 48.1103,
+                longitude = 16.5697,
                 cid = 900111,
                 name = "Sample Controller",
                 rating = 5,
-                stationName = "JFK Tower",
+                stationName = "Wien Tower",
                 isStandbyTuned = true,
                 isNext = true,
                 isHighlighted = true
             ),
             Controller(
-                callsign = "KJFK_DEL",
+                callsign = "LOWW_DEL",
                 frequency = freq(DeliveryMhz),
-                latitude = 40.6417,
-                longitude = -73.7822,
-                stationName = "JFK Clearance Delivery",
+                latitude = 48.1100,
+                longitude = 16.5610,
+                stationName = "Wien Delivery",
                 isContactMe = true,
                 requestsContactMe = true,
-                contactMeText = "Confirm squawk 2143 and contact ground when ready.",
+                contactMeText = "Confirm squawk 2143 and contact Wien ground on 121.6 when ready.",
                 isHighlighted = true
             ),
             Controller(
-                callsign = "NY_APP",
+                callsign = "LOWW_APP",
                 frequency = freq(ApproachMhz),
-                latitude = 40.7,
-                longitude = -73.9,
-                stationName = "New York Approach",
+                latitude = 48.11,
+                longitude = 16.57,
+                stationName = "Wien Approach",
                 isPinned = true
             ),
             Controller(
-                callsign = "GANDER_CTR",
-                frequency = freq(OceanicMhz),
-                latitude = 48.95,
-                longitude = -54.57,
-                stationName = "Gander Oceanic",
+                callsign = "LOVV_CTR",
+                frequency = freq(CenterMhz),
+                latitude = 48.2,
+                longitude = 16.4,
+                stationName = "Wien Radar",
                 isSelcalActive = true,
                 isHighlighted = true
             ),
             Controller(
-                callsign = "EGLL_D_ATIS",
+                callsign = "LOWW_D_ATIS",
                 frequency = freq(AtisMhz),
-                latitude = 51.4706,
-                longitude = -0.4619,
-                stationName = "Heathrow Arrival ATIS",
+                latitude = 48.1103,
+                longitude = 16.5697,
+                stationName = "Wien Departure ATIS",
                 textAtis = listOf(
-                    "EGLL ARR ATIS INFO Q 1452Z",
-                    "ILS APPROACH RWY 27L, TRANSITION LEVEL 70",
-                    "SFC WIND 250/12KT, VIS 10KM, FEW040",
+                    "LOWW DEP ATIS INFO Q 1452Z",
+                    "DEP RWY 29, TRANSITION LEVEL 70",
+                    "SFC WIND 280/10KT, VIS 10KM, FEW040",
                     "TEMP 14 DEWPOINT 09 QNH 1013"
                 )
             )
@@ -123,26 +126,26 @@ object DemoData {
                 id = 1,
                 channel = "private",
                 direction = "incoming",
-                peer = "KJFK_DEL",
-                from = "KJFK_DEL",
-                text = "Handoff 123, confirm squawk 2143 and contact ground when ready.",
+                peer = "LOWW_DEL",
+                from = "LOWW_DEL",
+                text = "Austrian 81, confirm squawk 2143 and contact Wien ground on 121.6 when ready.",
                 timestamp = isoTimestamp(nowEpochMillis, -15 * 60_000L)
             ),
             ChatEntry(
                 id = 2,
                 channel = "private",
                 direction = "outgoing",
-                peer = "KJFK_DEL",
+                peer = "LOWW_DEL",
                 from = OwnCallsign,
-                text = "Wilco, squawk 2143 set, Handoff 123.",
+                text = "Wilco, squawk 2143 set, Austrian 81.",
                 timestamp = isoTimestamp(nowEpochMillis, -14 * 60_000L - 30_000L)
             ),
             ChatEntry(
                 id = 3,
                 channel = "radio",
                 direction = "incoming",
-                from = "KJFK_GND",
-                text = "Handoff 123, taxi to runway 31L via Alpha, Bravo.",
+                from = "LOWW_GND",
+                text = "Austrian 81, taxi to HP runway 29 via EX6 and M.",
                 frequencies = listOf(freq(GroundMhz)),
                 timestamp = isoTimestamp(nowEpochMillis, -10 * 60_000L)
             ),
@@ -151,15 +154,15 @@ object DemoData {
                 channel = "radio",
                 direction = "outgoing",
                 from = OwnCallsign,
-                text = "Taxi 31L via Alpha, Bravo, Handoff 123.",
+                text = "Taxi to HP runway 29 via EX6 and M, Austrian 81.",
                 frequencies = listOf(freq(GroundMhz)),
                 timestamp = isoTimestamp(nowEpochMillis, -9 * 60_000L - 40_000L)
             )
         ),
         selcalAlerts = listOf(
             SelcalAlert(
-                from = "GANDER_CTR",
-                frequencies = listOf(freq(OceanicMhz)),
+                from = "LOVV_CTR",
+                frequencies = listOf(freq(CenterMhz)),
                 timestamp = isoTimestamp(nowEpochMillis, -2 * 60_000L)
             )
         )
@@ -228,8 +231,8 @@ object DemoData {
             requestedTobt = null,
             reason = null,
             atfcmStatus = null,
-            depRunway = "31L",
-            sid = "DEEZZ5",
+            depRunway = "29",
+            sid = "LNZ2C",
             referenceLabel = "TSAT",
             referenceHhmm = referenceHhmm,
             asrtSet = false,
