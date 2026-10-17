@@ -1089,6 +1089,7 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             initialFloatingChat = !floatingChatDeclined,
+            showFloatingChatSetting = ChannelFeatures.FloatingOverlay && !isPhoneClass,
             // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
             // our own last-saved pref, so the dialog reflects the real live state. Falls back to
             // the pref (then Normal) only when the plugin hasn't reported one -- an older plugin,

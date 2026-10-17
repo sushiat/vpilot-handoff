@@ -95,6 +95,8 @@ fun SettingsDialog(
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
     initialFloatingChat: Boolean,
+    // False on phone-class devices (never split-screen side by side) and builds without the overlay.
+    showFloatingChatSetting: Boolean,
     initialUpdateInterval: UpdateInterval,
     initialIgnoredDeviceCount: Int,
     onClearIgnoredDevices: () -> Unit,
@@ -359,7 +361,7 @@ fun SettingsDialog(
 
                                 // Issue #177 -- Off = in-window chat in split-screen; turning On
                                 // without the permission re-opens the explainer on close (MainScreen).
-                                if (at.sushi.handoff.ChannelFeatures.FloatingOverlay) {
+                                if (showFloatingChatSetting) {
                                     SectionLabel("FLOATING CHAT IN SPLIT-SCREEN")
                                     ToggleRow(
                                         listOf(
