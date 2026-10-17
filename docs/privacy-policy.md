@@ -1,9 +1,6 @@
 # Handoff privacy policy
 
-*For the Google Play listing. Needs a public URL: once this is on `master`, the GitHub page for this
-file works, e.g. https://github.com/sushiat/vpilot-handoff/blob/master/docs/privacy-policy.md.*
-
-Last updated: 2026-10-11
+Last updated: 2026-10-16
 
 Handoff is a companion app for the vPilot flight-simulation client. It shows live VATSIM
 air-traffic-controller information and lets you chat, over your own local network, through a plugin
@@ -26,10 +23,13 @@ does the SimBrief lookup), and display preferences such as theme. Uninstalling t
 - **To your own PC (local network):** chat messages you type and commands you give (for example
   tuning a radio or pinning a controller), over a TLS-encrypted connection to your own plugin.
 - **To third parties:**
-  - `api.viffsys.com`: a public lookup of departure/CDM information, sent as an airport code.
+  - `api.viffsys.com`: a public lookup of departure/CDM information. It sends your flight's
+    callsign (as filed on VATSIM) to fetch your own departure slot status, and requests a public
+    list of airports without sending anything about you.
   - The optional "VDGS" panel opens the website `vdgs.vatsimspain.es` inside the app. You log in
     there yourself with VATSIM; the app does not see or store those credentials, and that site's
-    own privacy policy applies to it.
+    own privacy policy applies to it. The panel is a normal in-app browser, so that site's login
+    cookie is kept on your device between openings; clearing the app's data removes it.
   - Like any internet request, these reveal your device's IP address to those servers.
 
 ## Permissions

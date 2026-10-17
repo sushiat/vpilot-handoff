@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -185,7 +186,17 @@ namespace Handoff.Plugin
                         case "Airports":
                             // ICAO|Airport Name|Latitude|Longitude|IATA/LID|FIR|IsPseudo
                             if (fields.Length >= 2 && fields[0].Length > 0)
-                                airportsByIcao[fields[0]] = new VatSpyAirportInfo(fields[0], fields[1]);
+                            {
+                                double? latitude = null, longitude = null;
+                                if (fields.Length >= 4 &&
+                                    double.TryParse(fields[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var lat) &&
+                                    double.TryParse(fields[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                                {
+                                    latitude = lat;
+                                    longitude = lon;
+                                }
+                                airportsByIcao[fields[0]] = new VatSpyAirportInfo(fields[0], fields[1], latitude, longitude);
+                            }
                             break;
 
                         case "FIRs":

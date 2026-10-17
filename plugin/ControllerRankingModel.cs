@@ -69,11 +69,18 @@ namespace Handoff.Plugin
         private const double GroundAppRadiusNm = 20;
 
         // Bucket 7a: TWR airborne, concentric radii (highlight / confident-next inner radius),
-        // wider when the station is on the flight plan.
+        // wider when the station is on the flight plan. On the flight plan the next radius matches
+        // the highlight radius (issue #167: controllers hand over well before 10nm on final), but
+        // only the inner part is heading-agnostic -- beyond TwrNextInnerRadiusFplnNm the aircraft
+        // must also be pointing roughly at the airport (TwrNextConeHalfAngleDegrees either side of
+        // the bearing to it), so an aircraft passing by at 18nm doesn't flag the tower. The cone
+        // needs the airport's own position (VATSpy.dat); without it the check is a plain radius.
         private const double TwrAirborneMaxAglFeet = 10000;
         private const double TwrHighlightRadiusFplnNm = 20;
         private const double TwrHighlightRadiusNonFplnNm = 10;
-        private const double TwrNextRadiusFplnNm = 10;
+        private const double TwrNextRadiusFplnNm = 20;
+        private const double TwrNextInnerRadiusFplnNm = 10;
+        private const double TwrNextConeHalfAngleDegrees = 60;
         private const double TwrNextRadiusNonFplnNm = 5;
 
         // Bucket 7b: APP/DEP airborne highlight radius (flat, regardless of flight-plan status)
@@ -628,6 +635,9 @@ namespace Handoff.Plugin
             if (isOnGround)
             {
                 currentTierGroundWalkStartRank = currentTier.HasValue ? (int)currentTier.Value : -1;
+                // Issue #167: on the ground after the takeoff latch means landed/taxi-in -- the walk
+                // runs the arrival chain (TWR -> GND) instead of the departure one.
+                currentTierGroundWalkArrival = _hasTakenOffThisSession;
                 var groundResult = ComputeGroundHighlight(bucketCandidates, controllers, routeAirport, telemetry, vatGlassesRegions, vatSpyBoundaries);
                 highlightBlocks.Add(groundResult);
                 highlightBlockBuckets.Add((6, "Ground relevance (DEL/GND/TWR/APP/CTR)"));
@@ -899,6 +909,9 @@ namespace Handoff.Plugin
                         var statusLabel = isNext ? "confident IsNext (single qualifying candidate)"
                             : isLikelyNext ? "IsLikelyNext (tied with other qualifying candidates, or route-relevance unconfirmed)"
                             : "IsHighlighted only";
+                        // Issue #167: say which direction the ground chain-walk ran, so a snapshot of a
+                        // post-landing "why is this (not) next" shows it.
+                        if (bucket == 6 && (isNext || isLikelyNext) && currentTierGroundWalkArrival) statusLabel += " via the arrival chain (TWR -> GND)";
                         reason = $"Bucket {subBucket ?? bucket.ToString()} ({bucketName}): {sourceLabel}" +
                             (distanceNm.HasValue ? $", {distanceNm.Value:0.0}nm" : "") +
                             $" -- {statusLabel}.";
@@ -1069,6 +1082,15 @@ namespace Handoff.Plugin
 
         private static double DistanceNm(HandoffController controller, OwnshipTelemetry telemetry) =>
             GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
+
+        /// <summary>The airport's own position from VATSpy.dat's [Airports] section (issue #167); null whenever it isn't listed or its row had no usable coordinates.</summary>
+        private (double Latitude, double Longitude)? TryGetAirportPosition(string icao)
+        {
+            if (string.IsNullOrEmpty(icao)) return null;
+            if (!_vatSpyData.AirportsByIcao.TryGetValue(icao, out var airport)) return null;
+            if (!airport.Latitude.HasValue || !airport.Longitude.HasValue) return null;
+            return (airport.Latitude.Value, airport.Longitude.Value);
+        }
 
         private static VatGlassesRegionData FindRegionForAirport(IReadOnlyDictionary<string, VatGlassesRegionData> regions, string icao, out VatGlassesAirport airport)
         {
@@ -1518,12 +1540,29 @@ namespace Handoff.Plugin
 
             // 6e.
             var startRank = currentTierGroundWalkStartRank; // set by caller via field just before invocation -- see Recompute.
-            var winningTierGroup = result.HighlightedCallsigns
+            var highlightedByTier = result.HighlightedCallsigns
                 .Select(cs => byCallsign[cs])
                 .GroupBy(c => c.Callsign.ParseControllerTier())
-                .Where(g => g.Key != ControllerTier.Other && (int)g.Key > startRank)
-                .OrderBy(g => (int)g.Key)
-                .FirstOrDefault();
+                .Where(g => g.Key != ControllerTier.Other);
+
+            IGrouping<ControllerTier, HandoffController> winningTierGroup;
+            if (currentTierGroundWalkArrival)
+            {
+                // Landed: the chain runs downward -- the nearest TWR/GND tier below whatever's tuned
+                // (nothing tuned counts as APP, so TWR comes first). DEL is never an arrival step.
+                var arrivalStartRank = startRank >= 0 ? startRank : (int)ControllerTier.AppDep;
+                winningTierGroup = highlightedByTier
+                    .Where(g => (g.Key == ControllerTier.Tower || g.Key == ControllerTier.Ground) && (int)g.Key < arrivalStartRank)
+                    .OrderByDescending(g => (int)g.Key)
+                    .FirstOrDefault();
+            }
+            else
+            {
+                winningTierGroup = highlightedByTier
+                    .Where(g => (int)g.Key > startRank)
+                    .OrderBy(g => (int)g.Key)
+                    .FirstOrDefault();
+            }
 
             if (winningTierGroup != null)
             {
@@ -1544,6 +1583,7 @@ namespace Handoff.Plugin
         // Set by Recompute() immediately before calling ComputeGroundHighlight -- avoids adding yet
         // another parameter to an already-long signature for a value only 6e's chain-walk needs.
         private int currentTierGroundWalkStartRank;
+        private bool currentTierGroundWalkArrival;
 
         /// <summary>
         /// Bucket 7 -- airborne TWR/APP relevance. 7a: TWR, AGL&lt;10000ft, concentric radii
@@ -1583,7 +1623,12 @@ namespace Handoff.Plugin
                 if (tier == ControllerTier.Tower)
                 {
                     if (agl.GetValueOrDefault() > TwrAirborneMaxAglFeet) continue;
-                    var distance = DistanceNm(c, telemetry);
+                    // Issue #167: a tower on the flight plan is measured from the airport itself when
+                    // known -- the controller's reported position can sit well away from the field.
+                    var airportPosition = onFlightPlan ? TryGetAirportPosition(routeAirport) : null;
+                    var distance = airportPosition.HasValue
+                        ? GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, airportPosition.Value.Latitude, airportPosition.Value.Longitude)
+                        : DistanceNm(c, telemetry);
                     var highlightRadius = onFlightPlan ? TwrHighlightRadiusFplnNm : TwrHighlightRadiusNonFplnNm;
                     if (distance > highlightRadius) continue;
 
@@ -1591,7 +1636,16 @@ namespace Handoff.Plugin
                     result.DistanceNm[c.Callsign] = distance;
 
                     var nextRadius = onFlightPlan ? TwrNextRadiusFplnNm : TwrNextRadiusNonFplnNm;
-                    if (distance <= nextRadius) twrNextEligible.Add(c);
+                    if (distance > nextRadius) continue;
+
+                    var needsCone = airportPosition.HasValue && distance > TwrNextInnerRadiusFplnNm && telemetry.HeadingDegrees.HasValue;
+                    if (needsCone)
+                    {
+                        var bearingToAirport = GeoDistance.InitialBearingDegrees(
+                            telemetry.Latitude.Value, telemetry.Longitude.Value, airportPosition.Value.Latitude, airportPosition.Value.Longitude);
+                        if (GeoDistance.AngularDifferenceDegrees(telemetry.HeadingDegrees.Value, bearingToAirport) > TwrNextConeHalfAngleDegrees) continue;
+                    }
+                    twrNextEligible.Add(c);
                 }
                 else if (tier == ControllerTier.AppDep)
                 {
