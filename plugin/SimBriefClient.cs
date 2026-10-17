@@ -14,7 +14,8 @@ namespace Handoff.Plugin
     /// fallback. A non-200 response means "no such user" or "no OFP filed yet" -- both are
     /// reported as no flight plan available, not thrown as fatal errors.
     ///
-    /// NOTE: the field paths below (atc.callsign, origin/destination/alternate.icao_code) are
+    /// NOTE: the field paths below (atc.callsign, origin/destination/alternate.icao_code,
+    /// aircraft.icaocode) are
     /// taken from public SimBrief API documentation/community usage, not confirmed against a
     /// real account yet -- verify empirically, per CLAUDE.md's "Open items to verify
     /// empirically" convention.
@@ -65,7 +66,8 @@ namespace Handoff.Plugin
                         alternate: (string)json.SelectToken("alternate.icao_code"),
                         waypoints: ParseWaypoints(body, logDebug),
                         originLatitude: originLat,
-                        originLongitude: originLon);
+                        originLongitude: originLon,
+                        aircraftType: (string)json.SelectToken("aircraft.icaocode"));
                 }
             }
             catch (Exception ex)

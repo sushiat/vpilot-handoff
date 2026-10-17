@@ -39,6 +39,9 @@ namespace Handoff.Plugin
         public const string TypeMarkChatRead = "markChatRead";
         public const string TypeConfirmDiversion = "confirmDiversion";
         public const string TypeDismissDiversion = "dismissDiversion";
+        // Issue #171 -- connect to / disconnect from the VATSIM network; see docs/protocol.md.
+        public const string TypeConnectNetwork = "connectNetwork";
+        public const string TypeDisconnectNetwork = "disconnectNetwork";
         public const string TypePing = "ping";
         public const string TypeAuthenticate = "authenticate";
 
@@ -126,5 +129,17 @@ namespace Handoff.Plugin
         public string AppVersion { get; set; }
         public string ScreenshotPngBase64 { get; set; }
         public string Name { get; set; }
+
+        // connectNetwork / disconnectNetwork -- client-minted id the plugin reports the outcome
+        // under via operationProgress, so the requesting client can tell its own operation apart
+        // from any other broadcast one.
+        public string OperationId { get; set; }
+
+        // connectNetwork -- Callsign (above) is the callsign to connect as; AircraftType is the
+        // ICAO type code (ignored for observers), SelcalCode optional, Observer connects without
+        // an aircraft.
+        public string AircraftType { get; set; }
+        public string SelcalCode { get; set; }
+        public bool? Observer { get; set; }
     }
 }

@@ -37,9 +37,12 @@ namespace Handoff.Plugin
         public double? OriginLatitude { get; }
         public double? OriginLongitude { get; }
         public IReadOnlyList<FlightPlanWaypoint> Waypoints { get; }
+        // Issue #171 -- the OFP's ICAO aircraft type, only used to prefill the connect dialog.
+        public string AircraftType { get; }
 
-        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null)
+        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null, string aircraftType = null)
         {
+            AircraftType = aircraftType;
             Callsign = callsign;
             Origin = origin;
             Destination = destination;

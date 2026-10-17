@@ -198,6 +198,9 @@ data class FlightPlanMessage(
     val simbriefOrigin: String? = null,
     val simbriefDestination: String? = null,
     val simbriefAlternate: String? = null,
+    // Issue #171 -- the OFP's ICAO aircraft type, only used to prefill the connect dialog. Null
+    // from an older plugin or before the first SimBrief fetch.
+    val simbriefAircraftType: String? = null,
     val vatsimCallsign: String? = null,
     val vatsimOrigin: String? = null,
     val vatsimDestination: String? = null,
@@ -534,6 +537,32 @@ data class RefreshFlightPlanCommand(
     val type: String = "refreshFlightPlan"
 ) : ClientCommand {
     override fun encode() = json.encodeToString(RefreshFlightPlanCommand.serializer(), this)
+}
+
+/** Issue #171 -- connects to the VATSIM network through vPilot. [operationId] is minted by this
+ *  client (a GUID) because the outcome comes back as a broadcast `operationProgress` message, and
+ *  the requester has to recognise its own. [aircraftType]/[selcalCode] are ignored when
+ *  [observer] is true. See docs/protocol.md. */
+@Serializable
+data class ConnectNetworkCommand(
+    val type: String = "connectNetwork",
+    val operationId: String,
+    val callsign: String,
+    val aircraftType: String? = null,
+    val selcalCode: String? = null,
+    val observer: Boolean = false
+) : ClientCommand {
+    override fun encode() = json.encodeToString(ConnectNetworkCommand.serializer(), this)
+}
+
+/** Issue #171 -- leaves the VATSIM network (vPilot keeps running). Outcome reported through
+ *  `operationProgress` under [operationId], same as [ConnectNetworkCommand]. */
+@Serializable
+data class DisconnectNetworkCommand(
+    val type: String = "disconnectNetwork",
+    val operationId: String
+) : ClientCommand {
+    override fun encode() = json.encodeToString(DisconnectNetworkCommand.serializer(), this)
 }
 
 /** Marks `callsign` as pinned (isPinned) -- its own ranking bucket, never displacing isCurrent --

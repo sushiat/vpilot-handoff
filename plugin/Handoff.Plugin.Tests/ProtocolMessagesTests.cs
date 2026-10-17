@@ -350,6 +350,46 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_ConnectNetwork()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"connectNetwork\",\"operationId\":\"op1\",\"callsign\":\"EIDGX\",\"aircraftType\":\"A320\",\"selcalCode\":\"ABCD\",\"observer\":false}");
+
+            Assert.Equal(ClientCommand.TypeConnectNetwork, command.Type);
+            Assert.Equal("op1", command.OperationId);
+            Assert.Equal("EIDGX", command.Callsign);
+            Assert.Equal("A320", command.AircraftType);
+            Assert.Equal("ABCD", command.SelcalCode);
+            Assert.False(command.Observer);
+        }
+
+        [Fact]
+        public void ParseClientCommand_DisconnectNetwork()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"disconnectNetwork\",\"operationId\":\"op2\"}");
+
+            Assert.Equal(ClientCommand.TypeDisconnectNetwork, command.Type);
+            Assert.Equal("op2", command.OperationId);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_CarriesSimbriefAircraftType()
+        {
+            var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS", aircraftType: "A320");
+
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
+
+            Assert.Equal("A320", (string)json["simbriefAircraftType"]);
+        }
+
+        [Fact]
+        public void BuildFlightPlanMessage_BeforeFirstFetch_AircraftTypeIsNull()
+        {
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
+
+            Assert.Equal(JTokenType.Null, json["simbriefAircraftType"].Type);
+        }
+
+        [Fact]
         public void BuildChatMessage_PrivateMessage_ChannelAndDirectionAreLowercase()
         {
             var messages = new List<ChatMessage>

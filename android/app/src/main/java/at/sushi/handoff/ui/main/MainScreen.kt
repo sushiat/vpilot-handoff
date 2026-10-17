@@ -416,6 +416,8 @@ private fun MainScreenContent() {
     var cdmWebOpen by remember { mutableStateOf(false) }
     var rowColorDialogOpen by remember { mutableStateOf(false) }
     var nearbyDialogOpen by remember { mutableStateOf(false) }
+    var connectNetworkDialogOpen by remember { mutableStateOf(false) }
+    var disconnectNetworkDialogOpen by remember { mutableStateOf(false) }
     var footerExpanded by remember { mutableStateOf(false) }
     var chatOpen by remember { mutableStateOf(false) }
 
@@ -928,7 +930,11 @@ private fun MainScreenContent() {
                 // Not persisted -- HandoffConnectionService re-derives this from the live
                 // charging state at startup and forces it on when a charger connects; a manual
                 // toggle here only holds until the next one of those triggers.
-                onToggleKeepScreenAwake = { HandoffState.setKeepScreenAwake(!keepScreenAwake) }
+                onToggleKeepScreenAwake = { HandoffState.setKeepScreenAwake(!keepScreenAwake) },
+                networkControlAvailable = !demoModeEnabled && connectionStatus == at.sushi.handoff.ConnectionStatus.CONNECTED &&
+                    at.sushi.handoff.util.NetworkConnect.isSupported(subsystemStatus.pluginVersion),
+                onConnectNetwork = { connectNetworkDialogOpen = true },
+                onDisconnectNetwork = { disconnectNetworkDialogOpen = true }
             )
             }
             if (layoutMode == LayoutMode.SPLIT && splitSide == at.sushi.handoff.SplitSide.LEFT) {
@@ -1041,6 +1047,30 @@ private fun MainScreenContent() {
             destination = destination,
             onConfirm = { send(ConfirmDiversionCommand()) },
             onDismiss = { send(DismissDiversionCommand()) }
+        )
+    }
+
+    // Issue #171 -- prefilled from the latest SimBrief plan; SELCAL isn't in the plugin's data, so
+    // the last one typed is remembered locally instead.
+    if (connectNetworkDialogOpen) {
+        at.sushi.handoff.ui.dialogs.ConnectNetworkDialog(
+            initialCallsign = flightPlan.simbriefCallsign.orEmpty(),
+            initialAircraftType = flightPlan.simbriefAircraftType.orEmpty(),
+            initialSelcal = prefs.getString(HandoffConnectionService.PrefKeyLastSelcal, "").orEmpty(),
+            simulatorConnected = subsystemStatus.simulatorConnected,
+            operations = operationProgress,
+            onSend = { send(it) },
+            onRememberSelcal = { prefs.edit { putString(HandoffConnectionService.PrefKeyLastSelcal, it) } },
+            onDismiss = { connectNetworkDialogOpen = false }
+        )
+    }
+
+    if (disconnectNetworkDialogOpen) {
+        at.sushi.handoff.ui.dialogs.DisconnectNetworkDialog(
+            callsign = flightPlan.vatsimCallsign,
+            operations = operationProgress,
+            onSend = { send(it) },
+            onDismiss = { disconnectNetworkDialogOpen = false }
         )
     }
 

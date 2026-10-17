@@ -62,6 +62,7 @@ namespace Handoff.Plugin
         private readonly HandoffControllerStateModel _controllerState;
         private readonly PilotSessionModel _pilotSession;
         private readonly OperationProgressModel _operationProgress;
+        private readonly NetworkConnectionModel _networkConnection;
         private readonly HandoffPairedClientStore _pairedClients;
         private readonly HandoffPairingSession _pairingSession;
         private readonly VatGlassesDataModel _vatGlassesData;
@@ -84,7 +85,7 @@ namespace Handoff.Plugin
         // the wire broadcast just goes out on a fixed cadence instead. That cadence is the pilot's
         // update-interval tier (issue #88), read from _updateInterval rather than a constant.
 
-        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, UpdateIntervalModel updateInterval, WsPortModel wsPortModel, Action<string> logDebug = null)
+        public HandoffWebSocketServer(ControllerRankingModel controllerRanking, ChatModel chatModel, RadioStateModel radioState, FlightPlanModel flightPlanState, VatsimDataFeedModel vatsimDataFeed, NearbyAircraftModel nearbyAircraft, HandoffControllerStateModel controllerState, PilotSessionModel pilotSession, OperationProgressModel operationProgress, NetworkConnectionModel networkConnection, X509Certificate2 certificate, HandoffPairedClientStore pairedClients, HandoffPairingSession pairingSession, VatGlassesDataModel vatGlassesData, VatSpyDataModel vatSpyData, UpdateIntervalModel updateInterval, WsPortModel wsPortModel, Action<string> logDebug = null)
         {
             _controllerRanking = controllerRanking ?? throw new ArgumentNullException(nameof(controllerRanking));
             _chatModel = chatModel ?? throw new ArgumentNullException(nameof(chatModel));
@@ -95,6 +96,7 @@ namespace Handoff.Plugin
             _controllerState = controllerState ?? throw new ArgumentNullException(nameof(controllerState));
             _pilotSession = pilotSession ?? throw new ArgumentNullException(nameof(pilotSession));
             _operationProgress = operationProgress ?? throw new ArgumentNullException(nameof(operationProgress));
+            _networkConnection = networkConnection ?? throw new ArgumentNullException(nameof(networkConnection));
             _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
             _pairedClients = pairedClients ?? throw new ArgumentNullException(nameof(pairedClients));
             _pairingSession = pairingSession ?? throw new ArgumentNullException(nameof(pairingSession));
@@ -425,6 +427,12 @@ namespace Handoff.Plugin
                     break;
                 case ClientCommand.TypeDismissDiversion:
                     _controllerRanking.DismissDiversion();
+                    break;
+                case ClientCommand.TypeConnectNetwork:
+                    _networkConnection.Connect(command.OperationId, command.Callsign, command.AircraftType, command.SelcalCode, command.Observer == true);
+                    break;
+                case ClientCommand.TypeDisconnectNetwork:
+                    _networkConnection.Disconnect(command.OperationId);
                     break;
                 case ClientCommand.TypeSetDebugMode:
                     _controllerRanking.SetDebugMode(command.Enabled == true);

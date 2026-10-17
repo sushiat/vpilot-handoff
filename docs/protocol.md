@@ -40,6 +40,15 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #171 -- connect to / disconnect from VATSIM from the client. New client→server
+`connectNetwork` (`operationId`, `callsign`, `aircraftType`, optional `selcalCode`, `observer`)
+and `disconnectNetwork` (`operationId`); the outcome is reported through the existing
+`operationProgress` message under the client-supplied `operationId`. New nullable field
+`flightPlan.simbriefAircraftType` (the OFP's ICAO type, to prefill the connect dialog). Additive
+per the Compatibility section -- an older plugin logs the new commands as unrecognized and never
+answers, so a client should only offer the control when `subsystemStatus.pluginVersion` is at
+least the release that introduced them (0.8.0).
+
 Issue #151 follow-up -- contact-me text on the controller row. New nullable field
 `controllers[].contactMeText` (see `isContactMe`). For a known controller the "contact me"
 private message no longer appears in `chat`: it becomes `isContactMe` + `contactMeText` instead.
@@ -550,6 +559,7 @@ feed's next poll (~15s interval) lands.
   "simbriefOrigin": "EGLL",
   "simbriefDestination": "KJFK",
   "simbriefAlternate": "KBOS",
+  "simbriefAircraftType": "A320",
   "vatsimCallsign": "BAW123",
   "vatsimOrigin": "EGLL",
   "vatsimDestination": "KJFK",
@@ -557,6 +567,10 @@ feed's next poll (~15s interval) lands.
   "vatsimCidMismatch": false
 }
 ```
+
+`simbriefAircraftType` (issue #171) is the OFP's ICAO aircraft type (`aircraft.icaocode`), carried
+only so a client can prefill its connect dialog (`connectNetwork`); `null` until the first fetch or
+when the OFP lacks the field.
 
 `simbriefAlternate` is fetched and stored for future use but not yet surfaced in the Android app
 (there's no VATSIM-side equivalent surfaced here, though the feed's `flight_plan.alternate` does
@@ -936,6 +950,38 @@ persisted.
 ```json
 {"type": "refreshFlightPlan"}
 ```
+
+### `connectNetwork` / `disconnectNetwork`
+
+Issue #171 -- connects to / disconnects from the VATSIM network through `IBroker.RequestConnect`/
+`RequestConnectAsObserver`/`RequestDisconnect`, so a pilot can do it from the tablet without
+reaching vPilot's own window.
+
+```json
+{"type": "connectNetwork", "operationId": "7c1f...", "callsign": "EIDGX", "aircraftType": "A320", "selcalCode": "ABCD", "observer": false}
+{"type": "disconnectNetwork", "operationId": "9a2e..."}
+```
+
+`operationId` is **minted by the client** (a GUID string), unlike plugin-started operations,
+because `operationProgress` is broadcast to every paired client and the requester must recognise
+its own. `callsign` and `aircraftType` are required unless `observer` is `true` (then only
+`callsign`; `aircraftType`/`selcalCode` are ignored). The plugin upper-cases and trims them;
+`selcalCode` is optional. A command without an `operationId` is ignored.
+
+`IBroker`'s calls return nothing, so the outcome arrives as `operationProgress` messages with the
+same `operationId`: first `finished: false` ("Connecting to VATSIM..." / "Disconnecting from
+VATSIM..."), then one `finished: true` message:
+
+- `NetworkConnected` / `NetworkDisconnected` -> `success: true`.
+- `AlreadyConnectedException` / `NotConnectedException` -> `success: true` ("already connected" /
+  "not connected" is the state the pilot asked for; refresh state, don't show an error).
+- `SimNotReadyException` -> `success: false`, "vPilot isn't connected to the simulator yet."
+- A missing callsign/type, any other exception, or a `NetworkDisconnected`/`SessionEnded` while a
+  connect is still pending -> `success: false` with a reason in `status`.
+
+The plugin has no timer of its own: if neither event ever arrives, the client's 60-second
+`operationProgress` timeout (above) is the backstop. The resulting state also shows up through the
+existing messages: `flightPlan.vatsimCallsign` (`null` until connected).
 
 ### `pinController` / `clearPinnedController`
 

@@ -129,7 +129,12 @@ fun FooterStatusBar(
     onOpenSettings: () -> Unit,
     // Issue #143 -- opens the embedded VDGS site (see CdmWebDialog) to set/edit the TOBT.
     onOpenCdm: () -> Unit,
-    onToggleKeepScreenAwake: () -> Unit
+    onToggleKeepScreenAwake: () -> Unit,
+    // Issue #171 -- hidden entirely (false) on a plugin that predates connectNetwork/
+    // disconnectNetwork, and in demo mode where there's no plugin to ask.
+    networkControlAvailable: Boolean,
+    onConnectNetwork: () -> Unit,
+    onDisconnectNetwork: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
     Column(
@@ -327,6 +332,17 @@ fun FooterStatusBar(
                 // than just being told "mismatch" with no detail. Highlighted in colors.attention
                 // when they disagree (or nothing's filed at all), same signal as the collapsed
                 // row's exclamation icon.
+                // Issue #171 -- labelled "Network", not "Connected": the footer's other
+                // "Connected ..." rows describe the plugin link, this one is the VATSIM session.
+                // Lives in the drawer (behind the expand tap) so a mid-flight mis-tap can't
+                // disconnect, and the action itself still asks for confirmation.
+                if (networkControlAvailable) {
+                    NetworkControlRow(
+                        callsign = activeCallsign,
+                        onConnect = onConnectNetwork,
+                        onDisconnect = onDisconnectNetwork
+                    )
+                }
                 FlightPlanDetailRow("Active callsign", activeCallsign ?: "----", flightPlanWarning)
                 FlightPlanDetailRow(
                     "SimBrief",
@@ -391,6 +407,36 @@ fun FooterStatusBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NetworkControlRow(callsign: String?, onConnect: () -> Unit, onDisconnect: () -> Unit) {
+    val colors = LocalHandoffColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Network",
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textMuted,
+            modifier = Modifier.widthIn(min = 90.dp)
+        )
+        Text(
+            if (callsign != null) "Connected as $callsign" else "Not connected",
+            fontSize = 11.5.sp,
+            fontFamily = RobotoMono,
+            color = colors.textMuted,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        Text(
+            if (callsign != null) "Disconnect" else "Connect...",
+            color = colors.accent,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clickable(onClick = if (callsign != null) onDisconnect else onConnect)
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+        )
     }
 }
 
