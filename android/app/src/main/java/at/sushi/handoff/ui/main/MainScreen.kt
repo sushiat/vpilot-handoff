@@ -1,12 +1,14 @@
 package at.sushi.handoff.ui.main
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -20,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
@@ -27,6 +30,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -179,6 +183,50 @@ private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationPr
 private fun entryTab(entry: ChatEntry): String? =
     if (entry.channel == "private") entry.peer?.let(::chatTabKey) else RADIO_TAB
 
+/** Issue #169 -- the controller list's empty state while there's truly nothing connected:
+ *  explains why the list is empty (rather than leaving a reviewer or a pilot who hasn't set up
+ *  the plugin yet staring at a blank panel) and offers the way into demo mode (the only one --
+ *  Settings has no toggle for it). Plain centered content
+ *  over the list's own background, not a dialog -- this needs no explicit "way out" of its own
+ *  since it simply stops being shown the moment demo data (or a real connection) exists. */
+@Composable
+private fun NotConnectedOverlay(onTryDemo: () -> Unit) {
+    val colors = at.sushi.handoff.ui.theme.LocalHandoffColors.current
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.width(260.dp)
+        ) {
+            androidx.compose.material3.Text(
+                "Not connected",
+                color = colors.text,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            androidx.compose.material3.Text(
+                "Handoff needs the Windows vPilot plugin on the same network. Set it up, or look around with sample data first.",
+                color = colors.textMuted,
+                fontSize = 13.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+            )
+            Box(
+                Modifier
+                    .background(colors.accent, RoundedCornerShape(8.dp))
+                    .clickable(onClick = onTryDemo)
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                androidx.compose.material3.Text(
+                    "Try demo",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+}
+
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
@@ -221,6 +269,10 @@ private fun MainScreenContent() {
     // dismissible notice instead, remembered per-version so it doesn't nag again for the same
     // release once dismissed.
     LaunchedEffect(Unit) {
+        // Issue #169 -- no network at all while demo mode is on. Checked once up front: this
+        // effect only ever runs once per composition, right at launch, before demo mode could
+        // plausibly already be on.
+        if (HandoffState.demoModeEnabled.value) return@LaunchedEffect
         if (updateSourceFor(ChannelFeatures.GithubUpdateChecks, isInstalledViaObtainium(context)) != UpdateSource.MANUAL) return@LaunchedEffect
         val currentVersion = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -240,6 +292,7 @@ private fun MainScreenContent() {
     val radioState by HandoffState.radioState.collectAsState()
     val flightPlan by HandoffState.flightPlan.collectAsState()
     val connectionStatus by HandoffState.connectionStatus.collectAsState()
+    val demoModeEnabled by HandoffState.demoModeEnabled.collectAsState()
     val cdmSlot by HandoffState.cdmSlot.collectAsState()
 
     // One-shot-on-connect plugin/app version-skew check (issue #87). Re-arms on every (re)connect
@@ -774,8 +827,9 @@ private fun MainScreenContent() {
                 }
             )
 
+            Box(Modifier.weight(1f)) {
             ControllerList(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxSize(),
                 controllers = controllers.controllers,
                 com1Active = radioState.com1Frequency,
                 com2Active = radioState.com2Frequency,
@@ -805,9 +859,19 @@ private fun MainScreenContent() {
                     send(at.sushi.handoff.protocol.DismissSelcalCommand(callsign = callsign))
                 }
             )
+            // Issue #169 -- the first thing a Play reviewer (or a pilot who hasn't set up the
+            // plugin yet) sees: a fresh install with nothing connected and an empty list, with no
+            // explanation otherwise. Only shown while there's truly nothing else going on (not
+            // already showing demo data) so it never covers a real session. CONNECTING counts as not
+            // connected yet, otherwise the overlay flickers away on every reconnect attempt.
+            if (connectionStatus != ConnectionStatus.CONNECTED && !demoModeEnabled && controllers.controllers.isEmpty()) {
+                NotConnectedOverlay(onTryDemo = { HandoffConnectionService.instance?.enableDemoMode() })
+            }
+            }
 
             FooterStatusBar(
                 connectionStatus = connectionStatus,
+                demoModeEnabled = demoModeEnabled,
                 origin = displayOrigin,
                 destination = displayDestination,
                 flightPlanWarning = flightPlanWarning,
@@ -953,7 +1017,7 @@ private fun MainScreenContent() {
     }
 
     if (cdmWebOpen) {
-        CdmWebDialog(onDismiss = { cdmWebOpen = false })
+        CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
     }
 
     if (settingsDialogOpen) {

@@ -106,11 +106,10 @@ help:
 > Handoff is a companion for the vPilot flight-simulation client (VATSIM network). It connects to a
 > Windows plugin the user installs alongside vPilot, so on its own it shows an empty controller
 > list and a "not connected" state. A short screen recording of it working against a live session
-> is attached: [link]. To explore the UI without the plugin: [describe, if a demo mode exists].
+> is attached: [link]. To explore the UI without the plugin: tap "Try demo" on the not-connected
+> screen (or the Demo Mode toggle in Settings) -- the app fills with clearly-marked sample
+> controllers, chat, radio state and a flight plan; nothing is sent anywhere while it's on.
 > The plugin and install steps are in the project repository: https://github.com/sushiat/vpilot-handoff
-
-If there's no demo mode, consider adding one: a reviewer who only sees "not connected" is a
-likely rejection.
 
 ## Closed testing checklist
 
