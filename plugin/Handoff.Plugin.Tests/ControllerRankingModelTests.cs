@@ -647,6 +647,153 @@ namespace Handoff.Plugin.Tests
             Assert.DoesNotContain(ranked, c => c.IsNext);
         }
 
+        // ---- Issue #167 -- airborne TWR next radius (20nm on the flight plan, with a heading cone) ----
+
+        /// <summary>An airport at (0, 0) known to VATSpy, plus a flight plan landing there; ownship is <paramref name="distanceNm"/> west of it (1nm = 1' of longitude at the equator) at the given heading, 3000ft AGL. The tower reports its own position <paramref name="towerLongitude"/> degrees east.</summary>
+        private async Task<ControllerRankingModel> CreateTwrApproachAsync(double distanceNm, double headingDegrees, bool airportKnown, double towerLongitude = 0)
+        {
+            var flightPlan = await CreateFlightPlanAsync("EGKK", "EGLL");
+            AddController("EGLL_TWR", 23725, 0, towerLongitude);
+            _radio.Telemetry = new OwnshipTelemetry(false, 140, 3000, -700, headingDegrees, 0, -distanceNm / 60.0, DateTimeOffset.Now);
+            var vatSpy = airportKnown
+                ? CreateVatSpyDataModel(@"{""features"": []}", "[Airports]\nEGLL|Heathrow|0|0|LHR|EGTT|0\n")
+                : null;
+            return CreateModel(flightPlan, vatSpyData: vatSpy);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_15nm_HeadingTowardAirport_ConfidentNext()
+        {
+            var model = await CreateTwrApproachAsync(15, 90, airportKnown: true);
+
+            Assert.True(model.Current.Single().IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_15nm_HeadingAwayFromAirport_HighlightedButNotNext()
+        {
+            var model = await CreateTwrApproachAsync(15, 270, airportKnown: true);
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsHighlighted);
+            Assert.False(ranked.IsNext);
+            Assert.False(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_15nm_TwoThirdsOfConeEdge_StillNext()
+        {
+            // 50 degrees off the bearing to the airport, inside the 60 degree half-angle.
+            var model = await CreateTwrApproachAsync(15, 40, airportKnown: true);
+
+            Assert.True(model.Current.Single().IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_InsideInnerRadius_NextRegardlessOfHeading()
+        {
+            var model = await CreateTwrApproachAsync(8, 270, airportKnown: true);
+
+            Assert.True(model.Current.Single().IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket7a_Twr_OnFlightPlan_BeyondHighlightRadius_NotHighlighted()
+        {
+            var model = await CreateTwrApproachAsync(25, 90, airportKnown: true);
+
+            Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_AirportUnknown_PlainRadius_HeadingIgnored()
+        {
+            // Tower reports its position at the airport itself, so the controller-position fallback
+            // measures the same 15nm; no cone without the airport's own coordinates.
+            var model = await CreateTwrApproachAsync(15, 270, airportKnown: false);
+
+            Assert.True(model.Current.Single().IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_OnFlightPlan_AirportKnown_UsesAirportNotReportedPosition()
+        {
+            // The tower's client reports a position ~120nm away; measured from the airport, ownship is 12nm out.
+            var model = await CreateTwrApproachAsync(12, 90, airportKnown: true, towerLongitude: 2);
+
+            Assert.True(model.Current.Single().IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket7c_Twr_NotOnFlightPlan_KeepsSmallRadii()
+        {
+            // Destination EGLL, but this tower is another airport's: 8nm is inside its 10nm highlight, outside its 5nm next radius.
+            var flightPlan = await CreateFlightPlanAsync("EGKK", "EGLL");
+            AddController("EGSS_TWR", 23725, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 140, 3000, -700, 90, 0, -8 / 60.0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+
+            var ranked = model.Current.Single();
+            Assert.True(ranked.IsHighlighted);
+            Assert.False(ranked.IsNext);
+        }
+
+        // ---- Issue #167 -- ground chain-walk runs TWR -> GND after landing ----------------------
+
+        /// <summary>Flies the takeoff latch (airborne, 500ft AGL), then lands: returns the model with ownship on the ground. EGLL is the destination, so all its stations are flight-plan highlighted.</summary>
+        private async Task<ControllerRankingModel> CreateLandedModelAsync(int? tunedFrequency)
+        {
+            var flightPlan = await CreateFlightPlanAsync("EGKK", "EGLL");
+            AddController("EGLL_GND", 21800, 10, 10);
+            AddController("EGLL_TWR", 23725, 10, 10);
+            AddController("EGLL_APP", 12345, 10, 10);
+            _radio.Telemetry = new OwnshipTelemetry(false, 140, 500, -700, 90, 0, 0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+            Assert.NotEmpty(model.Current); // forces the airborne pass, latching "has taken off"
+
+            _radio.Current = new RadioState(tunedFrequency, null, null, null, false, null, false, false, false, false, DateTimeOffset.Now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 15, 0, 0, 90, 0, 0, DateTimeOffset.Now);
+            _radio.RaiseChanged();
+            return model;
+        }
+
+        [Fact]
+        public async Task Bucket6e_AfterLanding_TwrTuned_GroundIsNext_NotApproach()
+        {
+            var model = await CreateLandedModelAsync(23725);
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_GND").IsNext);
+            Assert.False(ranked.Single(c => c.Callsign == "EGLL_APP").IsNext);
+            Assert.False(ranked.Single(c => c.Callsign == "EGLL_APP").IsLikelyNext);
+        }
+
+        [Fact]
+        public async Task Bucket6e_AfterLanding_GroundTuned_NothingIsNext()
+        {
+            var model = await CreateLandedModelAsync(21800);
+
+            Assert.DoesNotContain(model.Current, c => c.IsNext || c.IsLikelyNext);
+        }
+
+        [Fact]
+        public async Task Bucket6e_AfterLanding_NothingTuned_TowerIsNextBeforeGround()
+        {
+            var model = await CreateLandedModelAsync(null);
+
+            var ranked = model.Current;
+            Assert.True(ranked.Single(c => c.Callsign == "EGLL_TWR").IsNext);
+            Assert.False(ranked.Single(c => c.Callsign == "EGLL_GND").IsNext);
+        }
+
+        [Fact]
+        public async Task Bucket6e_AfterLanding_ApproachTuned_TowerIsNext()
+        {
+            var model = await CreateLandedModelAsync(12345);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "EGLL_TWR").IsNext);
+        }
+
         [Fact]
         public void Bucket7b_AppDep_FlatRadius_NoVatGlassesCoverage_FallbackCeiling()
         {

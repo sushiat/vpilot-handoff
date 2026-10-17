@@ -74,16 +74,20 @@ namespace Handoff.Plugin
         }
     }
 
-    /// <summary>One `[Airports]` row from VATSpy.dat -- place name for DEL/GND/TWR/APP display-name composition. See issue #11.</summary>
+    /// <summary>One `[Airports]` row from VATSpy.dat -- place name for DEL/GND/TWR/APP display-name composition (issue #11), and the airport's own position for the airborne TWR next-radius/cone check (issue #167). Position is null for a blank/malformed row.</summary>
     public sealed class VatSpyAirportInfo
     {
         public string Icao { get; }
         public string Name { get; }
+        public double? Latitude { get; }
+        public double? Longitude { get; }
 
-        public VatSpyAirportInfo(string icao, string name)
+        public VatSpyAirportInfo(string icao, string name, double? latitude = null, double? longitude = null)
         {
             Icao = icao;
             Name = name;
+            Latitude = latitude;
+            Longitude = longitude;
         }
     }
 }
