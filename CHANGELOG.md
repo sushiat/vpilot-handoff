@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Android (issue #174): the Settings dialog's scrollbar no longer draws over the right edge of
+  its content. On a phone it clipped the Username field, the palette button, "Auto-detect" and
+  the right-hand toggle buttons, and it would have covered the Credits column on a tablet as
+  soon as the dialog scrolled there. The thumb now sits in its own gutter, like the row-color
+  theme dialog's already did.
+- Android (issue #174): long callsigns are no longer cut off on narrow phone screens
+  ("LOWW_GND" showed as "LOWW_GNI"). The callsign column is now sized by measuring the callsign
+  text instead of a fixed per-character estimate, so it also follows font and display scale.
+- Android (issue #174): the SELCAL banner in the RADIO tab shows the local time like chat
+  messages do, instead of the raw ISO timestamp.
+
 ## [0.7.0] - 2026-10-17
 
 ### Added

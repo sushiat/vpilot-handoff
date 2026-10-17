@@ -61,6 +61,7 @@ import at.sushi.handoff.ui.theme.DeuteranopiaSafeRowColorPalette
 import at.sushi.handoff.ui.theme.FacilityColors
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.ui.theme.ScrollbarTrack
 import at.sushi.handoff.ui.theme.ProtanopiaSafeRowColorPalette
 import at.sushi.handoff.ui.theme.RobotoMono
 import at.sushi.handoff.ui.theme.RowColorPalette
@@ -252,8 +253,8 @@ fun RowColorThemeDialog(
                     return@Column
                 }
 
-                // A dedicated scrollbar column (below) instead of RowColors.kt's usual draw-over
-                // verticalScrollbar -- that approach kept reading as overlapping the preview
+                // A dedicated scrollbar column (below, the shared ScrollbarTrack) instead of a
+                // draw-over thumb -- that approach kept reading as overlapping the preview
                 // cards' right edge regardless of end-padding tuning (confirmed on-device,
                 // glaringly obvious against the bright ATIS yellow card), so this reserves real
                 // layout space instead of drawing on top of content.
@@ -483,27 +484,6 @@ private fun CompactSlider(value: Float, onValueChange: (Float) -> Unit, valueRan
             )
         }
     )
-}
-
-/** A thumb drawn in its own reserved-width column, not overlapping scrollable content the way
- *  RowColors.kt's usual `Modifier.verticalScrollbar` draw-over approach does -- see the comment at
- *  this dialog's scrollable Row for why. */
-@Composable
-private fun ScrollbarTrack(state: androidx.compose.foundation.ScrollState, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        if (state.maxValue <= 0) return@Canvas
-        val viewportHeight = size.height
-        val contentHeight = viewportHeight + state.maxValue
-        val thumbHeight = (viewportHeight * (viewportHeight / contentHeight)).coerceAtLeast(24.dp.toPx())
-        val scrollableTrack = viewportHeight - thumbHeight
-        val thumbY = scrollableTrack * (state.value.toFloat() / state.maxValue)
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(0f, thumbY),
-            size = androidx.compose.ui.geometry.Size(size.width, thumbHeight),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width / 2)
-        )
-    }
 }
 
 @Composable

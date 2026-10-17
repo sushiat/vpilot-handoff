@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -47,7 +48,7 @@ import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.protocol.SetDebugModeCommand
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
-import at.sushi.handoff.ui.theme.verticalScrollbar
+import at.sushi.handoff.ui.theme.ScrollbarTrack
 import kotlinx.coroutines.launch
 
 // Shared across every HandoffTextField in this dialog so they render at an identical height --
@@ -213,174 +214,180 @@ fun SettingsDialog(
                     )
                 }
 
-                Column(
-                    Modifier
-                        .padding(top = 14.dp)
-                        .verticalScroll(scrollState)
-                        .verticalScrollbar(scrollState, colors.border)
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                        Column(if (singleColumn) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
-                            SectionLabel("SIMBRIEF", topPadding = 0.dp)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Column(Modifier.weight(1f)) {
-                                    FieldLabel("User ID")
-                                    HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
-                                }
-                                Column(Modifier.weight(1f)) {
-                                    FieldLabel("Username (fallback)")
-                                    HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
-                                }
-                            }
-
-                            SectionLabel("APPEARANCE")
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(Modifier.weight(1f)) {
-                                    ToggleRow(
-                                        listOf(
-                                            ToggleOption(ThemeMode.SYSTEM, "System"),
-                                            ToggleOption(ThemeMode.LIGHT, "Light"),
-                                            ToggleOption(ThemeMode.DARK, "Dark")
-                                        ),
-                                        theme
-                                    ) {
-                                        // Applied live (not just carried into the onSave payload
-                                        // at close) -- feedback: adjusting row colors right after
-                                        // switching theme required closing Settings first just to
-                                        // see the new theme take effect.
-                                        theme = it
-                                        HandoffState.setTheme(it)
+                // Issue #174 -- the scrollbar thumb gets its own gutter instead of being drawn over
+                // the content (it covered the right edge of fields and buttons on narrow screens,
+                // and would cover the right-hand column once the two-column layout starts
+                // scrolling). Same approach as RowColorThemeDialog.
+                Row(Modifier.padding(top = 14.dp)) {
+                    Column(Modifier.weight(1f).verticalScroll(scrollState)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                            Column(if (singleColumn) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
+                                SectionLabel("SIMBRIEF", topPadding = 0.dp)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Column(Modifier.weight(1f)) {
+                                        FieldLabel("User ID")
+                                        HandoffTextField(simbriefUserId, { simbriefUserId = it }, placeholder = "e.g. 123456", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        FieldLabel("Username (fallback)")
+                                        HandoffTextField(simbriefUsername, { simbriefUsername = it }, placeholder = "optional", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
                                     }
                                 }
-                                // Issue #21 -- opens the row-color theme editor. A small icon
-                                // button tucked next to the System/Light/Dark toggle rather than
-                                // a new full-width row, per the issue's own entry-point proposal.
-                                Box(
-                                    Modifier
-                                        .background(colors.panelAlt, RoundedCornerShape(8.dp))
-                                        .clickable(onClick = onOpenRowColorEditor)
-                                        .padding(horizontal = 10.dp, vertical = 9.dp)
-                                ) {
-                                    Text("🎨", fontSize = 14.sp)
-                                }
-                            }
 
-                            SectionLabel("PLUGIN CONNECTION")
-                            FieldLabel("Manual IP (if discovery fails)")
-                            HandoffTextField(host, { host = it }, placeholder = "192.168.1.42[:port]", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
-                            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    "Status: $connectionStatus",
-                                    fontSize = 12.sp,
-                                    // CONNECTING isn't named in either color -- it's neither a
-                                    // success nor a failure state, just leave it muted.
-                                    color = when (connectionStatus) {
-                                        ConnectionStatus.CONNECTED -> colors.ok
-                                        ConnectionStatus.DISCONNECTED -> outOfBandRed
-                                        ConnectionStatus.CONNECTING -> colors.textMuted
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                // Not in the static design mock (it has no live network to
-                                // discover on), but a real, working feature this app already has
-                                // (HandoffDiscoveryClient) that the protocol doc calls for as the
-                                // IP field's fallback partner -- kept, not dropped.
-                                Text(
-                                    "Auto-detect",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.accent,
-                                    modifier = Modifier.clickable {
-                                        discoveryStatus = "Searching…"
-                                        scope.launch {
-                                            val found = HandoffDiscoveryClient().discover()?.host
-                                            if (found != null) {
-                                                host = found
-                                                discoveryStatus = "Found $found"
-                                            } else {
-                                                discoveryStatus = "Not found -- enter IP manually"
-                                            }
+                                SectionLabel("APPEARANCE")
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(Modifier.weight(1f)) {
+                                        ToggleRow(
+                                            listOf(
+                                                ToggleOption(ThemeMode.SYSTEM, "System"),
+                                                ToggleOption(ThemeMode.LIGHT, "Light"),
+                                                ToggleOption(ThemeMode.DARK, "Dark")
+                                            ),
+                                            theme
+                                        ) {
+                                            // Applied live (not just carried into the onSave payload
+                                            // at close) -- feedback: adjusting row colors right after
+                                            // switching theme required closing Settings first just to
+                                            // see the new theme take effect.
+                                            theme = it
+                                            HandoffState.setTheme(it)
                                         }
                                     }
-                                )
-                            }
-                            if (discoveryStatus.isNotBlank()) {
-                                Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
-                            }
-                            // Issue #15 -- no per-device management UI yet, just a way back from
-                            // "Ignore this machine" (PairingCodeDialog's cancel flow) without
-                            // that being a one-way door. Only shown once there's actually
-                            // something to clear.
-                            if (ignoredDeviceCount > 0) {
-                                Row(
-                                    Modifier.fillMaxWidth().padding(top = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                    // Issue #21 -- opens the row-color theme editor. A small icon
+                                    // button tucked next to the System/Light/Dark toggle rather than
+                                    // a new full-width row, per the issue's own entry-point proposal.
+                                    Box(
+                                        Modifier
+                                            .background(colors.panelAlt, RoundedCornerShape(8.dp))
+                                            .clickable(onClick = onOpenRowColorEditor)
+                                            .padding(horizontal = 10.dp, vertical = 9.dp)
+                                    ) {
+                                        Text("🎨", fontSize = 14.sp)
+                                    }
+                                }
+
+                                SectionLabel("PLUGIN CONNECTION")
+                                FieldLabel("Manual IP (if discovery fails)")
+                                HandoffTextField(host, { host = it }, placeholder = "192.168.1.42[:port]", fontSize = SettingsFieldFontSize, modifier = Modifier.fillMaxWidth().height(SettingsFieldHeight))
+                                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(
-                                        "Ignored devices ($ignoredDeviceCount)",
+                                        "Status: $connectionStatus",
                                         fontSize = 12.sp,
-                                        color = colors.textMuted
+                                        // CONNECTING isn't named in either color -- it's neither a
+                                        // success nor a failure state, just leave it muted.
+                                        color = when (connectionStatus) {
+                                            ConnectionStatus.CONNECTED -> colors.ok
+                                            ConnectionStatus.DISCONNECTED -> outOfBandRed
+                                            ConnectionStatus.CONNECTING -> colors.textMuted
+                                        },
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    // Not in the static design mock (it has no live network to
+                                    // discover on), but a real, working feature this app already has
+                                    // (HandoffDiscoveryClient) that the protocol doc calls for as the
+                                    // IP field's fallback partner -- kept, not dropped.
                                     Text(
-                                        "Clear",
+                                        "Auto-detect",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accent,
                                         modifier = Modifier.clickable {
-                                            onClearIgnoredDevices()
-                                            ignoredDeviceCount = 0
+                                            discoveryStatus = "Searching…"
+                                            scope.launch {
+                                                val found = HandoffDiscoveryClient().discover()?.host
+                                                if (found != null) {
+                                                    host = found
+                                                    discoveryStatus = "Found $found"
+                                                } else {
+                                                    discoveryStatus = "Not found -- enter IP manually"
+                                                }
+                                            }
                                         }
                                     )
                                 }
+                                if (discoveryStatus.isNotBlank()) {
+                                    Text(discoveryStatus, fontSize = 10.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
+                                }
+                                // Issue #15 -- no per-device management UI yet, just a way back from
+                                // "Ignore this machine" (PairingCodeDialog's cancel flow) without
+                                // that being a one-way door. Only shown once there's actually
+                                // something to clear.
+                                if (ignoredDeviceCount > 0) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(top = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            "Ignored devices ($ignoredDeviceCount)",
+                                            fontSize = 12.sp,
+                                            color = colors.textMuted
+                                        )
+                                        Text(
+                                            "Clear",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = colors.accent,
+                                            modifier = Modifier.clickable {
+                                                onClearIgnoredDevices()
+                                                ignoredDeviceCount = 0
+                                            }
+                                        )
+                                    }
+                                }
+
+                                SectionLabel("DEFAULT CHANNEL SPACING")
+                                ToggleRow(
+                                    listOf(
+                                        ToggleOption(ChannelSpacing.KHZ_25, "25 kHz"),
+                                        ToggleOption(ChannelSpacing.KHZ_8_33, "8.33 kHz")
+                                    ),
+                                    channelSpacing
+                                ) { channelSpacing = it }
+
+                                SectionLabel("FREQUENCY KEYPAD")
+                                ToggleRow(
+                                    listOf(
+                                        ToggleOption(KeypadBlockMode.BLOCK_INVALID, "Block invalid", "Block inval"),
+                                        ToggleOption(KeypadBlockMode.ALLOW_ALL, "Allow all")
+                                    ),
+                                    keypadBlockMode
+                                ) { keypadBlockMode = it }
+
+                                // Issue #88 -- how often the plugin polls the sim and broadcasts to us.
+                                // The plugin owns the actual cadences each tier maps to and is the
+                                // authoritative source of the current value (echoed via
+                                // subsystemStatus); this just picks the tier and sends it down.
+                                SectionLabel("UPDATE INTERVAL")
+                                ToggleRow(
+                                    listOf(
+                                        ToggleOption(UpdateInterval.FAST, "Fast"),
+                                        ToggleOption(UpdateInterval.NORMAL, "Normal"),
+                                        ToggleOption(UpdateInterval.SLOW, "Slow")
+                                    ),
+                                    updateInterval
+                                ) { updateInterval = it }
                             }
 
-                            SectionLabel("DEFAULT CHANNEL SPACING")
-                            ToggleRow(
-                                listOf(
-                                    ToggleOption(ChannelSpacing.KHZ_25, "25 kHz"),
-                                    ToggleOption(ChannelSpacing.KHZ_8_33, "8.33 kHz")
-                                ),
-                                channelSpacing
-                            ) { channelSpacing = it }
-
-                            SectionLabel("FREQUENCY KEYPAD")
-                            ToggleRow(
-                                listOf(
-                                    ToggleOption(KeypadBlockMode.BLOCK_INVALID, "Block invalid", "Block inval"),
-                                    ToggleOption(KeypadBlockMode.ALLOW_ALL, "Allow all")
-                                ),
-                                keypadBlockMode
-                            ) { keypadBlockMode = it }
-
-                            // Issue #88 -- how often the plugin polls the sim and broadcasts to us.
-                            // The plugin owns the actual cadences each tier maps to and is the
-                            // authoritative source of the current value (echoed via
-                            // subsystemStatus); this just picks the tier and sends it down.
-                            SectionLabel("UPDATE INTERVAL")
-                            ToggleRow(
-                                listOf(
-                                    ToggleOption(UpdateInterval.FAST, "Fast"),
-                                    ToggleOption(UpdateInterval.NORMAL, "Normal"),
-                                    ToggleOption(UpdateInterval.SLOW, "Slow")
-                                ),
-                                updateInterval
-                            ) { updateInterval = it }
-                        }
-
-                        if (!singleColumn) {
-                            Column(Modifier.weight(1f)) {
-                                SectionLabel("CREDITS", topPadding = 0.dp)
-                                credits.forEach { credit ->
-                                    AboutRow(credit.label, credit.name, credit.pillText) { uriHandler.openUri(credit.url) }
-                                }
-                                SectionLabel("CONTRIBUTE")
-                                contributeRows.forEach { row ->
-                                    AboutRow(row.label, row.name, row.pillText) { uriHandler.openUri(row.url) }
+                            if (!singleColumn) {
+                                Column(Modifier.weight(1f)) {
+                                    SectionLabel("CREDITS", topPadding = 0.dp)
+                                    credits.forEach { credit ->
+                                        AboutRow(credit.label, credit.name, credit.pillText) { uriHandler.openUri(credit.url) }
+                                    }
+                                    SectionLabel("CONTRIBUTE")
+                                    contributeRows.forEach { row ->
+                                        AboutRow(row.label, row.name, row.pillText) { uriHandler.openUri(row.url) }
+                                    }
                                 }
                             }
                         }
                     }
+                    ScrollbarTrack(
+                        scrollState,
+                        colors.border,
+                        modifier = Modifier.width(4.dp).fillMaxHeight().padding(start = 6.dp)
+                    )
                 }
             }
         }

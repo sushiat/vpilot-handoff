@@ -13,8 +13,11 @@ checked against the live console: read the current wording before relying on it.
 | Gradle | `assembleSideloadRelease` | `bundlePlayRelease` |
 | Switches | every `ChannelFeatures` value `true` | see below |
 
-Same `applicationId` (`at.sushi.handoff`), same `versionCode` (derived from `versionName`), same
-signing key, so an install from either channel can update over the other. Both artifacts are built
+Same `applicationId` (`at.sushi.handoff`) and same `versionCode` (derived from `versionName`), but
+**not the same signature**: installing the Play build over a sideload/Obtainium install of the same app
+was refused and required uninstalling the sideload version first (seen on the 0.7.0 internal test), so
+the two channels cannot update each other. Switching channels is a one-time uninstall and re-pair; see
+"Signing" below. Both artifacts are built
 by `.github/workflows/release.yml` on a `v*` tag and attached to the GitHub release. The AAB is
 there so it can be downloaded and uploaded to Play Console by hand.
 
@@ -38,21 +41,28 @@ fullscreen already has (chat swaps in over the controller list instead of floati
 would become an in-window dialog or be hidden in the Play build. The sideload channel keeps the
 floating overlay either way.
 
-## Signing: reuse the existing release key
+## Signing: Play's app signing key differs from the sideload key
 
-The release keystore already signs the sideload APK (CI secrets `RELEASE_KEYSTORE_*`). The plan is
-to keep using it for Play as well, so both channels share one signature and update each other:
+The release keystore signs the sideload APK (CI secrets `RELEASE_KEYSTORE_*`). The original plan was
+to reuse it for Play too, so both channels would share one signature. What actually happened: the
+Play build installed from the Play Store has a **different signature** from the sideload APK, because
+Play re-signs with its own app signing key. Android refuses to update an app in place across
+different signatures, so:
 
-1. In Play Console, create the app and start the first release. **Verify:** choose Play App Signing
-   and the option to **use an existing app signing key / "export and upload a key from a Java
-   keystore"**; Google provides a tool (PEPK) that encrypts the key for upload.
-2. Upload the key at that first release. This choice is made once, at the first upload.
-3. From then on, upload the CI-built `Handoff-vX.Y.Z.aab` (signed with the same key as the upload
-   key, or a separate upload key if you register one).
+- a sideload/Obtainium user who switches to the Play version must uninstall first (Android prompts
+  clearly, since the installed copy didn't come from the Play Store), then pair the plugin again;
+- Obtainium or the GitHub update check can never update a Play install, and Play cannot update a
+  sideload install. The Play build already skips the GitHub update check (`GithubUpdateChecks` off).
+  Most people will switch once and stay on one channel, so this is documented, not fixed.
 
-Trade-offs, stated plainly: Google then holds a copy of the app signing key; and reusing the same
-key as the upload key means a leaked CI secret would also be a signing-key compromise (already the
-case today for the sideload APK).
+The AAB uploaded to Play is still the CI-built `Handoff-vX.Y.Z.aab` from the GitHub release,
+signed with the upload key (the existing release keystore). Play removes that signature and signs
+the delivered APKs with the app signing key.
+
+Consequence of Play holding the app signing key: the key that signs what users install from Play is
+managed by Google, and the CI-signed upload key can be reset through Play Console if its secret ever
+leaks. The sideload APK is still signed with the release keystore only, as before. **Verify** in Play
+Console > App integrity which key setup this app ended up with before relying on this section.
 
 ## Play Console declarations (drafts)
 
