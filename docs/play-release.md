@@ -107,9 +107,23 @@ help:
 > Windows plugin the user installs alongside vPilot, so on its own it shows an empty controller
 > list and a "not connected" state. A short screen recording of it working against a live session
 > is attached: [link]. To explore the UI without the plugin: tap "Try demo" on the not-connected
-> screen (or the Demo Mode toggle in Settings) -- the app fills with clearly-marked sample
+> screen -- the app fills with clearly-marked sample
 > controllers, chat, radio state and a flight plan; nothing is sent anywhere while it's on.
 > The plugin and install steps are in the project repository: https://github.com/sushiat/vpilot-handoff
+
+## App access / Sign-in details
+
+Play Console > App content > App access. The app has no account or login of its own, but its real
+function needs a Windows plugin and a VATSIM session, so pick **"All or some functionality is
+restricted"** and add one instruction set. If the form insists on username/password fields, enter
+"n/a" in both; the instructions field is what reviewers read. Keep it short (the field is
+length-limited):
+
+> No account or login is needed. Handoff normally connects to a Windows plugin on the user's own
+> PC, which reviewers can't run. To see everything the app does: open the app and tap "Try demo"
+> on the first screen. It fills with clearly marked sample data (controllers, chat, radio, flight
+> plan); taps answer locally and nothing is sent anywhere. Exit via the footer bar -> expand ->
+> "Exit demo mode". Plugin and install steps: https://github.com/sushiat/vpilot-handoff
 
 ## Closed testing checklist
 
