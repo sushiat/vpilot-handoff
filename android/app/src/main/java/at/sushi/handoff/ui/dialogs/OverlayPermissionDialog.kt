@@ -47,23 +47,18 @@ fun OverlayPermissionDialog(
     }
 }
 
-/** Issue #177 -- the debug window is a real overlay window and silently can't open without the
- *  permission; this explains why instead of leaving the toggle looking dead. */
+/** Issue #177 -- in split-screen the debug window can only be the floating overlay, which silently
+ *  can't open without the permission; this explains why instead of leaving the toggle looking
+ *  dead. (Fullscreen shows it as an in-app dialog instead, see DebugOverlayHost.) */
 @Composable
 fun DebugOverlayPermissionDialog(
-    isSplitScreen: Boolean,
     onGrant: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
-    val hint = if (isSplitScreen) {
-        "Return Handoff to fullscreen to use it, or grant the permission."
-    } else {
-        "Grant the permission to use it."
-    }
     SimpleDialogPanel(title = "Debug window unavailable", width = 320.dp, onDismiss = onDismiss) {
         Text(
-            "The debug window needs Android's \"display over other apps\" permission, which isn't granted. $hint",
+            "The debug window needs Android's \"display over other apps\" permission, which isn't granted. Return Handoff to fullscreen to open it as a regular window, or grant the permission.",
             fontSize = 15.sp,
             color = colors.textMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)

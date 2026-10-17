@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with **Continue**, **Not now** (asks again next app start, not on every rotation or resize) and
   **I don't want that** (never asks again). Without the permission, or after opting out, the chat
   opens in the split window in place of the controller list, the same way it does on a phone. A new
-  "Floating chat in split-screen" setting changes the decision later. The debug window now says
-  why it can't open when the permission is missing instead of doing nothing.
+  "Floating chat in split-screen" setting changes the decision later. Without the permission the
+  debug window opens as a regular in-app dialog in fullscreen, and in split-screen explains why it
+  can't open instead of doing nothing.
 
 ### Fixed
 

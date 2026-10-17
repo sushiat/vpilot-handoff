@@ -1070,7 +1070,6 @@ private fun MainScreenContent() {
 
     if (debugOverlayPermissionMissing) {
         DebugOverlayPermissionDialog(
-            isSplitScreen = layoutMode == LayoutMode.SPLIT,
             onGrant = {
                 HandoffState.setDebugOverlayPermissionMissing(false)
                 context.startActivity(ChatOverlayWindow.overlayPermissionIntent(context))
@@ -1089,7 +1088,7 @@ private fun MainScreenContent() {
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
             initialFloatingChat = !floatingChatDeclined,
-            showFloatingChatSetting = ChannelFeatures.FloatingOverlay && !isPhoneClass,
+            showFloatingChatSetting = ChannelFeatures.FloatingOverlay && !isPhoneClassDevice(context),
             // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
             // our own last-saved pref, so the dialog reflects the real live state. Falls back to
             // the pref (then Normal) only when the plugin hasn't reported one -- an older plugin,
@@ -1284,6 +1283,24 @@ private fun displayAndOwnWidthPx(context: Context, configuration: Configuration)
         val ownWidthPx = configuration.screenWidthDp * displayMetrics.densityDpi / 160
         fullWidthPx to ownWidthPx
     }
+}
+
+/** Phone-class by the physical display, not the window: in split-screen the window's own
+ *  smallestScreenWidthDp shrinks with the pane, so a tablet in a narrow split would wrongly read as
+ *  a phone via [Configuration.smallestScreenWidthDp]. Phones are portrait-locked and never split
+ *  side by side, so this is what gates things that only make sense on a tablet-class display. */
+private fun isPhoneClassDevice(context: Context): Boolean {
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val density = context.resources.displayMetrics.density
+    val (widthPx, heightPx) = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        bounds.width() to bounds.height()
+    } else {
+        @Suppress("DEPRECATION")
+        val displayMetrics = DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
+        displayMetrics.widthPixels to displayMetrics.heightPixels
+    }
+    return minOf(widthPx, heightPx) / density < at.sushi.handoff.PhoneClassMaxSmallestWidthDp
 }
 
 private fun isSplitScreen(context: Context, configuration: Configuration): Boolean {
