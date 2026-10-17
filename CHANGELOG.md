@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
 ### Added
 
 - Android (issue #169): a demo mode, reachable from the not-connected screen's "Try demo"
@@ -647,7 +649,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
   fallback — and when, surfaced in both the live view and the snapshot file.
 
-[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.3.0...v0.4.0
