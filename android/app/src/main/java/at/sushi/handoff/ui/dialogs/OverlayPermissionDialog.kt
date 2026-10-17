@@ -23,11 +23,12 @@ fun OverlayPermissionDialog(
     onDecline: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
-    SimpleDialogPanel(title = "Chat next to your other app", width = 320.dp, onDismiss = onNotNow) {
+    SimpleDialogPanel(title = "Floating chat panel", width = 320.dp, onDismiss = onNotNow) {
         Text(
-            "Handoff can show the chat next to your other app. This needs Android's " +
-                "\"display over other apps\" permission, used only for the chat panel. " +
-                "Without it, the chat opens in place of the controller list instead.",
+            "Handoff can show the chat temporarily over your other app while it's open, so " +
+                "Handoff itself can stay small. This needs Android's \"display over other apps\" " +
+                "permission, used only for the chat panel. Without it, the chat opens in place " +
+                "of the controller list instead.",
             fontSize = 15.sp,
             color = colors.textMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
