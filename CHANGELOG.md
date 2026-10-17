@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android (issue #174): the Settings dialog's scrollbar no longer draws over the right edge of
   its content. On a phone it clipped the Username field, the palette button, "Auto-detect" and
   the right-hand toggle buttons, and it would have covered the Credits column on a tablet as
-  soon as the dialog scrolled there. The thumb now sits in its own gutter. The row-color theme
-  dialog shares the same scrollbar, whose thumb had been drawn with zero width and so never showed.
+  soon as the dialog scrolled there. The thumb now sits in its own gutter, using the same
+  scrollbar component as the row-color theme dialog.
 - Android (issue #174): long callsigns are no longer cut off on narrow phone screens
   ("LOWW_GND" showed as "LOWW_GNI"). The callsign column is now sized by measuring the callsign
   text instead of a fixed per-character estimate, so it also follows font and display scale.
