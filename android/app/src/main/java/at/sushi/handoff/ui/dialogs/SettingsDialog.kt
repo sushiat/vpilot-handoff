@@ -382,7 +382,9 @@ fun SettingsDialog(
                             }
                         }
                     }
-                    ScrollbarTrack(scrollState, colors.border)
+                    // 8.dp pushes the thumb into the dialog's own 22.dp end padding, centring it
+                    // between the content and the border instead of hugging the content.
+                    ScrollbarTrack(scrollState, colors.border, thumbOffset = 8.dp)
                 }
             }
         }

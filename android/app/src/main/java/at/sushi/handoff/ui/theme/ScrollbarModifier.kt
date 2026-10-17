@@ -3,6 +3,7 @@ package at.sushi.handoff.ui.theme
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -11,6 +12,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** A thin scrollbar thumb for a plain `Modifier.verticalScroll` Column, drawn in its own column
@@ -24,8 +26,16 @@ import androidx.compose.ui.unit.dp
  *  and the same overlap that RowColorThemeDialog had already hit), so this reserves real layout
  *  space instead. Draws nothing while the content fits. */
 @Composable
-fun ScrollbarTrack(state: ScrollState, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxHeight().padding(start = 6.dp).width(4.dp)) {
+fun ScrollbarTrack(
+    state: ScrollState,
+    color: Color,
+    modifier: Modifier = Modifier,
+    /** Shifts the drawn thumb right of its layout slot without taking layout space, for dialogs
+     *  whose own end padding leaves a wide empty strip to the right of the Row (the thumb would
+     *  otherwise sit tight against the content with a big gap behind it). */
+    thumbOffset: Dp = 0.dp
+) {
+    Canvas(modifier.fillMaxHeight().padding(start = 6.dp).width(4.dp).offset(x = thumbOffset)) {
         if (state.maxValue <= 0) return@Canvas
         val viewportHeight = size.height
         val contentHeight = viewportHeight + state.maxValue
