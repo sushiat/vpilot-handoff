@@ -380,7 +380,9 @@ fun RowColorThemeDialog(
                         }
                     }
                 }
-                ScrollbarTrack(scrollState, colors.border)
+                // 6.dp moves the thumb into the dialog's own end padding so it sits between the
+                // cards and the border instead of hugging the cards.
+                ScrollbarTrack(scrollState, colors.border, thumbOffset = 6.dp)
                 }
             }
         }
