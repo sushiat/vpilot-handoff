@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   debug window opens as a regular in-app dialog in fullscreen, and in split-screen explains why it
   can't open instead of doing nothing.
 
+### Changed
+
+- Plugin (issue #183): the plugin self-update now explains the wait. The "update available"
+  prompt says that Install Now opens a setup window that waits until vPilot is closed (and that
+  closing vPilot ends the VATSIM connection, so do it after flying). The setup window itself now
+  says "Waiting for vPilot to close", in larger text, instead of a generic "Preparing to install".
+
 ### Fixed
 
 - Android (issue #174): the Settings dialog's scrollbar no longer draws over the right edge of

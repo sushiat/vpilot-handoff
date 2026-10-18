@@ -120,9 +120,9 @@ namespace Handoff.Plugin
                 // pilot can actually SEE the update running -- it still suppresses every wizard
                 // page and button click (welcome/dir/ready/finished and the InfoBeforeFile
                 // changelog), so it stays fully unattended, just no longer invisible (issue #85).
-                // The window appears at "Preparing to install..." while the installer waits for
-                // vPilot to exit (see Handoff-Setup.iss WaitForVPilotToExit), then completes and
-                // closes itself once vPilot is closed. /SUPPRESSMSGBOXES keeps error dialogs from
+                // The window shows "Waiting for vPilot to close" (with a short explanation) while
+                // the installer waits for vPilot to exit (see Handoff-Setup.iss WaitForVPilotToExit),
+                // then completes and closes itself once vPilot is closed. /SUPPRESSMSGBOXES keeps error dialogs from
                 // needing a click; /NORESTART leaves reboot handling to us (there's nothing to
                 // reboot for anyway). CreateNoWindow only hides the console host, not Inno's GUI.
                 Process.Start(new ProcessStartInfo
