@@ -1056,8 +1056,8 @@ private fun MainScreenContent() {
         at.sushi.handoff.ui.dialogs.ConnectNetworkDialog(
             initialCallsign = flightPlan.simbriefCallsign.orEmpty(),
             initialAircraftType = flightPlan.simbriefAircraftType.orEmpty(),
-            initialSelcal = prefs.getString(HandoffConnectionService.PrefKeyLastSelcal, "").orEmpty(),
-            simulatorConnected = subsystemStatus.simulatorConnected,
+            initialSelcal = flightPlan.simbriefSelcal?.takeIf { it.isNotBlank() }
+                ?: prefs.getString(HandoffConnectionService.PrefKeyLastSelcal, "").orEmpty(),
             operations = operationProgress,
             onSend = { send(it) },
             onRememberSelcal = { prefs.edit { putString(HandoffConnectionService.PrefKeyLastSelcal, it) } },

@@ -27,7 +27,7 @@ namespace Handoff.Plugin.Tests
 
             model.Connect("op1", " eidgx ", "a320", " ab-cd ", observer: false);
 
-            Assert.Equal(new[] { ("EIDGX", "A320", "AB-CD") }, broker.ConnectRequests);
+            Assert.Equal(new[] { ("EIDGX", "A320", "ABCD") }, broker.ConnectRequests);
             var last = events[events.Count - 1];
             Assert.Equal("op1", last.OperationId);
             Assert.False(last.Finished);

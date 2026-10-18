@@ -201,6 +201,8 @@ data class FlightPlanMessage(
     // Issue #171 -- the OFP's ICAO aircraft type, only used to prefill the connect dialog. Null
     // from an older plugin or before the first SimBrief fetch.
     val simbriefAircraftType: String? = null,
+    // Issue #171 -- the OFP's SELCAL (four letters), prefill only. Null when the plan has none.
+    val simbriefSelcal: String? = null,
     val vatsimCallsign: String? = null,
     val vatsimOrigin: String? = null,
     val vatsimDestination: String? = null,

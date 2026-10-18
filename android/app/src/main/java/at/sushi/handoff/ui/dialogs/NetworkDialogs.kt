@@ -105,7 +105,6 @@ fun ConnectNetworkDialog(
     initialCallsign: String,
     initialAircraftType: String,
     initialSelcal: String,
-    simulatorConnected: Boolean,
     operations: Map<String, OperationProgressState>,
     onSend: (ConnectNetworkCommand) -> Unit,
     onRememberSelcal: (String) -> Unit,
@@ -114,13 +113,13 @@ fun ConnectNetworkDialog(
     val colors = LocalHandoffColors.current
     var callsign by remember { mutableStateOf(initialCallsign) }
     var aircraftType by remember { mutableStateOf(initialAircraftType) }
-    var selcal by remember { mutableStateOf(initialSelcal) }
+    var selcal by remember { mutableStateOf(NetworkConnect.normalizeSelcal(initialSelcal)) }
     var observer by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val (wait, arm) = rememberNetworkWait(operations, onSuccess = onDismiss, onFailure = { error = it })
     val waiting = wait is NetworkWait.Waiting
-    val blockedReason = NetworkConnect.connectBlockedReason(callsign, aircraftType, observer, simulatorConnected)
+    val blockedReason = NetworkConnect.connectBlockedReason(callsign, aircraftType, observer, selcal)
 
     SimpleDialogPanel(title = "Connect to VATSIM", width = 320.dp, onDismiss = onDismiss) {
         FieldLabel("Callsign")
@@ -143,8 +142,8 @@ fun ConnectNetworkDialog(
             FieldLabel("SELCAL (optional)")
             HandoffTextField(
                 selcal,
-                { selcal = it.uppercase(); error = null },
-                placeholder = "e.g. AB-CD",
+                { selcal = NetworkConnect.normalizeSelcal(it).take(4); error = null },
+                placeholder = "e.g. ABCD",
                 fontSize = 15.sp,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -175,7 +174,7 @@ fun ConnectNetworkDialog(
                 enabled = blockedReason == null && !waiting,
                 onClick = {
                     val operationId = UUID.randomUUID().toString()
-                    val cleanSelcal = NetworkConnect.normalize(selcal)
+                    val cleanSelcal = NetworkConnect.normalizeSelcal(selcal)
                     if (!observer && cleanSelcal.isNotEmpty()) onRememberSelcal(cleanSelcal)
                     error = null
                     arm(operationId)

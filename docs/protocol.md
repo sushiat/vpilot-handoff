@@ -560,6 +560,7 @@ feed's next poll (~15s interval) lands.
   "simbriefDestination": "KJFK",
   "simbriefAlternate": "KBOS",
   "simbriefAircraftType": "A320",
+  "simbriefSelcal": "ABCD",
   "vatsimCallsign": "BAW123",
   "vatsimOrigin": "EGLL",
   "vatsimDestination": "KJFK",
@@ -570,7 +571,8 @@ feed's next poll (~15s interval) lands.
 
 `simbriefAircraftType` (issue #171) is the OFP's ICAO aircraft type (`aircraft.icaocode`), carried
 only so a client can prefill its connect dialog (`connectNetwork`); `null` until the first fetch or
-when the OFP lacks the field.
+when the OFP lacks the field. `simbriefSelcal` (`aircraft.selcal`, four letters, no dash) follows the
+same rule and purpose.
 
 `simbriefAlternate` is fetched and stored for future use but not yet surfaced in the Android app
 (there's no VATSIM-side equivalent surfaced here, though the feed's `flight_plan.alternate` does
@@ -966,7 +968,7 @@ reaching vPilot's own window.
 because `operationProgress` is broadcast to every paired client and the requester must recognise
 its own. `callsign` and `aircraftType` are required unless `observer` is `true` (then only
 `callsign`; `aircraftType`/`selcalCode` are ignored). The plugin upper-cases and trims them;
-`selcalCode` is optional. A command without an `operationId` is ignored.
+`selcalCode` is optional, four letters, and any dash or space in it is dropped (`"AB-CD"` -> `"ABCD"`). A command without an `operationId` is ignored.
 
 `IBroker`'s calls return nothing, so the outcome arrives as `operationProgress` messages with the
 same `operationId`: first `finished: false` ("Connecting to VATSIM..." / "Disconnecting from

@@ -21,23 +21,28 @@ object NetworkConnect {
 
     fun normalize(text: String): String = text.trim().uppercase()
 
+    /** SELCAL is four letters, typed without a dash (vPilot's own field takes it that way). */
+    fun normalizeSelcal(text: String): String = text.uppercase().filter { it in 'A'..'Z' }
+
     /** Why Connect must be disabled, or null when the form can be sent. Ordered by what the pilot
-     *  most likely needs to fix first. */
+     *  most likely needs to fix first. The simulator link is deliberately not checked here:
+     *  subsystemStatus.simulatorConnected is Handoff's own RadioHost link, which only comes up once
+     *  on the network, not vPilot's -- the plugin relays vPilot's SimNotReadyException instead. */
     fun connectBlockedReason(
         callsign: String,
         aircraftType: String,
         observer: Boolean,
-        simulatorConnected: Boolean
+        selcal: String = ""
     ): String? {
         val cs = normalize(callsign)
         val type = normalize(aircraftType)
         return when {
-            !simulatorConnected -> "vPilot isn't connected to the simulator yet."
             cs.isEmpty() -> "Enter a callsign."
             !CallsignPattern.matches(cs) -> "Callsign can only use letters, digits, - and _ (max 10)."
             observer -> null
             type.isEmpty() -> "Enter the aircraft type."
             !TypePattern.matches(type) -> "Aircraft type is the 2-4 character ICAO code, e.g. A320."
+            selcal.isNotEmpty() && normalizeSelcal(selcal).length != 4 -> "SELCAL is 4 letters, e.g. ABCD."
             else -> null
         }
     }

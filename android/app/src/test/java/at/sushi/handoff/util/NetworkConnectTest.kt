@@ -24,45 +24,50 @@ class NetworkConnectTest {
 
     @Test
     fun connectBlockedReason_validForm_isNull() {
-        assertNull(NetworkConnect.connectBlockedReason("eidgx", "a320", observer = false, simulatorConnected = true))
-    }
-
-    @Test
-    fun connectBlockedReason_simulatorNotConnected_winsOverEverythingElse() {
-        assertEquals(
-            "vPilot isn't connected to the simulator yet.",
-            NetworkConnect.connectBlockedReason("", "", observer = false, simulatorConnected = false)
-        )
+        assertNull(NetworkConnect.connectBlockedReason("eidgx", "a320", observer = false))
     }
 
     @Test
     fun connectBlockedReason_emptyCallsign() {
-        assertEquals("Enter a callsign.", NetworkConnect.connectBlockedReason("  ", "A320", observer = false, simulatorConnected = true))
+        assertEquals("Enter a callsign.", NetworkConnect.connectBlockedReason("  ", "A320", observer = false))
     }
 
     @Test
     fun connectBlockedReason_badCallsignCharacters() {
         assertEquals(
             "Callsign can only use letters, digits, - and _ (max 10).",
-            NetworkConnect.connectBlockedReason("EI DGX", "A320", observer = false, simulatorConnected = true)
+            NetworkConnect.connectBlockedReason("EI DGX", "A320", observer = false)
         )
         assertEquals(
             "Callsign can only use letters, digits, - and _ (max 10).",
-            NetworkConnect.connectBlockedReason("ABCDEFGHIJK", "A320", observer = false, simulatorConnected = true)
+            NetworkConnect.connectBlockedReason("ABCDEFGHIJK", "A320", observer = false)
         )
     }
 
     @Test
     fun connectBlockedReason_missingOrBadType() {
-        assertEquals("Enter the aircraft type.", NetworkConnect.connectBlockedReason("EIDGX", "", observer = false, simulatorConnected = true))
+        assertEquals("Enter the aircraft type.", NetworkConnect.connectBlockedReason("EIDGX", "", observer = false))
         assertEquals(
             "Aircraft type is the 2-4 character ICAO code, e.g. A320.",
-            NetworkConnect.connectBlockedReason("EIDGX", "AIRBUS", observer = false, simulatorConnected = true)
+            NetworkConnect.connectBlockedReason("EIDGX", "AIRBUS", observer = false)
         )
     }
 
     @Test
     fun connectBlockedReason_observer_needsNoType() {
-        assertNull(NetworkConnect.connectBlockedReason("EIDGX_OBS", "", observer = true, simulatorConnected = true))
+        assertNull(NetworkConnect.connectBlockedReason("EIDGX_OBS", "", observer = true))
+    }
+
+    @Test
+    fun normalizeSelcal_dropsDashesSpacesAndUppercases() {
+        assertEquals("ABCD", NetworkConnect.normalizeSelcal("ab-cd"))
+        assertEquals("ABCD", NetworkConnect.normalizeSelcal(" a b c d "))
+    }
+
+    @Test
+    fun connectBlockedReason_selcalMustBeFourLettersWhenGiven() {
+        assertEquals("SELCAL is 4 letters, e.g. ABCD.", NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "AB"))
+        assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "ABCD"))
+        assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = ""))
     }
 }

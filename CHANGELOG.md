@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without reaching vPilot. The expanded footer drawer has a new "Network" row ("Connected as
   EIDGX" / "Not connected") with a **Disconnect** / **Connect...** action. Connect opens a form
   prefilled from the latest SimBrief plan (callsign and aircraft type, both editable), with an
-  optional SELCAL (the last one typed is remembered) and a "Connect as observer" option; it stays
-  disabled with the reason shown until vPilot is connected to the simulator and the callsign and
-  type are filled in. Disconnect always asks first. Both show a spinner while waiting for vPilot
+  SELCAL (from the SimBrief plan, otherwise the last one typed) and a "Connect as observer" option; it stays
+  disabled with the reason shown until the callsign and type are filled in (vPilot itself reports
+  a missing simulator connection when you tap Connect). Disconnect always asks first. Both show a spinner while waiting for vPilot
   and show a failure (simulator not ready, closed before connecting, timeout) inline. The row is
   hidden on plugins older than 0.8.0. Protocol: new `connectNetwork` / `disconnectNetwork`
   commands reporting through `operationProgress`, and a new `flightPlan.simbriefAircraftType`

@@ -629,6 +629,14 @@ class MessagesTest {
     }
 
     @Test
+    fun decodesFlightPlanMessageWithSelcal() {
+        val json = """{"type":"flightPlan","simbriefSelcal":"ABCD"}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals("ABCD", message.simbriefSelcal)
+    }
+
+    @Test
     fun decodesFlightPlanMessageFromOlderPlugin_AircraftTypeIsNull() {
         val json = """{"type":"flightPlan","simbriefCallsign":"BAW123"}"""
 

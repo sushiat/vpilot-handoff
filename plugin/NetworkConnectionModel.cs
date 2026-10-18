@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using RossCarlson.Vatsim.Vpilot.Plugins;
 using RossCarlson.Vatsim.Vpilot.Plugins.Events;
 using RossCarlson.Vatsim.Vpilot.Plugins.Exceptions;
@@ -51,7 +52,9 @@ namespace Handoff.Plugin
 
             callsign = callsign?.Trim().ToUpperInvariant();
             typeCode = typeCode?.Trim().ToUpperInvariant();
-            selcalCode = string.IsNullOrWhiteSpace(selcalCode) ? null : selcalCode.Trim().ToUpperInvariant();
+            // SELCAL is four letters; drop any dash/space a client left in ("AB-CD" -> "ABCD").
+            selcalCode = selcalCode == null ? null : new string(selcalCode.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+            if (selcalCode == string.Empty) selcalCode = null;
 
             if (string.IsNullOrEmpty(callsign))
             {

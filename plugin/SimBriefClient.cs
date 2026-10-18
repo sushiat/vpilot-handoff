@@ -15,7 +15,7 @@ namespace Handoff.Plugin
     /// reported as no flight plan available, not thrown as fatal errors.
     ///
     /// NOTE: the field paths below (atc.callsign, origin/destination/alternate.icao_code,
-    /// aircraft.icaocode) are
+    /// aircraft.icaocode, aircraft.selcal) are
     /// taken from public SimBrief API documentation/community usage, not confirmed against a
     /// real account yet -- verify empirically, per CLAUDE.md's "Open items to verify
     /// empirically" convention.
@@ -67,7 +67,8 @@ namespace Handoff.Plugin
                         waypoints: ParseWaypoints(body, logDebug),
                         originLatitude: originLat,
                         originLongitude: originLon,
-                        aircraftType: (string)json.SelectToken("aircraft.icaocode"));
+                        aircraftType: (string)json.SelectToken("aircraft.icaocode"),
+                        selcal: (string)json.SelectToken("aircraft.selcal"));
                 }
             }
             catch (Exception ex)

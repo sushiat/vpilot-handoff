@@ -382,6 +382,16 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void BuildFlightPlanMessage_CarriesSimbriefSelcal()
+        {
+            var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS", selcal: "ABCD");
+
+            var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(plan, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));
+
+            Assert.Equal("ABCD", (string)json["simbriefSelcal"]);
+        }
+
+        [Fact]
         public void BuildFlightPlanMessage_BeforeFirstFetch_AircraftTypeIsNull()
         {
             var json = JObject.Parse(ProtocolMessages.BuildFlightPlanMessage(FlightPlan.Empty, vatsimCallsign: null, vatsimPilot: null, originMismatch: false, vatsimCidMismatch: false));

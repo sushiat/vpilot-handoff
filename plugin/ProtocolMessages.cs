@@ -172,6 +172,7 @@ namespace Handoff.Plugin
                 simbriefDestination = simbriefPlan.Destination,
                 simbriefAlternate = simbriefPlan.Alternate,
                 simbriefAircraftType = simbriefPlan.AircraftType,
+                simbriefSelcal = simbriefPlan.Selcal,
                 vatsimCallsign,
                 vatsimOrigin = vatsimPilot?.Departure,
                 vatsimDestination = vatsimPilot?.Arrival,

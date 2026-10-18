@@ -39,10 +39,13 @@ namespace Handoff.Plugin
         public IReadOnlyList<FlightPlanWaypoint> Waypoints { get; }
         // Issue #171 -- the OFP's ICAO aircraft type, only used to prefill the connect dialog.
         public string AircraftType { get; }
+        // Issue #171 -- the OFP's SELCAL (aircraft.selcal, four letters, no dash), prefill only.
+        public string Selcal { get; }
 
-        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null, string aircraftType = null)
+        public FlightPlan(string callsign, string origin, string destination, string alternate, IReadOnlyList<FlightPlanWaypoint> waypoints = null, double? originLatitude = null, double? originLongitude = null, string aircraftType = null, string selcal = null)
         {
             AircraftType = aircraftType;
+            Selcal = selcal;
             Callsign = callsign;
             Origin = origin;
             Destination = destination;
