@@ -32,6 +32,9 @@ namespace Handoff.Plugin
             new Dictionary<string, VatsimControllerInfo>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, VatsimPilotInfo> _pilotsByCallsign =
             new Dictionary<string, VatsimPilotInfo>(StringComparer.OrdinalIgnoreCase);
+        // Wakes PollLoop out of its inter-poll wait early (RefreshNow); an AutoResetEvent so several
+        // quick requests collapse into one extra poll.
+        private readonly AutoResetEvent _pollNow = new AutoResetEvent(false);
         private volatile bool _running;
         private volatile bool _connected;
         private DateTimeOffset? _lastPollAt;
@@ -39,10 +42,18 @@ namespace Handoff.Plugin
 
         public event EventHandler Changed;
 
-        public VatsimDataFeedModel(Action<string> logDebug = null, Func<Task<VatsimDataFeedSnapshot>> fetch = null)
+        // Optional: only needed to give a manual refresh (RefreshNow) its operationProgress feedback.
+        private readonly OperationProgressModel _operationProgress;
+        // Operations a manual refresh started and the next poll will finish; a queue so quick repeated
+        // taps all get their result rather than the earlier ones being left hanging.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _pendingRefreshOperations =
+            new System.Collections.Concurrent.ConcurrentQueue<string>();
+
+        public VatsimDataFeedModel(Action<string> logDebug = null, Func<Task<VatsimDataFeedSnapshot>> fetch = null, OperationProgressModel operationProgress = null)
         {
             _logDebug = logDebug;
             _fetch = fetch ?? (() => VatsimDataFeedClient.FetchAsync(_logDebug));
+            _operationProgress = operationProgress;
         }
 
         /// <summary>Point-in-time snapshot of the latest feed poll's controllers, keyed by callsign (case-insensitive).</summary>
@@ -79,6 +90,26 @@ namespace Handoff.Plugin
             }
         }
 
+        /// <summary>Polls the feed now instead of waiting out the rest of the interval (a client's
+        /// refresh button). A no-op while stopped: the feed only runs while the pilot is on the
+        /// network, so there is nothing to refresh before that.</summary>
+        public void RefreshNow()
+        {
+            // The regular 15s poll deliberately reports nothing; a manual refresh does, as the
+            // pilot's feedback that the tap did something (same operationProgress as SimBrief's).
+            var operationId = "vatsimFeedRefresh-" + Guid.NewGuid().ToString("N");
+
+            if (!_running)
+            {
+                _operationProgress?.Finish(operationId, "The VATSIM feed only updates while you're connected to the network.", success: false);
+                return;
+            }
+
+            _operationProgress?.Report(operationId, "Refreshing VATSIM data...");
+            _pendingRefreshOperations.Enqueue(operationId);
+            _pollNow.Set();
+        }
+
         public void Stop()
         {
             lock (_lifecycleGate)
@@ -100,6 +131,10 @@ namespace Handoff.Plugin
         {
             while (_running)
             {
+                // Taken before the fetch, so a refresh asked for mid-poll waits for the *next* poll
+                // (the event is already set, so it starts at once) and gets data fetched after the tap.
+                var refreshOperations = DrainPendingRefreshOperations();
+                var succeeded = false;
                 try
                 {
                     var snapshot = _fetch().GetAwaiter().GetResult();
@@ -113,6 +148,7 @@ namespace Handoff.Plugin
                             _lastError = null;
                         }
                         _connected = true;
+                        succeeded = true;
                     }
                     else
                     {
@@ -130,8 +166,23 @@ namespace Handoff.Plugin
                     Changed?.Invoke(this, EventArgs.Empty);
                 }
 
-                Thread.Sleep(PollInterval);
+                foreach (var operationId in refreshOperations)
+                {
+                    _operationProgress?.Finish(
+                        operationId,
+                        succeeded ? "VATSIM data updated." : "Couldn't reach the VATSIM data feed.",
+                        success: succeeded);
+                }
+
+                _pollNow.WaitOne(PollInterval);
             }
+        }
+
+        private List<string> DrainPendingRefreshOperations()
+        {
+            var operations = new List<string>();
+            while (_pendingRefreshOperations.TryDequeue(out var operationId)) operations.Add(operationId);
+            return operations;
         }
 
         /// <summary>

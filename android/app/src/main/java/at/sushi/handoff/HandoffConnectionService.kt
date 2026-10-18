@@ -57,7 +57,9 @@ import at.sushi.handoff.util.deriveCdmSlotDisplay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -686,7 +688,7 @@ class HandoffConnectionService : Service() {
                             CdmLookup.Failed -> {
                                 // Fetch failed (network/shape): keep whatever is showing rather than
                                 // flipping the chip to "waiting" on a blip.
-                                delay(CdmPollIntervalMillis)
+                                awaitNextCdmPoll()
                                 continue
                             }
                         }
@@ -702,10 +704,24 @@ class HandoffConnectionService : Service() {
                         // a filed plan by minutes to an hour -- so show a placeholder instead of nothing:
                         // proves the feature is active and keeps the TOBT dialog reachable.
                         HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis(), airport?.taxiTime) ?: cdmWaitingDisplay())
-                        delay(CdmPollIntervalMillis)
+                        awaitNextCdmPoll()
                     }
                 }
         }
+    }
+
+    // The start-up window row's refresh icon: wakes the polling loop out of its 60s wait. Conflated,
+    // so repeated taps collapse into one extra poll; a tap while no loop is waiting (no slot to
+    // refresh) is just dropped by the next poll.
+    private val cdmRefreshRequests = Channel<Unit>(Channel.CONFLATED)
+
+    fun refreshCdmNow() {
+        cdmRefreshRequests.trySend(Unit)
+    }
+
+    /** The loop's pause between polls: the regular interval, cut short by [refreshCdmNow]. */
+    private suspend fun awaitNextCdmPoll() {
+        withTimeoutOrNull(CdmPollIntervalMillis) { cdmRefreshRequests.receive() }
     }
 
     private fun createConnectionNotificationChannel() {

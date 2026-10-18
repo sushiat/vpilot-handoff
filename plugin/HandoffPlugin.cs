@@ -20,6 +20,7 @@ namespace Handoff.Plugin
         private ControllerRankingModel _controllerRanking;
         private NearbyAircraftModel _nearbyAircraft;
         private OperationProgressModel _operationProgress;
+        private NetworkConnectionModel _networkConnection;
         private VatGlassesDataModel _vatGlassesData;
         private VatSpyDataModel _vatSpyData;
         private HandoffWebSocketServer _webSocketServer;
@@ -65,6 +66,10 @@ namespace Handoff.Plugin
             // (no I/O), safe to construct directly here.
             _operationProgress = new OperationProgressModel();
 
+            // Issue #171 -- connect/disconnect from the tablet; just event subscriptions plus the
+            // IBroker request calls made later from the WebSocket thread.
+            _networkConnection = new NetworkConnectionModel(_broker, _operationProgress, _broker.PostDebugMessage);
+
             // Fetches using whatever SimBrief credentials were persisted from a prior session
             // (see FlightPlanModel) -- no-ops if the Android app has never sent any yet.
             _flightPlanState = new FlightPlanModel(_operationProgress, _broker.PostDebugMessage);
@@ -81,7 +86,7 @@ namespace Handoff.Plugin
 
             // Public VATSIM data feed for cid/name/facility/rating enrichment -- tied to the
             // VATSIM connection same as RadioStateModel, no point polling it when not flying.
-            _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage);
+            _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage, operationProgress: _operationProgress);
             _broker.NetworkConnected += (sender, e) => _vatsimDataFeed.Start();
             _broker.NetworkDisconnected += (sender, e) => _vatsimDataFeed.Stop();
             _broker.SessionEnded += (sender, e) => _vatsimDataFeed.Stop();
@@ -138,7 +143,7 @@ namespace Handoff.Plugin
             // prior "Save & Restart Listening" choice is honored on this launch too.
             _wsPortModel = new WsPortModel(_broker.PostDebugMessage);
 
-            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _updateInterval, _wsPortModel, _broker.PostDebugMessage);
+            _webSocketServer = new HandoffWebSocketServer(_controllerRanking, _chatModel, _radioState, _flightPlanState, _vatsimDataFeed, _nearbyAircraft, _controllerState, _pilotSession, _operationProgress, _networkConnection, _certificateStore.Certificate, _pairedClients, _pairingSession, _vatGlassesData, _vatSpyData, _updateInterval, _wsPortModel, _broker.PostDebugMessage);
             var tcpOutcome = _webSocketServer.Start();
 
             // getWsPort reads HandoffWebSocketServer.Port live rather than once at construction

@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
@@ -28,6 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -125,11 +130,20 @@ fun FooterStatusBar(
     expanded: Boolean,
     keepScreenAwake: Boolean,
     onToggleExpanded: () -> Unit,
+    // Issue #171 follow-up -- the manual refreshes live on their drawer rows (SimBrief, VATSIM feed,
+    // start-up window); the collapsed row's old refresh icon is now the connect/disconnect shortcut.
     onRefresh: () -> Unit,
+    onRefreshVatsimFeed: () -> Unit,
+    onRefreshCdm: () -> Unit,
     onOpenSettings: () -> Unit,
     // Issue #143 -- opens the embedded VDGS site (see CdmWebDialog) to set/edit the TOBT.
     onOpenCdm: () -> Unit,
-    onToggleKeepScreenAwake: () -> Unit
+    onToggleKeepScreenAwake: () -> Unit,
+    // Issue #171 -- hidden entirely (false) on a plugin that predates connectNetwork/
+    // disconnectNetwork, and in demo mode where there's no plugin to ask.
+    networkControlAvailable: Boolean,
+    onConnectNetwork: () -> Unit,
+    onDisconnectNetwork: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
     Column(
@@ -275,11 +289,25 @@ fun FooterStatusBar(
                         modifier = Modifier.size(iconSize)
                     )
                 }
-                Box(
-                    Modifier.size(iconBoxSize).clickable(onClick = onRefresh),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted, modifier = Modifier.size(iconSize))
+                // Issue #171 follow-up -- the same plug icon as the drawer's Network row, so the two read
+                // as one feature: it shows the VATSIM state (plugged in = on the network) and taps to
+                // connect or disconnect (Disconnect still asks first, see MainScreen). Hidden when the
+                // plugin can't do it (too old, link down, demo mode).
+                if (networkControlAvailable) {
+                    val onNetwork = activeCallsign != null
+                    Box(
+                        Modifier.size(iconBoxSize).clickable(onClick = if (onNetwork) onDisconnectNetwork else onConnectNetwork),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            networkIcon(onNetwork),
+                            contentDescription = if (onNetwork) "Disconnect from VATSIM" else "Connect to VATSIM",
+                            // Colours the action, like its icon: green to plug in, red to unplug -- a
+                            // green disconnect button read as "all good" on a button that leaves the network.
+                            tint = if (onNetwork) at.sushi.handoff.ui.dialogs.outOfBandRed else colors.ok,
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
                 }
                 Box(
                     Modifier.size(iconBoxSize).clickable(onClick = onOpenSettings),
@@ -293,9 +321,15 @@ fun FooterStatusBar(
 
         if (expanded) {
             HorizontalDivider(color = colors.border)
+            // The drawer's width, measured here rather than at the top of the footer so it is the actual
+            // width the rows get -- below the same narrow threshold the collapsed row uses, the action
+            // buttons drop their text labels and keep only the icon.
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            var compactActions by remember { mutableStateOf(false) }
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .onSizeChanged { compactActions = with(density) { it.width.toDp() } < NarrowTopBarThreshold }
                     .clickable(onClick = onToggleExpanded)
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -327,21 +361,42 @@ fun FooterStatusBar(
                 // than just being told "mismatch" with no detail. Highlighted in colors.attention
                 // when they disagree (or nothing's filed at all), same signal as the collapsed
                 // row's exclamation icon.
+                // Issue #171 -- labelled "Network", not "Connected": the footer's other
+                // "Connected ..." rows describe the plugin link, this one is the VATSIM session.
+                // Lives in the drawer (behind the expand tap) so a mid-flight mis-tap can't
+                // disconnect, and the action itself still asks for confirmation.
+                if (networkControlAvailable) {
+                    NetworkControlRow(
+                        callsign = activeCallsign,
+                        compact = compactActions,
+                        onConnect = onConnectNetwork,
+                        onDisconnect = onDisconnectNetwork
+                    )
+                }
                 FlightPlanDetailRow("Active callsign", activeCallsign ?: "----", flightPlanWarning)
                 FlightPlanDetailRow(
                     "SimBrief",
                     if (simbriefMissing) "MISSING" else "${simbriefOrigin ?: "----"} → ${simbriefDestination ?: "----"}",
-                    flightPlanWarning
+                    flightPlanWarning,
+                    refreshDescription = "Refresh SimBrief flight plan",
+                    compactActions = compactActions,
+                    onRefresh = if (demoModeEnabled) null else onRefresh
                 )
                 FlightPlanDetailRow(
                     "VATSIM",
                     if (vatsimMissing) "MISSING" else "${vatsimOrigin ?: "----"} → ${vatsimDestination ?: "----"}",
-                    flightPlanWarning
+                    flightPlanWarning,
+                    refreshDescription = "Refresh VATSIM data feed",
+                    compactActions = compactActions,
+                    // Only while on the network: the plugin's feed poll runs only then, so there is
+                    // nothing to refresh before that (same idea as the start-up window's refresh, which
+                    // only exists while there is a slot).
+                    onRefresh = if (networkControlAvailable && activeCallsign != null) onRefreshVatsimFeed else null
                 )
                 // Issue #143 -- only shown while there's a CDM slot to report at all (see
                 // HandoffState.cdmSlot's doc for when that is). Unlike the plugin-sourced rows
                 // above, this comes straight from api.viffsys.com.
-                cdmSlot?.let { CdmDrawerRow(it, onClick = onOpenCdm) }
+                cdmSlot?.let { CdmDrawerRow(it, onClick = onOpenCdm, compactActions = compactActions, onRefresh = if (demoModeEnabled) null else onRefreshCdm) }
                 // Issue #68 -- only shown when the plugin's on-ground sanity gate actually fires;
                 // unlike the two rows above (always visible), this is purely a "something's wrong"
                 // flag with no not-wrong state worth displaying.
@@ -395,9 +450,67 @@ fun FooterStatusBar(
 }
 
 @Composable
-private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) {
+private fun NetworkControlRow(callsign: String?, compact: Boolean, onConnect: () -> Unit, onDisconnect: () -> Unit) {
     val colors = LocalHandoffColors.current
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val connected = callsign != null
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Network",
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textMuted,
+            modifier = Modifier.widthIn(min = 90.dp)
+        )
+        // One line always -- on the narrow layout the value used to wrap a character or two at a time
+        // ("Not / conn / ecte / d") once the action button took its share of the row. The callsign
+        // alone is enough there (the drawer's "Active callsign" row names it too).
+        Text(
+            when {
+                !connected -> "Not connected"
+                compact -> callsign!!
+                else -> "Connected as $callsign"
+            },
+            fontSize = 11.5.sp,
+            fontFamily = RobotoMono,
+            color = colors.textMuted,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        // Same look as the rows' refresh buttons, and the plug icon the collapsed row's shortcut uses,
+        // so the pilot sees the shortcut and this as one feature.
+        DrawerActionButton(
+            icon = networkIcon(connected),
+            label = if (connected) "Disconnect" else "Connect...",
+            description = if (connected) "Disconnect from VATSIM" else "Connect to VATSIM",
+            compact = compact,
+            onClick = if (connected) onDisconnect else onConnect
+        )
+    }
+}
+// The one place the connect/disconnect icons are chosen (collapsed shortcut and drawer row both use
+// it): a plug in / plug out pair, easy to swap for another Material icon pair. The icon shows the
+// action the button performs -- plug in to connect, plug out to disconnect -- so it always matches
+// its label; the collapsed shortcut's colour is what shows the current state.
+private fun networkIcon(onNetwork: Boolean) = if (onNetwork) Icons.Filled.PowerOff else Icons.Filled.Power
+
+@Composable
+private fun FlightPlanDetailRow(
+    label: String,
+    value: String,
+    warning: Boolean,
+    // Issue #171 follow-up -- an optional refresh icon right after the value (null = none), so the
+    // pilot can re-poll that one source without leaving the drawer.
+    refreshDescription: String = "Refresh",
+    compactActions: Boolean = false,
+    onRefresh: (() -> Unit)? = null
+) {
+    val colors = LocalHandoffColors.current
+    // fillMaxWidth + the value taking the free space (weight below) pushes an action button to the
+    // row's right edge, so every row's button lands in one right-aligned column -- under the header's
+    // own icon cluster -- whatever the value's length.
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             label,
             fontSize = 11.5.sp,
@@ -409,8 +522,33 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
             value,
             fontSize = 11.5.sp,
             fontFamily = RobotoMono,
-            color = if (warning) colors.attention else colors.textMuted
+            color = if (warning) colors.attention else colors.textMuted,
+            modifier = Modifier.weight(1f)
         )
+        if (onRefresh != null) {
+            DrawerActionButton(Icons.Filled.Refresh, "Refresh", refreshDescription, compactActions, onRefresh)
+        }
+    }
+}
+
+/** The one style for every action in the drawer (the rows' refresh buttons and the Network row's
+ *  connect/disconnect): accent-coloured icon plus a short label, or just the icon when [compact]
+ *  (the narrow layout, where the label would squeeze the row's own text). */
+@Composable
+private fun DrawerActionButton(icon: ImageVector, label: String, description: String, compact: Boolean, onClick: () -> Unit) {
+    val colors = LocalHandoffColors.current
+    Row(
+        Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // The text label already names the action; the description is only needed for the icon alone.
+        Icon(icon, contentDescription = if (compact) description else null, tint = colors.accent, modifier = Modifier.size(16.dp))
+        if (!compact) {
+            Text(label, color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        }
     }
 }
 
@@ -453,13 +591,20 @@ private fun CdmChip(initial: CdmSlotDisplay, compact: Boolean, onClick: () -> Un
 }
 
 @Composable
-private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit) {
+private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit, compactActions: Boolean, onRefresh: (() -> Unit)?) {
     val slot = rememberTickingCdmSlot(initial)
     Column(Modifier.clickable(onClick = onClick)) {
     slot.sid?.let { sid ->
         FlightPlanDetailRow("Departure", listOfNotNull(slot.depRunway?.let { "RWY $it" }, "SID $sid").joinToString(" · "), warning = false)
     }
-    FlightPlanDetailRow("Start-up window", slot.windowSummary(), warning = slot.phase == CdmWindowPhase.MISSED)
+    FlightPlanDetailRow(
+        "Start-up window",
+        slot.windowSummary(),
+        warning = slot.phase == CdmWindowPhase.MISSED,
+        refreshDescription = "Refresh start-up window",
+        compactActions = compactActions,
+        onRefresh = onRefresh
+    )
     slot.eobt?.let { FlightPlanDetailRow("EOBT", it, warning = false) }
     // A request the backend hasn't accepted yet is shown next to (or instead of) the accepted T/OBT.
     val tobtValue = listOfNotNull(slot.tobt, slot.requestedTobt?.let { "pending $it" }).joinToString(" · ")

@@ -14,7 +14,8 @@ namespace Handoff.Plugin
     /// fallback. A non-200 response means "no such user" or "no OFP filed yet" -- both are
     /// reported as no flight plan available, not thrown as fatal errors.
     ///
-    /// NOTE: the field paths below (atc.callsign, origin/destination/alternate.icao_code) are
+    /// NOTE: the field paths below (atc.callsign, origin/destination/alternate.icao_code,
+    /// aircraft.icaocode, aircraft.selcal) are
     /// taken from public SimBrief API documentation/community usage, not confirmed against a
     /// real account yet -- verify empirically, per CLAUDE.md's "Open items to verify
     /// empirically" convention.
@@ -55,17 +56,7 @@ namespace Handoff.Plugin
                     }
 
                     var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    var json = JObject.Parse(body);
-                    var (originLat, originLon) = ParseOriginCoordinates(body, logDebug);
-
-                    return new FlightPlan(
-                        callsign: (string)json.SelectToken("atc.callsign"),
-                        origin: (string)json.SelectToken("origin.icao_code"),
-                        destination: (string)json.SelectToken("destination.icao_code"),
-                        alternate: (string)json.SelectToken("alternate.icao_code"),
-                        waypoints: ParseWaypoints(body, logDebug),
-                        originLatitude: originLat,
-                        originLongitude: originLon);
+                    return ParseFlightPlan(body, logDebug);
                 }
             }
             catch (Exception ex)
@@ -73,6 +64,42 @@ namespace Handoff.Plugin
                 logDebug?.Invoke($"SimBriefClient: fetch by {paramName} threw: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>Builds the plan from an OFP response body. Every field degrades to null on its
+        /// own -- a field that is missing, empty, or oddly shaped must never turn a perfectly good plan
+        /// into "no flight plan available".</summary>
+        public static FlightPlan ParseFlightPlan(string body, Action<string> logDebug = null)
+        {
+            var json = JObject.Parse(body);
+            var (originLat, originLon) = ParseOriginCoordinates(body, logDebug);
+
+            return new FlightPlan(
+                callsign: StringAt(json, "atc.callsign"),
+                origin: StringAt(json, "origin.icao_code"),
+                destination: StringAt(json, "destination.icao_code"),
+                alternate: StringAt(json, "alternate.icao_code"),
+                waypoints: ParseWaypoints(body, logDebug),
+                originLatitude: originLat,
+                originLongitude: originLon,
+                aircraftType: StringAt(json, "aircraft.icaocode"),
+                selcal: StringAt(json, "aircraft.selcal"));
+        }
+
+        /// <summary>
+        /// The string at <paramref name="path"/>, or null unless it really is a plain value. SimBrief
+        /// builds this JSON from XML, so an element with no text comes through as an empty object
+        /// ("selcal":{}) rather than a missing key or an empty string -- and casting that to string
+        /// throws. Seen live with a plan that has no SELCAL, which made the whole fetch fail.
+        /// </summary>
+        private static string StringAt(JObject root, string path)
+        {
+            var token = root.SelectToken(path);
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Object || token.Type == JTokenType.Array)
+                return null;
+
+            var value = (string)token;
+            return string.IsNullOrWhiteSpace(value) ? null : value;
         }
 
         /// <summary>

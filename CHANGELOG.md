@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin + Android (issue #171): connect to and disconnect from VATSIM from the tablet or phone,
+  without reaching vPilot. The expanded footer drawer has a new "Network" row ("Connected as
+  EIDGX" / "Not connected") with a **Disconnect** / **Connect...** action. Connect opens a form
+  prefilled from the latest SimBrief plan (callsign and aircraft type, both editable), with an
+  SELCAL (taken from the SimBrief plan, empty when the plan has none) and a "Connect as observer" option; it stays
+  disabled with the reason shown until the callsign and type are filled in (vPilot itself reports
+  a missing simulator connection when you tap Connect). Disconnect always asks first. Both show a spinner while waiting for vPilot
+  and show a failure (simulator not ready, closed before connecting, timeout) inline. The row is
+  hidden on plugins older than 0.8.0. The connect/disconnect plug icon (plugged in = on the
+  network) also sits in the footer's collapsed row, in place of the old refresh icon, with the same
+  icon on the drawer row. The refresh moved into the drawer: a refresh icon after the SimBrief,
+  VATSIM and start-up window rows re-polls just that source (the VATSIM one is a new plugin
+  command, `refreshVatsimFeed`). Protocol: new `connectNetwork` / `disconnectNetwork`
+  commands reporting through `operationProgress`, and a new `flightPlan.simbriefAircraftType`
+  field. Not yet verified against the live network: which `IBroker` call throws which exception,
+  the exact SimBrief field name (`aircraft.icaocode`), and VATSIM's callsign/type limits.
 - Android (issue #177): entering split-screen without the "display over other apps" permission
   now shows a short explainer first instead of dropping straight into Android's settings page,
   with **Continue**, **Not now** (asks again next app start, not on every rotation or resize) and

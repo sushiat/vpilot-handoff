@@ -597,6 +597,59 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesConnectNetworkCommand() {
+        val json = ConnectNetworkCommand(operationId = "op1", callsign = "EIDGX", aircraftType = "A320", selcalCode = "ABCD").encode()
+        assertEquals(
+            """{"type":"connectNetwork","operationId":"op1","callsign":"EIDGX","aircraftType":"A320","selcalCode":"ABCD","observer":false}""",
+            json
+        )
+    }
+
+    @Test
+    fun encodesConnectNetworkCommandAsObserver() {
+        val json = ConnectNetworkCommand(operationId = "op1", callsign = "EIDGX_OBS", observer = true).encode()
+        assertEquals(
+            """{"type":"connectNetwork","operationId":"op1","callsign":"EIDGX_OBS","aircraftType":null,"selcalCode":null,"observer":true}""",
+            json
+        )
+    }
+
+    @Test
+    fun encodesRefreshVatsimFeedCommand() {
+        assertEquals("""{"type":"refreshVatsimFeed"}""", RefreshVatsimFeedCommand().encode())
+    }
+
+    @Test
+    fun encodesDisconnectNetworkCommand() {
+        val json = DisconnectNetworkCommand(operationId = "op2").encode()
+        assertEquals("""{"type":"disconnectNetwork","operationId":"op2"}""", json)
+    }
+
+    @Test
+    fun decodesFlightPlanMessageWithAircraftType() {
+        val json = """{"type":"flightPlan","simbriefCallsign":"BAW123","simbriefAircraftType":"A320"}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals("A320", message.simbriefAircraftType)
+    }
+
+    @Test
+    fun decodesFlightPlanMessageWithSelcal() {
+        val json = """{"type":"flightPlan","simbriefSelcal":"ABCD"}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertEquals("ABCD", message.simbriefSelcal)
+    }
+
+    @Test
+    fun decodesFlightPlanMessageFromOlderPlugin_AircraftTypeIsNull() {
+        val json = """{"type":"flightPlan","simbriefCallsign":"BAW123"}"""
+
+        val message = decodeServerMessage(json) as FlightPlanMessage
+        assertNull(message.simbriefAircraftType)
+    }
+
+    @Test
     fun formatsCompressedFrequency() {
         assertEquals("123.725", RadioFrequency.format(23725))
         assertEquals("118.000", RadioFrequency.format(18000))
