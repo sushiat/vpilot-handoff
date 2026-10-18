@@ -962,9 +962,12 @@ persisted.
 
 Polls the public VATSIM data feed now instead of waiting for the plugin's next 15-second tick (a
 client's refresh button next to the VATSIM flight-plan row). Carries no fields. The result arrives
-through the existing `flightPlan` message when the poll lands. A no-op (logged nowhere, not an
-error) while the pilot isn't on the network, because the feed only runs then. Added with
-`connectNetwork`, so a client should offer it under the same version gate (0.8.0).
+through the existing `flightPlan` message when the poll lands, and the tap is acknowledged through
+`operationProgress` (`vatsimFeedRefresh-{guid}`, minted by the plugin like SimBrief's): "Refreshing
+VATSIM data..." while it waits, then a finished message that is `success: true` once the poll
+landed, or `success: false` if the feed was unreachable -- or straight away if the pilot isn't on
+the network, because the feed only runs then. The regular 15-second poll reports nothing. Added
+with `connectNetwork`, so a client should offer it under the same version gate (0.8.0).
 
 ```json
 {"type": "refreshVatsimFeed"}

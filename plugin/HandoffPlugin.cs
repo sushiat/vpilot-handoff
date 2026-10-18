@@ -86,7 +86,7 @@ namespace Handoff.Plugin
 
             // Public VATSIM data feed for cid/name/facility/rating enrichment -- tied to the
             // VATSIM connection same as RadioStateModel, no point polling it when not flying.
-            _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage);
+            _vatsimDataFeed = new VatsimDataFeedModel(_broker.PostDebugMessage, operationProgress: _operationProgress);
             _broker.NetworkConnected += (sender, e) => _vatsimDataFeed.Start();
             _broker.NetworkDisconnected += (sender, e) => _vatsimDataFeed.Stop();
             _broker.SessionEnded += (sender, e) => _vatsimDataFeed.Stop();
