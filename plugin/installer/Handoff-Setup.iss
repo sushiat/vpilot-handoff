@@ -141,7 +141,32 @@ end;
 // this runs unattended (either double-clicked in the background or launched silently by the
 // auto-updater while vPilot is still open).
 procedure WaitForVPilotToExit();
+var
+  GrowHeader: Integer;
 begin
+  if not IsAppRunning('vPilot.exe') then Exit;
+
+  // This is the page the pilot sits looking at until vPilot is closed, with nothing else moving on it
+  // -- say what it's waiting for, since otherwise it just reads as a stuck installer. Nothing here
+  // closes vPilot for them (that would drop an active VATSIM connection).
+  // Slightly larger than Inno's defaults on purpose: this text is the whole point of the page while it
+  // waits. The header is a fixed height and clipped the bigger text (14pt/11pt did), so it is grown a
+  // little and the description is placed under the heading instead of at its default spot.
+  GrowHeader := ScaleY(14);
+  WizardForm.MainPanel.Height := WizardForm.MainPanel.Height + GrowHeader;
+  WizardForm.InnerNotebook.Top := WizardForm.InnerNotebook.Top + GrowHeader;
+  WizardForm.InnerNotebook.Height := WizardForm.InnerNotebook.Height - GrowHeader;
+  WizardForm.PageNameLabel.Font.Size := 11;
+  // Its height doesn't follow the font, so letters like the "g" lost their bottom edge without this.
+  WizardForm.PageNameLabel.Height := ScaleY(24);
+  WizardForm.PageNameLabel.Caption := 'Waiting for vPilot to close';
+  WizardForm.PageDescriptionLabel.Font.Size := 10;
+  WizardForm.PageDescriptionLabel.Top := WizardForm.PageNameLabel.Top + WizardForm.PageNameLabel.Height + ScaleY(4);
+  WizardForm.PageDescriptionLabel.Height := ScaleY(40);
+  WizardForm.PageDescriptionLabel.Caption :=
+    'Close vPilot to finish installing the Handoff plugin update. Setup continues by itself as soon as it has closed.';
+  WizardForm.Update;
+
   while IsAppRunning('vPilot.exe') do
     Sleep(2000);
 end;

@@ -65,10 +65,15 @@ namespace Handoff.Plugin
 
             var messageLabel = new Label
             {
+                // Spells out what "Install Now" really does -- a setup window that then sits waiting --
+                // because the old wording read as if it would just happen, and the waiting window
+                // looked like a stuck installer.
                 Text = $"A new Handoff plugin version is available: {version}.\n\n" +
-                    "Install it now? The installer will open and finish automatically once you " +
-                    "close vPilot -- you can keep flying until then, and Handoff will confirm the " +
-                    "update the next time it loads.",
+                    "Install it now?\n\n" +
+                    "A setup window will open and wait. Nothing is installed until you close vPilot, " +
+                    "so keep flying and close it when you're done -- closing it also ends your VATSIM " +
+                    "connection. Setup then finishes by itself, and Handoff confirms the update the " +
+                    "next time vPilot starts.",
                 AutoSize = false,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
@@ -100,7 +105,7 @@ namespace Handoff.Plugin
             {
                 Text = "Handoff Update Available",
                 Width = formWidth,
-                Height = 300,
+                Height = 400,
                 StartPosition = FormStartPosition.CenterScreen,
                 TopMost = true,
                 FormBorderStyle = FormBorderStyle.FixedDialog,
