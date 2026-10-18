@@ -24,6 +24,21 @@ vPilot companion app: live VATSIM controller list + two-way chat on an Android E
 - **Android interruption model**: explicitly *not* using the system Bubbles API (disliked its UX) and *not* trying to force split-screen (not possible for a third-party app to trigger without prior user-initiated pairing — Android intentionally disallows this since Android 10). Instead: a self-drawn `SYSTEM_ALERT_WINDOW` overlay (classic "chat heads" pattern), fully custom UI, viable because this is a sideloaded app with no Play Store policy constraints. Manual split-screen (user-initiated once) is a nice-to-have, not something the app can trigger itself.
 - **Repo structure**: monorepo for now (single dev iterating on both sides of one protocol). Split `android/` (and future `ios/`) into their own repos once/if independent contributors join who don't want the Windows/.NET toolchain — splitting later is cheap (history-preserving), merging diverged repos back together later is not, so default to the reversible choice.
 
+## Release housekeeping
+
+- **Cutting a release means updating two changelogs, not one.** When `CHANGELOG.md`'s `## [Unreleased]`
+  becomes a version section, also go through `docs/protocol.md`'s **Changelog** section: every
+  message-shape change that ships in that release moves out of `### Unreleased` into a new
+  `### [x.y.z] - <date>` section there (releases with no protocol change get none). The protocol doc
+  once fell five releases behind: entries from 0.3.0–0.7.0 were all still sitting under "Unreleased".
+- To see which release an entry belongs to, don't trust the heading it sits under: find the commit that
+  added it (`git log --reverse -S <field or command> -- docs/protocol.md`) and ask which tag contains it
+  (`git tag --contains <commit> --sort=creatordate`).
+- The plugin (`plugin/Handoff.Plugin.csproj` `<Version>`) and the Android app (`appVersionName` in
+  `android/app/build.gradle.kts`) must carry the same version at release time (`release.yml` enforces it).
+  The app also gates features on the plugin's reported `pluginVersion` (e.g. `NetworkConnect.MinPluginVersion`),
+  so a feature's gate version must be a version the plugin will really report.
+
 ## Open items to verify empirically once the plugin skeleton exists
 
 - Confirm no stray `RossCarlson.Vatsim.Vpilot.Plugins.dll`/`.xml` copies exist in the plugin folder (known FSLabs-installer bug that breaks plugin loading).
