@@ -5,6 +5,49 @@ namespace Handoff.Plugin.Tests
     public class SimBriefClientTests
     {
         [Fact]
+        public void ParseFlightPlan_ReadsTheFieldsIncludingAircraftTypeAndSelcal()
+        {
+            var json = "{\"atc\":{\"callsign\":\"FDX82M\"},\"origin\":{\"icao_code\":\"LOWW\"},\"destination\":{\"icao_code\":\"KJFK\"}," +
+                       "\"alternate\":{\"icao_code\":\"KBOS\"},\"aircraft\":{\"icaocode\":\"MD11\",\"selcal\":\"ABCD\"}}";
+
+            var plan = SimBriefClient.ParseFlightPlan(json);
+
+            Assert.Equal("FDX82M", plan.Callsign);
+            Assert.Equal("LOWW", plan.Origin);
+            Assert.Equal("MD11", plan.AircraftType);
+            Assert.Equal("ABCD", plan.Selcal);
+        }
+
+        [Fact]
+        public void ParseFlightPlan_EmptySelcalObject_StillGivesAPlanWithNoSelcal()
+        {
+            // What SimBrief really returns for a plan with no SELCAL (its XML-to-JSON turns the empty
+            // element into {}); the cast to string used to throw and the whole plan was dropped.
+            var json = "{\"atc\":{\"callsign\":\"FDX82M\"},\"origin\":{\"icao_code\":\"LOWW\"},\"destination\":{\"icao_code\":\"KJFK\"}," +
+                       "\"aircraft\":{\"icaocode\":\"MD11\",\"selcal\":{}}}";
+
+            var plan = SimBriefClient.ParseFlightPlan(json);
+
+            Assert.NotNull(plan);
+            Assert.Equal("FDX82M", plan.Callsign);
+            Assert.Equal("MD11", plan.AircraftType);
+            Assert.Null(plan.Selcal);
+        }
+
+        [Theory]
+        [InlineData("\"selcal\":\"\"")]
+        [InlineData("\"selcal\":[]")]
+        [InlineData("\"selcal\":null")]
+        [InlineData("\"other\":1")]
+        public void ParseFlightPlan_BlankOrOddlyShapedSelcal_IsNull(string selcalMember)
+        {
+            var plan = SimBriefClient.ParseFlightPlan("{\"atc\":{\"callsign\":\"X\"},\"aircraft\":{\"icaocode\":\"A320\"," + selcalMember + "}}");
+
+            Assert.Equal("X", plan.Callsign);
+            Assert.Null(plan.Selcal);
+        }
+
+        [Fact]
         public void ParseWaypoints_ParsesOrderedNavlogFixes()
         {
             var json = @"{
