@@ -222,11 +222,12 @@ fun DisconnectNetworkDialog(
             wait is NetworkWait.Waiting -> WaitingRow(wait.status)
             error != null -> Text(error!!, fontSize = 13.sp, color = outOfBandRed, modifier = Modifier.padding(top = 12.dp))
         }
-        Row(
+        // Stacked, full-width, like DiversionConfirmDialog: side by side, each button only got ~90dp of
+        // text on a narrow phone (or a large font setting) and "Disconnect" wrapped to "Disconne / ct".
+        Column(
             Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", fontSize = 15.sp) }
             Button(
                 enabled = !waiting,
                 onClick = {
@@ -235,8 +236,9 @@ fun DisconnectNetworkDialog(
                     arm(operationId)
                     onSend(DisconnectNetworkCommand(operationId = operationId))
                 },
-                modifier = Modifier.weight(1f)
-            ) { Text("Disconnect", fontSize = 15.sp) }
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Disconnect", fontSize = 15.sp, maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel", fontSize = 15.sp) }
         }
     }
 }
