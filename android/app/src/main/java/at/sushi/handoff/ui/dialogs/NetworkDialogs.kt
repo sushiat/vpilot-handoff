@@ -107,13 +107,12 @@ fun ConnectNetworkDialog(
     initialSelcal: String,
     operations: Map<String, OperationProgressState>,
     onSend: (ConnectNetworkCommand) -> Unit,
-    onRememberSelcal: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val colors = LocalHandoffColors.current
     var callsign by remember { mutableStateOf(initialCallsign) }
     var aircraftType by remember { mutableStateOf(initialAircraftType) }
-    var selcal by remember { mutableStateOf(NetworkConnect.normalizeSelcal(initialSelcal)) }
+    var selcal by remember { mutableStateOf(NetworkConnect.formatSelcal(initialSelcal)) }
     var observer by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -142,8 +141,8 @@ fun ConnectNetworkDialog(
             FieldLabel("SELCAL (optional)")
             HandoffTextField(
                 selcal,
-                { selcal = NetworkConnect.normalizeSelcal(it).take(4); error = null },
-                placeholder = "e.g. ABCD",
+                { selcal = NetworkConnect.formatSelcal(it); error = null },
+                placeholder = "e.g. AB-CD",
                 fontSize = 15.sp,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -174,8 +173,7 @@ fun ConnectNetworkDialog(
                 enabled = blockedReason == null && !waiting,
                 onClick = {
                     val operationId = UUID.randomUUID().toString()
-                    val cleanSelcal = NetworkConnect.normalizeSelcal(selcal)
-                    if (!observer && cleanSelcal.isNotEmpty()) onRememberSelcal(cleanSelcal)
+                    val cleanSelcal = NetworkConnect.formatSelcal(selcal)
                     error = null
                     arm(operationId)
                     onSend(

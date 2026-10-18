@@ -73,7 +73,6 @@ class HandoffConnectionService : Service() {
         const val PrefKeyHost = "server_ip"
         const val PrefKeySimbriefUserId = "simbrief_user_id"
         const val PrefKeySimbriefUsername = "simbrief_username"
-        const val PrefKeyLastSelcal = "last_selcal"
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"

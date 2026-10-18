@@ -21,8 +21,16 @@ object NetworkConnect {
 
     fun normalize(text: String): String = text.trim().uppercase()
 
-    /** SELCAL is four letters, typed without a dash (vPilot's own field takes it that way). */
+    /** SELCAL as just its letters, however it was typed or stored ("AB-CD", "ab cd", "ABCD"). */
     fun normalizeSelcal(text: String): String = text.uppercase().filter { it in 'A'..'Z' }
+
+    /** The form vPilot accepts and the field shows: letters capped at four, with the dash inserted
+     *  after the second as soon as there is a third ("AB", "AB-C", "AB-CD"). SimBrief's "ABCD"
+     *  becomes "AB-CD" here too. */
+    fun formatSelcal(text: String): String {
+        val letters = normalizeSelcal(text).take(4)
+        return if (letters.length > 2) letters.take(2) + "-" + letters.drop(2) else letters
+    }
 
     /** Why Connect must be disabled, or null when the form can be sent. Ordered by what the pilot
      *  most likely needs to fix first. The simulator link is deliberately not checked here:
@@ -42,7 +50,7 @@ object NetworkConnect {
             observer -> null
             type.isEmpty() -> "Enter the aircraft type."
             !TypePattern.matches(type) -> "Aircraft type is the 2-4 character ICAO code, e.g. A320."
-            selcal.isNotEmpty() && normalizeSelcal(selcal).length != 4 -> "SELCAL is 4 letters, e.g. ABCD."
+            selcal.isNotEmpty() && normalizeSelcal(selcal).length != 4 -> "SELCAL is 4 letters, e.g. AB-CD."
             else -> null
         }
     }

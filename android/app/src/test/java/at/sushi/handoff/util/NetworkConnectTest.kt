@@ -65,8 +65,19 @@ class NetworkConnectTest {
     }
 
     @Test
+    fun formatSelcal_insertsDashAfterSecondLetter() {
+        assertEquals("", NetworkConnect.formatSelcal(""))
+        assertEquals("AB", NetworkConnect.formatSelcal("ab"))
+        assertEquals("AB-C", NetworkConnect.formatSelcal("abc"))
+        assertEquals("AB-CD", NetworkConnect.formatSelcal("ABCD"))
+        assertEquals("AB-CD", NetworkConnect.formatSelcal("AB-CD"))
+        assertEquals("AB-CD", NetworkConnect.formatSelcal("ABCDE"))
+        assertEquals("AB", NetworkConnect.formatSelcal("AB-"))
+    }
+
+    @Test
     fun connectBlockedReason_selcalMustBeFourLettersWhenGiven() {
-        assertEquals("SELCAL is 4 letters, e.g. ABCD.", NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "AB"))
+        assertEquals("SELCAL is 4 letters, e.g. AB-CD.", NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "AB"))
         assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "ABCD"))
         assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = ""))
     }

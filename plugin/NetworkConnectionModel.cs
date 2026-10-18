@@ -52,9 +52,7 @@ namespace Handoff.Plugin
 
             callsign = callsign?.Trim().ToUpperInvariant();
             typeCode = typeCode?.Trim().ToUpperInvariant();
-            // SELCAL is four letters; drop any dash/space a client left in ("AB-CD" -> "ABCD").
-            selcalCode = selcalCode == null ? null : new string(selcalCode.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
-            if (selcalCode == string.Empty) selcalCode = null;
+            selcalCode = FormatSelcal(selcalCode);
 
             if (string.IsNullOrEmpty(callsign))
             {
@@ -158,6 +156,18 @@ namespace Handoff.Plugin
                 _operationProgress.Finish(connectId, "The connection to VATSIM was closed before it completed.", success: false);
             if (disconnectId != null)
                 _operationProgress.Finish(disconnectId, "Disconnected from VATSIM.", success: true);
+        }
+
+        /// <summary>vPilot only accepts SELCAL as "AB-CD", while SimBrief (and a client that types it)
+        /// may hold "ABCD", "ab cd" or already "AB-CD" -- so always rebuild it from the letters. Anything
+        /// that isn't four letters is passed on tidied but undashed, for vPilot to reject.</summary>
+        public static string FormatSelcal(string selcal)
+        {
+            if (string.IsNullOrWhiteSpace(selcal)) return null;
+
+            var letters = new string(selcal.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+            if (letters.Length == 0) return null;
+            return letters.Length == 4 ? letters.Substring(0, 2) + "-" + letters.Substring(2) : letters;
         }
 
         private void Fail(string operationId, string status)

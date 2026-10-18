@@ -27,10 +27,20 @@ namespace Handoff.Plugin.Tests
 
             model.Connect("op1", " eidgx ", "a320", " ab-cd ", observer: false);
 
-            Assert.Equal(new[] { ("EIDGX", "A320", "ABCD") }, broker.ConnectRequests);
+            Assert.Equal(new[] { ("EIDGX", "A320", "AB-CD") }, broker.ConnectRequests);
             var last = events[events.Count - 1];
             Assert.Equal("op1", last.OperationId);
             Assert.False(last.Finished);
+        }
+
+        [Theory]
+        [InlineData("ABCD", "AB-CD")]
+        [InlineData("ab cd", "AB-CD")]
+        [InlineData("AB-CD", "AB-CD")]
+        [InlineData("ABC", "ABC")]
+        public void FormatSelcal_RebuildsVpilotsDashedForm(string input, string expected)
+        {
+            Assert.Equal(expected, NetworkConnectionModel.FormatSelcal(input));
         }
 
         [Fact]

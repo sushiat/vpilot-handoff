@@ -1050,17 +1050,15 @@ private fun MainScreenContent() {
         )
     }
 
-    // Issue #171 -- prefilled from the latest SimBrief plan; SELCAL isn't in the plugin's data, so
-    // the last one typed is remembered locally instead.
+    // Issue #171 -- prefilled from the latest SimBrief plan, SELCAL included: a plan with none (or an
+    // empty one) leaves the field empty rather than carrying over an earlier code.
     if (connectNetworkDialogOpen) {
         at.sushi.handoff.ui.dialogs.ConnectNetworkDialog(
             initialCallsign = flightPlan.simbriefCallsign.orEmpty(),
             initialAircraftType = flightPlan.simbriefAircraftType.orEmpty(),
-            initialSelcal = flightPlan.simbriefSelcal?.takeIf { it.isNotBlank() }
-                ?: prefs.getString(HandoffConnectionService.PrefKeyLastSelcal, "").orEmpty(),
+            initialSelcal = flightPlan.simbriefSelcal.orEmpty(),
             operations = operationProgress,
             onSend = { send(it) },
-            onRememberSelcal = { prefs.edit { putString(HandoffConnectionService.PrefKeyLastSelcal, it) } },
             onDismiss = { connectNetworkDialogOpen = false }
         )
     }
