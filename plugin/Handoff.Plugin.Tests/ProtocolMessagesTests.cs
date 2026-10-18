@@ -372,6 +372,14 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_RefreshVatsimFeed()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"refreshVatsimFeed\"}");
+
+            Assert.Equal(ClientCommand.TypeRefreshVatsimFeed, command.Type);
+        }
+
+        [Fact]
         public void BuildFlightPlanMessage_CarriesSimbriefAircraftType()
         {
             var plan = new FlightPlan("BAW123", "EGLL", "KJFK", "KBOS", aircraftType: "A320");

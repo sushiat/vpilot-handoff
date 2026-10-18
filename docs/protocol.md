@@ -40,6 +40,9 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #171 follow-up -- new client→server `refreshVatsimFeed` (no fields): poll the VATSIM data
+feed now. Additive; an older plugin logs it as unrecognized and does nothing.
+
 Issue #171 -- connect to / disconnect from VATSIM from the client. New client→server
 `connectNetwork` (`operationId`, `callsign`, `aircraftType`, optional `selcalCode`, `observer`)
 and `disconnectNetwork` (`operationId`); the outcome is reported through the existing
@@ -48,6 +51,8 @@ and `disconnectNetwork` (`operationId`); the outcome is reported through the exi
 per the Compatibility section -- an older plugin logs the new commands as unrecognized and never
 answers, so a client should only offer the control when `subsystemStatus.pluginVersion` is at
 least the release that introduced them (0.8.0).
+
+### [0.7.0] - 2026-10-17
 
 Issue #151 follow-up -- contact-me text on the controller row. New nullable field
 `controllers[].contactMeText` (see `isContactMe`). For a known controller the "contact me"
@@ -66,11 +71,22 @@ section -- an older client ignores the new fields and keeps its local-only track
 plugin logs `markChatRead` as an unrecognized type and never sends `chatReadState`, so a newer
 client talking to it falls back the same way.
 
+### [0.3.0] - 2026-08-02
+
 Issue #88 -- adjustable update interval. New client→server `setUpdateInterval` (tier
 `fast`/`normal`/`slow`, persisted plugin-side, edited from the client). New field `updateInterval`
 on `subsystemStatus` reflecting the plugin's current tier -- carried on every per-connect snapshot
 and resent on change, so the client's selection stays correct on every reconnect. `normal`
 reproduces the plugin's original hardcoded cadences exactly, so an unset tier changes nothing.
+
+### [0.1.0] - 2026-08-01
+
+Initial public release, including session-only debug mode and its refinements:
+
+Issue #65 -- debug mode. New client→server `setDebugMode`, `saveDebugSnapshot`,
+`attachDebugSnapshotScreenshot`. New server→client `debugSnapshotSaved`. New nullable fields:
+`controllers[].debug`, `controllers.debug` (top-level), `subsystemStatus.systemsDebug` -- all
+`null` unless debug mode is currently on, per this document's Compatibility section.
 
 Issue #73 -- debug window refinements. New client→server `nameDebugSnapshot`. New server→client
 `debugSnapshotNamed`. New nullable fields on the top-level `debug` object:
@@ -78,17 +94,6 @@ Issue #73 -- debug window refinements. New client→server `nameDebugSnapshot`. 
 lifetime as the rest of `debug`). `attachDebugSnapshotScreenshot`'s `screenshotPngBase64` can now
 optionally be a full-device capture rather than always view-scoped, per the pilot's own opt-in --
 no shape change, just a clarified doc note (issue #73a).
-
-### [0.2.0] - 2026-08-01
-
-Issue #65 -- debug mode. New client→server `setDebugMode`, `saveDebugSnapshot`,
-`attachDebugSnapshotScreenshot`. New server→client `debugSnapshotSaved`. New nullable fields:
-`controllers[].debug`, `controllers.debug` (top-level), `subsystemStatus.systemsDebug` -- all
-`null` unless debug mode is currently on, per this document's Compatibility section.
-
-### [0.1.0] - 2026-07-31
-
-Initial public release.
 
 ## Discovery
 
@@ -953,6 +958,18 @@ persisted.
 {"type": "refreshFlightPlan"}
 ```
 
+### `refreshVatsimFeed`
+
+Polls the public VATSIM data feed now instead of waiting for the plugin's next 15-second tick (a
+client's refresh button next to the VATSIM flight-plan row). Carries no fields. The result arrives
+through the existing `flightPlan` message when the poll lands. A no-op (logged nowhere, not an
+error) while the pilot isn't on the network, because the feed only runs then. Added with
+`connectNetwork`, so a client should offer it under the same version gate (0.8.0).
+
+```json
+{"type": "refreshVatsimFeed"}
+```
+
 ### `connectNetwork` / `disconnectNetwork`
 
 Issue #171 -- connects to / disconnects from the VATSIM network through `IBroker.RequestConnect`/
@@ -968,7 +985,7 @@ reaching vPilot's own window.
 because `operationProgress` is broadcast to every paired client and the requester must recognise
 its own. `callsign` and `aircraftType` are required unless `observer` is `true` (then only
 `callsign`; `aircraftType`/`selcalCode` are ignored). The plugin upper-cases and trims them;
-`selcalCode` is optional and four letters; the plugin rebuilds it as `AB-CD` (vPilot rejects the undashed `ABCD`), so a client may send it with or without the dash. A command without an `operationId` is ignored.
+`selcalCode` is optional and normally four letters; the plugin rebuilds it as `AB-CD` (vPilot rejects the undashed `ABCD`), so a client may send it with or without the dash. The plugin passes whatever letters and digits it is given on to vPilot, which decides whether to accept the code (it currently refuses digits, i.e. SELCAL32-style codes), so a client should only warn about a suspect code, not block it.
 
 `IBroker`'s calls return nothing, so the outcome arrives as `operationProgress` messages with the
 same `operationId`: first `finished: false` ("Connecting to VATSIM..." / "Disconnecting from

@@ -17,7 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disabled with the reason shown until the callsign and type are filled in (vPilot itself reports
   a missing simulator connection when you tap Connect). Disconnect always asks first. Both show a spinner while waiting for vPilot
   and show a failure (simulator not ready, closed before connecting, timeout) inline. The row is
-  hidden on plugins older than 0.8.0. Protocol: new `connectNetwork` / `disconnectNetwork`
+  hidden on plugins older than 0.8.0. The connect/disconnect plug icon (plugged in = on the
+  network) also sits in the footer's collapsed row, in place of the old refresh icon, with the same
+  icon on the drawer row. The refresh moved into the drawer: a refresh icon after the SimBrief,
+  VATSIM and start-up window rows re-polls just that source (the VATSIM one is a new plugin
+  command, `refreshVatsimFeed`). Protocol: new `connectNetwork` / `disconnectNetwork`
   commands reporting through `operationProgress`, and a new `flightPlan.simbriefAircraftType`
   field. Not yet verified against the live network: which `IBroker` call throws which exception,
   the exact SimBrief field name (`aircraft.icaocode`), and VATSIM's callsign/type limits.

@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,7 +37,10 @@ fun HandoffTextField(
     // rather than letting it size to its own padding+content -- otherwise the Box's default
     // top-start alignment would leave the text sitting at the top of the extra space instead of
     // centered in it.
-    contentAlignment: Alignment = Alignment.CenterStart
+    contentAlignment: Alignment = Alignment.CenterStart,
+    // For display-only formatting (e.g. a dash inside a SELCAL) that must not change the edited
+    // text itself -- rewriting [value] while typing leaves the cursor behind the new characters.
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     val colors = LocalHandoffColors.current
     val shape = RoundedCornerShape(8.dp)
@@ -56,6 +60,7 @@ fun HandoffTextField(
             singleLine = singleLine,
             textStyle = TextStyle(fontSize = fontSize, color = colors.text),
             cursorBrush = SolidColor(colors.accent),
+            visualTransformation = visualTransformation,
             modifier = Modifier.fillMaxWidth()
         )
     }

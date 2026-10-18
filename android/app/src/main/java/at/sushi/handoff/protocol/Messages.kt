@@ -557,6 +557,15 @@ data class ConnectNetworkCommand(
     override fun encode() = json.encodeToString(ConnectNetworkCommand.serializer(), this)
 }
 
+/** Polls the public VATSIM data feed now instead of at the plugin's next 15s tick (the VATSIM row's
+ *  refresh icon). Carries no fields; a no-op on the plugin while the pilot isn't on the network. */
+@Serializable
+data class RefreshVatsimFeedCommand(
+    val type: String = "refreshVatsimFeed"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(RefreshVatsimFeedCommand.serializer(), this)
+}
+
 /** Issue #171 -- leaves the VATSIM network (vPilot keeps running). Outcome reported through
  *  `operationProgress` under [operationId], same as [ConnectNetworkCommand]. */
 @Serializable

@@ -38,19 +38,25 @@ namespace Handoff.Plugin.Tests
         [InlineData("ab cd", "AB-CD")]
         [InlineData("AB-CD", "AB-CD")]
         [InlineData("ABC", "ABC")]
+        [InlineData("IAZ9", "IA-Z9")]
+        [InlineData("IAZ95", "IAZ95")]
         public void FormatSelcal_RebuildsVpilotsDashedForm(string input, string expected)
         {
             Assert.Equal(expected, NetworkConnectionModel.FormatSelcal(input));
         }
 
         [Fact]
-        public void Connect_BlankSelcal_IsPassedAsNull()
+        public void Connect_BlankOrMissingSelcal_IsPassedAsEmptyNotNull()
         {
             var (broker, model, _) = Create();
 
             model.Connect("op1", "EIDGX", "A320", "  ", observer: false);
 
-            Assert.Null(broker.ConnectRequests[0].SelcalCode);
+            model.Connect("op2", "EIDGX", "A320", null, observer: false);
+
+            // vPilot's RequestConnect threw a NullReferenceException for a null SELCAL.
+            Assert.Equal(string.Empty, broker.ConnectRequests[0].SelcalCode);
+            Assert.Equal(string.Empty, broker.ConnectRequests[1].SelcalCode);
         }
 
         [Fact]

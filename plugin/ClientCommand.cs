@@ -42,6 +42,8 @@ namespace Handoff.Plugin
         // Issue #171 -- connect to / disconnect from the VATSIM network; see docs/protocol.md.
         public const string TypeConnectNetwork = "connectNetwork";
         public const string TypeDisconnectNetwork = "disconnectNetwork";
+        // Polls the public VATSIM data feed now instead of at its next 15s tick; no payload.
+        public const string TypeRefreshVatsimFeed = "refreshVatsimFeed";
         public const string TypePing = "ping";
         public const string TypeAuthenticate = "authenticate";
 

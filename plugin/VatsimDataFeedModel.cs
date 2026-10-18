@@ -32,6 +32,9 @@ namespace Handoff.Plugin
             new Dictionary<string, VatsimControllerInfo>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, VatsimPilotInfo> _pilotsByCallsign =
             new Dictionary<string, VatsimPilotInfo>(StringComparer.OrdinalIgnoreCase);
+        // Wakes PollLoop out of its inter-poll wait early (RefreshNow); an AutoResetEvent so several
+        // quick requests collapse into one extra poll.
+        private readonly AutoResetEvent _pollNow = new AutoResetEvent(false);
         private volatile bool _running;
         private volatile bool _connected;
         private DateTimeOffset? _lastPollAt;
@@ -77,6 +80,14 @@ namespace Handoff.Plugin
                 _running = true;
                 new Thread(PollLoop) { Name = "VatsimDataFeedModel.PollLoop", IsBackground = true }.Start();
             }
+        }
+
+        /// <summary>Polls the feed now instead of waiting out the rest of the interval (a client's
+        /// refresh button). A no-op while stopped: the feed only runs while the pilot is on the
+        /// network, so there is nothing to refresh before that.</summary>
+        public void RefreshNow()
+        {
+            if (_running) _pollNow.Set();
         }
 
         public void Stop()
@@ -130,7 +141,7 @@ namespace Handoff.Plugin
                     Changed?.Invoke(this, EventArgs.Empty);
                 }
 
-                Thread.Sleep(PollInterval);
+                _pollNow.WaitOne(PollInterval);
             }
         }
 

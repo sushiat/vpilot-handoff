@@ -615,6 +615,11 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesRefreshVatsimFeedCommand() {
+        assertEquals("""{"type":"refreshVatsimFeed"}""", RefreshVatsimFeedCommand().encode())
+    }
+
+    @Test
     fun encodesDisconnectNetworkCommand() {
         val json = DisconnectNetworkCommand(operationId = "op2").encode()
         assertEquals("""{"type":"disconnectNetwork","operationId":"op2"}""", json)

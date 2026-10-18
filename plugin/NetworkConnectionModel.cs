@@ -52,7 +52,9 @@ namespace Handoff.Plugin
 
             callsign = callsign?.Trim().ToUpperInvariant();
             typeCode = typeCode?.Trim().ToUpperInvariant();
-            selcalCode = FormatSelcal(selcalCode);
+            // Empty, never null, when there is none: the SDK doc says "empty or null", but passing null
+            // made vPilot's RequestConnect throw a NullReferenceException (seen on a real connect).
+            selcalCode = FormatSelcal(selcalCode) ?? string.Empty;
 
             if (string.IsNullOrEmpty(callsign))
             {
@@ -158,14 +160,14 @@ namespace Handoff.Plugin
                 _operationProgress.Finish(disconnectId, "Disconnected from VATSIM.", success: true);
         }
 
-        /// <summary>vPilot only accepts SELCAL as "AB-CD", while SimBrief (and a client that types it)
-        /// may hold "ABCD", "ab cd" or already "AB-CD" -- so always rebuild it from the letters. Anything
-        /// that isn't four letters is passed on tidied but undashed, for vPilot to reject.</summary>
+        /// <summary>vPilot wants SELCAL as "AB-CD", while SimBrief (and a client) may hold "ABCD", "ab cd" or
+        /// already "AB-CD" -- so rebuild it from the characters. Four of them get the dash; anything else is
+        /// passed on tidied but undashed (digits included), for vPilot to accept or refuse itself.</summary>
         public static string FormatSelcal(string selcal)
         {
             if (string.IsNullOrWhiteSpace(selcal)) return null;
 
-            var letters = new string(selcal.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+            var letters = new string(selcal.ToUpperInvariant().Where(c => (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')).ToArray());
             if (letters.Length == 0) return null;
             return letters.Length == 4 ? letters.Substring(0, 2) + "-" + letters.Substring(2) : letters;
         }

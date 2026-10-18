@@ -76,9 +76,47 @@ class NetworkConnectTest {
     }
 
     @Test
-    fun connectBlockedReason_selcalMustBeFourLettersWhenGiven() {
-        assertEquals("SELCAL is 4 letters, e.g. AB-CD.", NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "AB"))
-        assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = "ABCD"))
-        assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false, selcal = ""))
+    fun selcalVisualTransformation_showsDashButKeepsCursorAfterTheLastLetter() {
+        // The field stores plain letters; typing "ABCD" must leave the cursor at the end each step,
+        // which is what the dash-rewriting version got wrong (it produced "AB-DC").
+        val expectedShown = mapOf("A" to "A", "AB" to "AB", "ABC" to "AB-C", "ABCD" to "AB-CD")
+        for ((typed, shown) in expectedShown) {
+            val result = SelcalVisualTransformation.filter(androidx.compose.ui.text.AnnotatedString(typed))
+            assertEquals(shown, result.text.text)
+            assertEquals(shown.length, result.offsetMapping.originalToTransformed(typed.length))
+            assertEquals(typed.length, result.offsetMapping.transformedToOriginal(shown.length))
+        }
+    }
+
+    @Test
+    fun prefillSelcal_passesThePlanCodeThroughEvenWhenInvalid() {
+        assertEquals("ABCD", NetworkConnect.prefillSelcal("ABCD"))
+        assertEquals("ABCD", NetworkConnect.prefillSelcal("ab-cd"))
+        assertEquals("IAZ9", NetworkConnect.prefillSelcal("IAZ9")) // kept so it can be corrected in place
+        assertEquals("ABC", NetworkConnect.prefillSelcal("ABC"))
+        assertEquals("", NetworkConnect.prefillSelcal(null))
+    }
+
+    @Test
+    fun selcalWarning_flagsNonStandardCodesButNeverBlocks() {
+        assertNull(NetworkConnect.selcalWarning(""))
+        assertEquals("SELCAL is normally 4 characters, e.g. AB-CD.", NetworkConnect.selcalWarning("AB-C"))
+        assertEquals("vPilot currently doesn't support SELCAL with digits (SELCAL32).", NetworkConnect.selcalWarning("IAZ9"))
+        assertNull(NetworkConnect.selcalWarning("AB-CD"))
+        assertNull(NetworkConnect.selcalWarning("GH-JK")) // J is allowed, I is not
+        assertEquals("Unusual SELCAL: standard codes use the letters A-S without I, N and O.", NetworkConnect.selcalWarning("AB-XZ"))
+        assertEquals("Unusual SELCAL: standard codes use the letters A-S without I, N and O.", NetworkConnect.selcalWarning("AB-CI"))
+        assertEquals("Unusual SELCAL: standard codes don't repeat a letter.", NetworkConnect.selcalWarning("AB-AC"))
+        assertEquals("Unusual SELCAL: standard codes have each pair in alphabetical order, e.g. AB-CD.", NetworkConnect.selcalWarning("BA-CD"))
+        assertEquals("Unusual SELCAL: standard codes have each pair in alphabetical order, e.g. AB-CD.", NetworkConnect.selcalWarning("AB-DC"))
+    }
+
+    @Test
+    fun selcalProblems_neverBlockConnect() {
+        // vPilot currently refuses digits ("IA-Z9") and accepts any letters ("IA-ZZ"), but the form only
+        // warns -- vPilot has the final say, and its rules may change.
+        for (code in listOf("", "AB", "ABCD", "IAZ9", "IAZZ", "AB-XZ", "AB-PI", "BA-CD", "AA-BB")) {
+            assertNull(NetworkConnect.connectBlockedReason("EIDGX", "A320", observer = false), code)
+        }
     }
 }

@@ -925,6 +925,8 @@ private fun MainScreenContent() {
                 keepScreenAwake = keepScreenAwake,
                 onToggleExpanded = { footerExpanded = !footerExpanded },
                 onRefresh = { send(RefreshFlightPlanCommand()) },
+                onRefreshVatsimFeed = { send(at.sushi.handoff.protocol.RefreshVatsimFeedCommand()) },
+                onRefreshCdm = { HandoffConnectionService.instance?.refreshCdmNow() },
                 onOpenSettings = { settingsDialogOpen = true },
                 onOpenCdm = { cdmWebOpen = true },
                 // Not persisted -- HandoffConnectionService re-derives this from the live

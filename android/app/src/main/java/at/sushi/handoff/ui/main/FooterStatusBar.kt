@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Settings
@@ -125,7 +127,11 @@ fun FooterStatusBar(
     expanded: Boolean,
     keepScreenAwake: Boolean,
     onToggleExpanded: () -> Unit,
+    // Issue #171 follow-up -- the manual refreshes live on their drawer rows (SimBrief, VATSIM feed,
+    // start-up window); the collapsed row's old refresh icon is now the connect/disconnect shortcut.
     onRefresh: () -> Unit,
+    onRefreshVatsimFeed: () -> Unit,
+    onRefreshCdm: () -> Unit,
     onOpenSettings: () -> Unit,
     // Issue #143 -- opens the embedded VDGS site (see CdmWebDialog) to set/edit the TOBT.
     onOpenCdm: () -> Unit,
@@ -280,11 +286,23 @@ fun FooterStatusBar(
                         modifier = Modifier.size(iconSize)
                     )
                 }
-                Box(
-                    Modifier.size(iconBoxSize).clickable(onClick = onRefresh),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh flight plan", tint = colors.textMuted, modifier = Modifier.size(iconSize))
+                // Issue #171 follow-up -- the same plug icon as the drawer's Network row, so the two read
+                // as one feature: it shows the VATSIM state (plugged in = on the network) and taps to
+                // connect or disconnect (Disconnect still asks first, see MainScreen). Hidden when the
+                // plugin can't do it (too old, link down, demo mode).
+                if (networkControlAvailable) {
+                    val onNetwork = activeCallsign != null
+                    Box(
+                        Modifier.size(iconBoxSize).clickable(onClick = if (onNetwork) onDisconnectNetwork else onConnectNetwork),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            networkIcon(onNetwork),
+                            contentDescription = if (onNetwork) "Disconnect from VATSIM" else "Connect to VATSIM",
+                            tint = if (onNetwork) colors.ok else colors.textMuted,
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
                 }
                 Box(
                     Modifier.size(iconBoxSize).clickable(onClick = onOpenSettings),
@@ -347,17 +365,21 @@ fun FooterStatusBar(
                 FlightPlanDetailRow(
                     "SimBrief",
                     if (simbriefMissing) "MISSING" else "${simbriefOrigin ?: "----"} → ${simbriefDestination ?: "----"}",
-                    flightPlanWarning
+                    flightPlanWarning,
+                    refreshDescription = "Refresh SimBrief flight plan",
+                    onRefresh = if (demoModeEnabled) null else onRefresh
                 )
                 FlightPlanDetailRow(
                     "VATSIM",
                     if (vatsimMissing) "MISSING" else "${vatsimOrigin ?: "----"} → ${vatsimDestination ?: "----"}",
-                    flightPlanWarning
+                    flightPlanWarning,
+                    refreshDescription = "Refresh VATSIM data feed",
+                    onRefresh = if (networkControlAvailable) onRefreshVatsimFeed else null
                 )
                 // Issue #143 -- only shown while there's a CDM slot to report at all (see
                 // HandoffState.cdmSlot's doc for when that is). Unlike the plugin-sourced rows
                 // above, this comes straight from api.viffsys.com.
-                cdmSlot?.let { CdmDrawerRow(it, onClick = onOpenCdm) }
+                cdmSlot?.let { CdmDrawerRow(it, onClick = onOpenCdm, onRefresh = if (demoModeEnabled) null else onRefreshCdm) }
                 // Issue #68 -- only shown when the plugin's on-ground sanity gate actually fires;
                 // unlike the two rows above (always visible), this is purely a "something's wrong"
                 // flag with no not-wrong state worth displaying.
@@ -428,22 +450,42 @@ private fun NetworkControlRow(callsign: String?, onConnect: () -> Unit, onDiscon
             color = colors.textMuted,
             modifier = Modifier.weight(1f, fill = false)
         )
-        Text(
-            if (callsign != null) "Disconnect" else "Connect...",
-            color = colors.accent,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
+        // The action carries the same plug icon as the collapsed row's shortcut, so the pilot sees
+        // the two as one feature.
+        Row(
+            Modifier
                 .clickable(onClick = if (callsign != null) onDisconnect else onConnect)
-                .padding(horizontal = 6.dp, vertical = 6.dp)
-        )
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(networkIcon(callsign != null), contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+            Text(
+                if (callsign != null) "Disconnect" else "Connect...",
+                color = colors.accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
+// The one place the connect/disconnect icons are chosen (collapsed shortcut and drawer row both use
+// it): a plug in / plug out pair, easy to swap for another Material icon pair.
+private fun networkIcon(onNetwork: Boolean) = if (onNetwork) Icons.Filled.Power else Icons.Filled.PowerOff
+
 @Composable
-private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) {
+private fun FlightPlanDetailRow(
+    label: String,
+    value: String,
+    warning: Boolean,
+    // Issue #171 follow-up -- an optional refresh icon right after the value (null = none), so the
+    // pilot can re-poll that one source without leaving the drawer.
+    refreshDescription: String = "Refresh",
+    onRefresh: (() -> Unit)? = null
+) {
     val colors = LocalHandoffColors.current
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             label,
             fontSize = 11.5.sp,
@@ -457,6 +499,15 @@ private fun FlightPlanDetailRow(label: String, value: String, warning: Boolean) 
             fontFamily = RobotoMono,
             color = if (warning) colors.attention else colors.textMuted
         )
+        if (onRefresh != null) {
+            // A roomy touch box around a small glyph; it doesn't grow the row, which stays text-height.
+            Box(
+                Modifier.size(24.dp).clickable(onClick = onRefresh),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = refreshDescription, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+            }
+        }
     }
 }
 
@@ -499,13 +550,19 @@ private fun CdmChip(initial: CdmSlotDisplay, compact: Boolean, onClick: () -> Un
 }
 
 @Composable
-private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit) {
+private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit, onRefresh: (() -> Unit)?) {
     val slot = rememberTickingCdmSlot(initial)
     Column(Modifier.clickable(onClick = onClick)) {
     slot.sid?.let { sid ->
         FlightPlanDetailRow("Departure", listOfNotNull(slot.depRunway?.let { "RWY $it" }, "SID $sid").joinToString(" · "), warning = false)
     }
-    FlightPlanDetailRow("Start-up window", slot.windowSummary(), warning = slot.phase == CdmWindowPhase.MISSED)
+    FlightPlanDetailRow(
+        "Start-up window",
+        slot.windowSummary(),
+        warning = slot.phase == CdmWindowPhase.MISSED,
+        refreshDescription = "Refresh start-up window",
+        onRefresh = onRefresh
+    )
     slot.eobt?.let { FlightPlanDetailRow("EOBT", it, warning = false) }
     // A request the backend hasn't accepted yet is shown next to (or instead of) the accepted T/OBT.
     val tobtValue = listOfNotNull(slot.tobt, slot.requestedTobt?.let { "pending $it" }).joinToString(" · ")

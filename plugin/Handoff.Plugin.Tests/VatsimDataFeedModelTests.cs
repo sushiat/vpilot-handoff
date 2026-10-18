@@ -32,6 +32,42 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void RefreshNow_PollsAgainWithoutWaitingOutTheInterval()
+        {
+            var polls = 0;
+            var model = new VatsimDataFeedModel(fetch: () =>
+            {
+                Interlocked.Increment(ref polls);
+                return Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>()));
+            });
+
+            model.Start();
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref polls) >= 1, TimeSpan.FromSeconds(5)));
+
+            // The regular interval is 15s; a refresh must land far sooner than that.
+            model.RefreshNow();
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref polls) >= 2, TimeSpan.FromSeconds(5)));
+
+            model.Stop();
+        }
+
+        [Fact]
+        public void RefreshNow_WhileStopped_DoesNothing()
+        {
+            var polls = 0;
+            var model = new VatsimDataFeedModel(fetch: () =>
+            {
+                Interlocked.Increment(ref polls);
+                return Task.FromResult(new VatsimDataFeedSnapshot(new List<VatsimControllerInfo>(), new List<VatsimPilotInfo>()));
+            });
+
+            model.RefreshNow();
+            Thread.Sleep(300);
+
+            Assert.Equal(0, polls);
+        }
+
+        [Fact]
         public void FailedPoll_SetsIsConnectedFalse()
         {
             var model = new VatsimDataFeedModel(fetch: () => Task.FromResult<VatsimDataFeedSnapshot>(null));

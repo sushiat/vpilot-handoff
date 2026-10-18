@@ -29,6 +29,7 @@ import at.sushi.handoff.protocol.DisconnectNetworkCommand
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.util.NetworkConnect
+import at.sushi.handoff.util.SelcalVisualTransformation
 import java.util.UUID
 import kotlinx.coroutines.delay
 
@@ -112,13 +113,14 @@ fun ConnectNetworkDialog(
     val colors = LocalHandoffColors.current
     var callsign by remember { mutableStateOf(initialCallsign) }
     var aircraftType by remember { mutableStateOf(initialAircraftType) }
-    var selcal by remember { mutableStateOf(NetworkConnect.formatSelcal(initialSelcal)) }
+    var selcal by remember { mutableStateOf(NetworkConnect.prefillSelcal(initialSelcal)) }
     var observer by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val (wait, arm) = rememberNetworkWait(operations, onSuccess = onDismiss, onFailure = { error = it })
     val waiting = wait is NetworkWait.Waiting
-    val blockedReason = NetworkConnect.connectBlockedReason(callsign, aircraftType, observer, selcal)
+    val blockedReason = NetworkConnect.connectBlockedReason(callsign, aircraftType, observer)
+    val selcalWarning = if (observer) null else NetworkConnect.selcalWarning(selcal)
 
     SimpleDialogPanel(title = "Connect to VATSIM", width = 320.dp, onDismiss = onDismiss) {
         FieldLabel("Callsign")
@@ -141,10 +143,11 @@ fun ConnectNetworkDialog(
             FieldLabel("SELCAL (optional)")
             HandoffTextField(
                 selcal,
-                { selcal = NetworkConnect.formatSelcal(it); error = null },
+                { selcal = NetworkConnect.cleanSelcalInput(it); error = null },
                 placeholder = "e.g. AB-CD",
                 fontSize = 15.sp,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = SelcalVisualTransformation
             )
         }
         Row(
@@ -162,6 +165,8 @@ fun ConnectNetworkDialog(
             wait is NetworkWait.Waiting -> WaitingRow(wait.status)
             error != null -> Text(error!!, fontSize = 13.sp, color = outOfBandRed, modifier = Modifier.padding(top = 12.dp))
             blockedReason != null -> Text(blockedReason, fontSize = 13.sp, color = colors.attention, modifier = Modifier.padding(top = 12.dp))
+            // Advice only -- Connect stays enabled, vPilot decides whether it takes the code.
+            selcalWarning != null -> Text(selcalWarning, fontSize = 13.sp, color = colors.attention, modifier = Modifier.padding(top = 12.dp))
         }
 
         Row(
