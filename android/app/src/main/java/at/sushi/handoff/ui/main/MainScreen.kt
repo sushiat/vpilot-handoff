@@ -81,6 +81,7 @@ import at.sushi.handoff.ui.chat.mentionsCallsign
 import at.sushi.handoff.ui.chat.chatTabKey
 import at.sushi.handoff.ui.chat.readThroughByTab
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
+import at.sushi.handoff.ui.dialogs.AttendedSimDialog
 import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
 import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
 import at.sushi.handoff.util.shouldPromptOverlayExplainer
@@ -260,6 +261,9 @@ private fun MainScreenContent() {
     val debugOverlayPermissionMissing by HandoffState.debugOverlayPermissionMissing.collectAsState()
     var hasOverlayPermission by remember { mutableStateOf(ChatOverlayWindow.hasOverlayPermission(context)) }
     var overlayExplainerOpen by remember { mutableStateOf(false) }
+    // Issue #188 -- one-time "stay at your sim" notice, read straight from prefs (not a state flow
+    // loaded later by the service) so a returning pilot never sees it flash up at launch.
+    var attendedSimAcked by remember { mutableStateOf(prefs.getBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, false)) }
     // Coming back from the system permission screen (or any other app) must re-read the grant.
     val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
     DisposableEffect(lifecycleOwner) {
@@ -279,8 +283,9 @@ private fun MainScreenContent() {
         }
     }
     val layoutMode by HandoffState.layoutMode.collectAsState()
-    LaunchedEffect(layoutMode, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed) {
-        if (layoutMode == LayoutMode.SPLIT &&
+    LaunchedEffect(layoutMode, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed, attendedSimAcked) {
+        // Issue #188 -- the attended-sim notice goes first so the two dialogs never stack.
+        if (attendedSimAcked && layoutMode == LayoutMode.SPLIT &&
             shouldPromptOverlayExplainer(ChannelFeatures.FloatingOverlay, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed)
         ) {
             overlayExplainerOpen = true
@@ -1078,7 +1083,16 @@ private fun MainScreenContent() {
         CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
     }
 
-    if (overlayExplainerOpen) {
+    if (!attendedSimAcked) {
+        AttendedSimDialog(
+            onAcknowledge = {
+                prefs.edit { putBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, true) }
+                attendedSimAcked = true
+            }
+        )
+    }
+
+    if (overlayExplainerOpen && attendedSimAcked) {
         OverlayPermissionDialog(
             onContinue = {
                 // Snoozed too, so coming back from the system screen without granting doesn't loop.

@@ -81,6 +81,9 @@ class HandoffConnectionService : Service() {
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
         // Issue #177 -- pilot answered "I don't want that" to the floating-chat permission explainer.
         const val PrefKeyFloatingChatDeclined = "floating_chat_declined"
+        // Issue #188 -- pilot acknowledged the "stay at your sim" notice. The suffix is the notice's
+        // wording version: bump it to ask everyone again after a material change to the text.
+        const val PrefKeyAttendedSimAckV1 = "attended_sim_ack_v1"
         // Issue #88 -- last known update-interval tier, so the settings dialog can show a sensible
         // choice before the plugin's subsystemStatus (the authoritative source) arrives.
         const val PrefKeyUpdateInterval = "update_interval"

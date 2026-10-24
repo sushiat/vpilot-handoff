@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android + README (issue #188): a one-time "Stay at your sim" notice. The app now opens with a
+  dialog that explains VATSIM's Code of Conduct rules on unattended connections (A9, and B3(b)'s
+  30-minute limit for pilots), shows VATSIM's published penalty scale in red, links to the Code of
+  Conduct, and only closes with an "I understand" button. It is shown once per install and before
+  the overlay-permission explainer, never alongside it. The README has the same note under "Using
+  Handoff responsibly".
 - Plugin + Android (issue #171): connect to and disconnect from VATSIM from the tablet or phone,
   without reaching vPilot. The expanded footer drawer has a new "Network" row ("Connected as
   EIDGX" / "Not connected") with a **Disconnect** / **Connect...** action. Connect opens a form
