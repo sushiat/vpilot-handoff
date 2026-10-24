@@ -81,6 +81,7 @@ import at.sushi.handoff.ui.chat.mentionsCallsign
 import at.sushi.handoff.ui.chat.chatTabKey
 import at.sushi.handoff.ui.chat.readThroughByTab
 import at.sushi.handoff.ui.dialogs.AppUpdateDialog
+import at.sushi.handoff.ui.dialogs.AttendedSimDialog
 import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
 import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
 import at.sushi.handoff.util.shouldPromptOverlayExplainer
@@ -234,17 +235,17 @@ private fun NotConnectedOverlay(onTryDemo: () -> Unit) {
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
-fun MainScreen() {
+fun MainScreen(onAttendedSimAcknowledged: () -> Unit = {}) {
     val theme by HandoffState.theme.collectAsState()
     val rowColorPalette by HandoffState.rowColorPalette.collectAsState()
 
     HandoffTheme(theme, rowColorPalette) {
-        MainScreenContent()
+        MainScreenContent(onAttendedSimAcknowledged)
     }
 }
 
 @Composable
-private fun MainScreenContent() {
+private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(HandoffConnectionService.PrefsName, android.content.Context.MODE_PRIVATE) }
 
@@ -260,6 +261,9 @@ private fun MainScreenContent() {
     val debugOverlayPermissionMissing by HandoffState.debugOverlayPermissionMissing.collectAsState()
     var hasOverlayPermission by remember { mutableStateOf(ChatOverlayWindow.hasOverlayPermission(context)) }
     var overlayExplainerOpen by remember { mutableStateOf(false) }
+    // Issue #188 -- one-time "stay at your sim" notice, read straight from prefs (not a state flow
+    // loaded later by the service) so a returning pilot never sees it flash up at launch.
+    var attendedSimAcked by remember { mutableStateOf(prefs.getBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, false)) }
     // Coming back from the system permission screen (or any other app) must re-read the grant.
     val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
     DisposableEffect(lifecycleOwner) {
@@ -279,8 +283,9 @@ private fun MainScreenContent() {
         }
     }
     val layoutMode by HandoffState.layoutMode.collectAsState()
-    LaunchedEffect(layoutMode, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed) {
-        if (layoutMode == LayoutMode.SPLIT &&
+    LaunchedEffect(layoutMode, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed, attendedSimAcked) {
+        // Issue #188 -- the attended-sim notice goes first so the two dialogs never stack.
+        if (attendedSimAcked && layoutMode == LayoutMode.SPLIT &&
             shouldPromptOverlayExplainer(ChannelFeatures.FloatingOverlay, hasOverlayPermission, floatingChatDeclined, overlayExplainerSnoozed)
         ) {
             overlayExplainerOpen = true
@@ -1078,7 +1083,19 @@ private fun MainScreenContent() {
         CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
     }
 
-    if (overlayExplainerOpen) {
+    if (!attendedSimAcked) {
+        AttendedSimDialog(
+            onAcknowledge = {
+                prefs.edit { putBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, true) }
+                attendedSimAcked = true
+                // The activity holds back the permission prompts and the connection service
+                // until the notice is acknowledged; this is its cue to start them.
+                onAttendedSimAcknowledged()
+            }
+        )
+    }
+
+    if (overlayExplainerOpen && attendedSimAcked) {
         OverlayPermissionDialog(
             onContinue = {
                 // Snoozed too, so coming back from the system screen without granting doesn't loop.
