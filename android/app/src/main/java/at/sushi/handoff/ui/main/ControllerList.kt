@@ -216,7 +216,7 @@ fun ControllerList(
         var previousHideTuned by remember { mutableStateOf(hideTuned) }
         LaunchedEffect(visibleControllers, com1Active, com2Active, hideTuned) {
             val currentBadged = visibleControllers.filter { controller ->
-                controllerBadges(controller, com1Active, com2Active).isNotEmpty()
+                controllerBadges(controller, com1Active, com2Active).isNotEmpty() || controller.isNewStation
             }.mapTo(mutableSetOf()) { it.callsign }
 
             val previous = previousBadgedCallsigns
@@ -346,7 +346,9 @@ private fun ControllerRow(
 ) {
     val colors = LocalHandoffColors.current
     val palette = LocalRowColorPalette.current
-    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby, palette)
+    // Issue #186 -- a tap (which opens the tune menu) ends a new-station blink early.
+    var newStationDismissed by remember { mutableStateOf(false) }
+    val rowColors = controllerRowColors(controller, com1Active, com2Active, colors, com1Standby, com2Standby, palette, newStationDismissed)
     val badges = controllerBadges(controller, com1Active, com2Active).let { base ->
         if (etaMinutes != null) base + ControllerBadge.ETA else base
     }
@@ -418,7 +420,7 @@ private fun ControllerRow(
                     .fillMaxWidth()
                     .background(background, rowShape)
                     .border(1.5.dp, rowColors.border, rowShape)
-                    .clickable { menuOpen = true }
+                    .clickable { menuOpen = true; newStationDismissed = true }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Row(

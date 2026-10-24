@@ -9,6 +9,7 @@ import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.SendRadioMessageCommand
 import at.sushi.handoff.protocol.SetCom1FrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import kotlinx.coroutines.cancel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -143,5 +144,31 @@ class DemoModeTest {
         DemoMode.handleCommand(PingCommand(clientTimestamp = 0L))
 
         assertEquals(before, HandoffState.flightPlan.value)
+    }
+
+    @Test
+    fun newStationScript_hidesThenShowsBlinkingThenStops() {
+        val oldAppear = DemoMode.NewStationAppearDelayMillis
+        val oldFlash = DemoMode.NewStationFlashMillis
+        DemoMode.NewStationAppearDelayMillis = 300
+        DemoMode.NewStationFlashMillis = 300
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        try {
+            DemoMode.enable(stopRealConnection = {}, scope = scope)
+            fun station() = HandoffState.controllers.value.controllers.firstOrNull { it.callsign == DemoMode.NewStationCallsign }
+            fun waitFor(condition: () -> Boolean) {
+                val deadline = System.currentTimeMillis() + 5_000
+                while (!condition() && System.currentTimeMillis() < deadline) Thread.sleep(10)
+                assertTrue(condition())
+            }
+
+            assertEquals(null, station(), "hidden until the scripted opening")
+            waitFor { station()?.isNewStation == true }
+            waitFor { station() != null && station()?.isNewStation == false }
+        } finally {
+            scope.cancel()
+            DemoMode.NewStationAppearDelayMillis = oldAppear
+            DemoMode.NewStationFlashMillis = oldFlash
+        }
     }
 }

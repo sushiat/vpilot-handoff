@@ -294,5 +294,63 @@ namespace Handoff.Plugin.Tests
             Assert.Empty(HandoffControllerStateModel.ParseContactMeFrequencies("contact me"));
             Assert.Empty(HandoffControllerStateModel.ParseContactMeFrequencies(null));
         }
+            // ---- Issue #186: OpenedAtUtc stamping ---------------------------------------------
+
+        [Fact]
+        public void ControllerAddedDuringInitialBurst_IsNotStamped()
+        {
+            var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaiseNetworkConnected(new NetworkConnectedEventArgs("1234567", "BAW123", "A320", null, false));
+
+            now = now.AddSeconds(3);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            Assert.Null(model.Controllers.Single().OpenedAtUtc);
+        }
+
+        [Fact]
+        public void ControllerAddedAfterInitialBurst_IsStamped()
+        {
+            var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            _broker.RaiseNetworkConnected(new NetworkConnectedEventArgs("1234567", "BAW123", "A320", null, false));
+
+            now = now.AddSeconds(60);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            Assert.Equal(now, model.Controllers.Single().OpenedAtUtc);
+        }
+
+        [Fact]
+        public void ReconnectAfterTwoMinutesAway_StampsAFreshOpening()
+        {
+            var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            now = now.AddSeconds(60);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            _broker.RaiseControllerDeleted(new ControllerDeletedEventArgs("EGLL_TWR"));
+            now = now.AddMinutes(2);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            Assert.Equal(now, model.Controllers.Single().OpenedAtUtc);
+        }
+
+        [Fact]
+        public void ReconnectWithinHiddenWindow_KeepsOriginalOpenedAt_AndStaleBlipIsNotRestamped()
+        {
+            var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var model = CreateModel(() => now);
+            now = now.AddSeconds(60);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+            var opened = now;
+
+            _broker.RaiseControllerDeleted(new ControllerDeletedEventArgs("EGLL_TWR"));
+            now = now.AddSeconds(30);
+            _broker.RaiseControllerAdded(new ControllerAddedEventArgs("EGLL_TWR", 23725, 0, 0));
+
+            Assert.Equal(opened, model.Controllers.Single().OpenedAtUtc);
+        }
     }
 }

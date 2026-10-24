@@ -49,6 +49,7 @@ namespace Handoff.Plugin.Tests
             Assert.True((bool)controller["isPinned"]);
             Assert.False((bool)controller["isStandbyTuned"]);
             Assert.False((bool)controller["isSelcalActive"]);
+            Assert.False((bool)controller["isNewStation"]);
             Assert.Equal(JTokenType.Null, controller["stationName"].Type);
             Assert.Equal(JTokenType.Null, controller["textAtis"].Type);
         }

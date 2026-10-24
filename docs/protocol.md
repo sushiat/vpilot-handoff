@@ -40,6 +40,11 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+Issue #186 -- new controller-entry boolean `isNewStation`: a station that came online at the
+pilot's departure airport after the initial post-connect burst, true for about 5 seconds (timed on
+the plugin's clock). Additive per the Compatibility section -- older clients ignore the field and
+newer clients treat a missing one as `false`.
+
 Issue #171 follow-up -- new client→server `refreshVatsimFeed` (no fields): poll the VATSIM data
 feed now. Additive; an older plugin logs it as unrecognized and does nothing.
 
@@ -264,6 +269,7 @@ to colour-code/badge by. Broadcast on a fixed ~1-second cadence rather than per-
       "isPinned": false,
       "isStandbyTuned": false,
       "isSelcalActive": false,
+      "isNewStation": false,
       "etaMinutes": null,
       "debug": null
     }
@@ -320,6 +326,11 @@ The boolean fields are what clients actually consume, each driving its own badge
 - `isSelcalActive`: a currently-active SELCAL alert. Unlike `isContactMe`, tuning the alerting
   frequency does **not** clear this -- only an explicit `dismissSelcal` or the alert's own expiry
   does (see `dismissSelcal` below).
+- `isNewStation`: the station came online at the pilot's departure airport (callsign prefix equals
+  the VATSIM-filed origin, falling back to SimBrief's) after the initial burst of stations that
+  were already online at connect, and not before takeoff has been latched. True for about 5
+  seconds, then `false` by itself; a station that drops and returns within 2 minutes does not
+  re-trigger it (gone longer, it counts as opening anew). Clients blink the row while it is set.
 - `isPinned`: a manual bookmark (see `pinController`/`clearPinnedController` below) -- its own
   ranking bucket, never a stand-in for `isCurrent`. Persists even if the pinned station becomes
   current/standby (both flags can be true at once); only cleared by an explicit unpin or the

@@ -57,6 +57,9 @@ data class Controller(
     // Active SELCAL alert -- unlike isContactMe, tuning the alerting frequency does NOT clear
     // this, only an explicit dismissSelcal command or the alert's own expiry does.
     val isSelcalActive: Boolean = false,
+    // Issue #186 -- a station that just opened at the departure airport (after the connect-time
+    // burst); true for ~5s on the plugin's clock. The row blinks while set. Older plugin: absent.
+    val isNewStation: Boolean = false,
     // Bucket 8c -- this controller's own minutes-remaining estimate, available during level
     // flight or climbing/descending above FL150. Per-controller (issue #71/#127): null whenever
     // this controller has no qualifying *entering* (still approaching) distance, including when

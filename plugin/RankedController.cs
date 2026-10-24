@@ -94,6 +94,12 @@ namespace Handoff.Plugin
         // rather than exposing ranking internals.
         public ControllerDebugExplain DebugExplain { get; }
 
+        // Issue #186 -- a station that just came online at the pilot's departure airport (after
+        // the initial post-connect burst), true for a short plugin-timed window. The client blinks
+        // the row while it's set; computing it here on the plugin's clock keeps the window free of
+        // PC/tablet clock skew.
+        public bool IsNewStation { get; }
+
         public RankedController(
             string callsign, int frequency, double latitude, double longitude,
             int? cid, string name, int? facility, int? rating,
@@ -101,7 +107,8 @@ namespace Handoff.Plugin
             bool isHighlighted, bool isNext, bool isLikelyNext,
             bool isPinned, bool isStandbyTuned, bool isSelcalActive,
             string stationName = null, IReadOnlyList<string> textAtis = null,
-            ControllerDebugExplain debugExplain = null, double? etaMinutes = null, string contactMeText = null)
+            ControllerDebugExplain debugExplain = null, double? etaMinutes = null, string contactMeText = null,
+            bool isNewStation = false)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -125,6 +132,7 @@ namespace Handoff.Plugin
             TextAtis = textAtis != null && textAtis.Count > 0 ? textAtis : null;
             DebugExplain = debugExplain;
             EtaMinutes = etaMinutes;
+            IsNewStation = isNewStation;
         }
     }
 }

@@ -34,6 +34,7 @@ class MessagesTest {
         assertEquals(false, controller.isPinned)
         assertEquals(false, controller.isStandbyTuned)
         assertEquals(false, controller.isSelcalActive)
+        assertEquals(false, controller.isNewStation)
         assertNull(controller.stationName)
         assertNull(controller.textAtis)
         assertNull(controller.etaMinutes)

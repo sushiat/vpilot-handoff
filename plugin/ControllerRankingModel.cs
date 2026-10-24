@@ -200,6 +200,12 @@ namespace Handoff.Plugin
         private DateTimeOffset _verticalTrendSince;
 
         private IReadOnlyList<RankedController> _current = new List<RankedController>();
+
+        // Issue #186 -- how long a freshly opened departure-airport station reports IsNewStation.
+        private static readonly TimeSpan NewStationFlashWindow = TimeSpan.FromSeconds(5);
+        // True while the last recompute flagged any station as new: nothing else would dirty the
+        // model when the window lapses, so EnsureRecomputed forces one more pass to clear it.
+        private bool _newStationFlagActive;
         // Issue #134: set by every upstream Changed subscription below instead of recomputing
         // inline -- the actual RecomputeLocked() call is deferred to the next public read (see
         // EnsureRecomputed()), so a burst of broker/feed events only ever costs one recompute.
@@ -456,6 +462,7 @@ namespace Handoff.Plugin
             bool recomputed;
             lock (_gate)
             {
+                if (_newStationFlagActive) _dirty = true;
                 recomputed = _dirty;
                 if (_dirty)
                 {
@@ -765,6 +772,8 @@ namespace Handoff.Plugin
                 _lastRankingExplain = null;
             }
 
+            var nowUtc = _now();
+            var originPrefix = _hasTakenOffThisSession ? null : origin;
             var ranked = finalOrder.Select(c =>
             {
                 enrichment.TryGetValue(c.Callsign, out var info);
@@ -789,6 +798,7 @@ namespace Handoff.Plugin
                     isPinned: c.IsPinned,
                     isStandbyTuned: !isCurrent && standbyFrequencies.Contains(c.Frequency),
                     isSelcalActive: c.SelcalExpiresAtUtc.HasValue,
+                    isNewStation: IsNewAtAirport(c, originPrefix, nowUtc),
                     etaMinutes: etaMinutesByCallsign.TryGetValue(c.Callsign, out var eta) ? eta : (double?)null,
                     stationName: VatAtisStationNameExtractor.Extract(info?.TextAtis) ?? VatSpyStationNaming.ComposeDisplayName(c.Callsign, _vatSpyData),
                     textAtis: info?.TextAtis,
@@ -796,6 +806,17 @@ namespace Handoff.Plugin
             }).ToList();
 
             _current = ranked;
+            _newStationFlagActive = ranked.Any(r => r.IsNewStation);
+        }
+
+        /// <summary>Issue #186 -- a station that opened within <see cref="NewStationFlashWindow"/> whose callsign prefix (up to the first '_') is the departure airport's ICAO. Never true once the takeoff latch is set (the caller passes a null airport then).</summary>
+        private static bool IsNewAtAirport(HandoffController c, string airportIcao, DateTimeOffset nowUtc)
+        {
+            if (string.IsNullOrEmpty(airportIcao) || !c.OpenedAtUtc.HasValue) return false;
+            var age = nowUtc - c.OpenedAtUtc.Value;
+            if (age < TimeSpan.Zero || age >= NewStationFlashWindow) return false;
+            var underscore = c.Callsign.IndexOf('_');
+            return underscore > 0 && string.Equals(c.Callsign.Substring(0, underscore), airportIcao, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

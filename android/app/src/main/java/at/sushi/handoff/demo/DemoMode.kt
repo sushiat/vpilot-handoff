@@ -27,6 +27,10 @@ import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import java.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Demo mode (issue #169): fills [HandoffState] with [DemoData]'s made-up sample data so the app
  *  can be looked at without the Windows plugin, and answers interactive taps locally instead of
@@ -46,7 +50,7 @@ object DemoMode {
      *  direct HandoffConnectionService reference, so this object doesn't need an Android Service
      *  or Context) -- run first, before any sample data is written, so a genuinely-connected
      *  plugin's live state is torn down rather than overwritten mid-update. */
-    fun enable(stopRealConnection: () -> Unit) {
+    fun enable(stopRealConnection: () -> Unit, scope: CoroutineScope? = null) {
         stopRealConnection()
         // DISCONNECTED is also the truthful connectionStatus while demo mode is on -- there is no
         // real plugin link -- and clears whatever live plugin state might still be sitting in
@@ -55,6 +59,49 @@ object DemoMode {
         HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
         HandoffState.setDemoModeEnabled(true)
         populate()
+        // Issue #186 -- one station opens a few seconds in, blinking, to show the new-station cue.
+        // Skipped without a scope (the unit tests that only look at the static sample data).
+        newStationJob?.cancel()
+        newStationJob = scope?.let { scriptScope ->
+            // Hidden synchronously, so the list never shows the station before its scripted opening.
+            val station = hideNewStation()
+            if (station == null) null else scriptScope.launch { runNewStationScript(station) }
+        }
+    }
+
+    /** Issue #186 -- demo timeline: [NewStationCallsign] is hidden at first, appears after
+     *  [NewStationAppearDelayMillis] (a var only so tests can shorten it) with `isNewStation` set, and stops blinking
+     *  [NewStationFlashMillis] later (the plugin's real window is the same length). */
+    internal const val NewStationCallsign = "LOWW_TWR"
+    internal var NewStationAppearDelayMillis = 3_000L
+    internal var NewStationFlashMillis = 5_000L
+    private var newStationJob: Job? = null
+
+    private fun hideNewStation(): Controller? {
+        val current = HandoffState.controllers.value
+        val station = current.controllers.firstOrNull { it.callsign == NewStationCallsign } ?: return null
+        HandoffState.update(current.copy(controllers = current.controllers.filterNot { it === station }))
+        return station
+    }
+
+    private suspend fun runNewStationScript(station: Controller) {
+        delay(NewStationAppearDelayMillis)
+        addNewStation(station.copy(isNewStation = true))
+        delay(NewStationFlashMillis)
+        setNewStationFlag(false)
+    }
+
+    private fun addNewStation(station: Controller) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers + station))
+        refreshControllerFlags()
+    }
+
+    private fun setNewStationFlag(flag: Boolean) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers.map {
+            if (it.callsign == NewStationCallsign) it.copy(isNewStation = flag) else it
+        }))
     }
 
     /** Leaves demo mode: clears the sample data (so it can never linger once a real connection
@@ -65,6 +112,8 @@ object DemoMode {
      *  an ordinary reconnect); the sample chat/selcal/read-state written by [populate] are not
      *  that kind of history, so they're cleared explicitly here instead. */
     fun disable(resumeRealConnection: () -> Unit) {
+        newStationJob?.cancel()
+        newStationJob = null
         HandoffState.setDemoModeEnabled(false)
         HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
         HandoffState.update(ChatMessage(messages = emptyList(), selcalAlerts = emptyList()))
