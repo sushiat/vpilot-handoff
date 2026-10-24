@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -15,8 +17,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -41,67 +45,86 @@ const val VatsimCodeOfConductUrl = "https://vatsim.net/docs/policy/code-of-condu
  *  Regulations before each release that touches this text. */
 @Composable
 fun AttendedSimDialog(onAcknowledge: () -> Unit) {
+    // Issue #194 -- decided by the device's own size class, not the current window, so a tablet in
+    // split-screen keeps its fixed panel. The phone panel instead spans the screen width and most
+    // of its height, since the fixed 340x560dp panel left the text scrolling and the button
+    // wrapping to three lines on a ~914dp-tall phone.
+    val isPhone = LocalConfiguration.current.smallestScreenWidthDp < 600
+    if (isPhone) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false)
+        ) {
+            BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                AttendedSimPanel(Modifier.width(maxWidth - 32.dp).heightIn(max = maxHeight * 0.9f), onAcknowledge)
+            }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            AttendedSimPanel(Modifier.width(340.dp).heightIn(max = 560.dp), onAcknowledge)
+        }
+    }
+}
+
+@Composable
+private fun AttendedSimPanel(sizeModifier: Modifier, onAcknowledge: () -> Unit) {
     val colors = LocalHandoffColors.current
     val uriHandler = LocalUriHandler.current
     // Readable red in both themes -- the palette has no red of its own (only the orange "attention").
     val penaltyRed = if (colors.isDark) Color(0xFFFF7B72) else Color(0xFFC62828)
 
-    Dialog(
-        onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    Column(
+        sizeModifier
+            .background(colors.panel, RoundedCornerShape(16.dp))
+            .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+            .padding(18.dp)
     ) {
+        Text("Unattended connections", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.text)
         Column(
             Modifier
-                .width(340.dp)
-                .heightIn(max = 560.dp)
-                .background(colors.panel, RoundedCornerShape(16.dp))
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                .padding(18.dp)
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+                .padding(top = 10.dp)
         ) {
-            Text("Unattended connections", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.text)
-            Column(
-                Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 10.dp)
-            ) {
-                Text(
-                    "Handoff lets you chat and tune the radio from a second device. VATSIM's Code of " +
-                        "Conduct still applies in full: you must not leave your connection unattended " +
-                        "(A9), and a pilot connection may never be unattended for more than 30 minutes " +
-                        "(B3(b)).",
-                    fontSize = 15.sp,
-                    color = colors.textMuted
-                )
-                Text(
-                    "Handoff only works on your local network with vPilot running on your sim PC. " +
-                        "It never connects to VATSIM itself and does not change these rules.",
-                    fontSize = 15.sp,
-                    color = colors.textMuted,
-                    modifier = Modifier.padding(top = 10.dp)
-                )
-                Text(
-                    "VATSIM's published penalty scale for this rule: 7-day suspension for a first " +
-                        "offence, 14 days for a second, 30 days for a third, 60 days for a fourth.",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = penaltyRed,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-                Text(
-                    "Read the Code of Conduct",
-                    fontSize = 15.sp,
-                    color = colors.accent,
-                    textDecoration = TextDecoration.Underline,
-                    modifier = Modifier
-                        .padding(top = 12.dp)
-                        .clickable { uriHandler.openUri(VatsimCodeOfConductUrl) }
-                )
-            }
-            Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onAcknowledge, modifier = Modifier.fillMaxWidth()) {
-                    Text("I have read and understood the VATSIM Code of Conduct", fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                }
+            Text(
+                "Handoff lets you chat and tune the radio from a second device. VATSIM's Code of " +
+                    "Conduct still applies in full: you must not leave your connection unattended " +
+                    "(A9), and a pilot connection may never be unattended for more than 30 minutes " +
+                    "(B3(b)).",
+                fontSize = 15.sp,
+                color = colors.textMuted
+            )
+            Text(
+                "Handoff only works on your local network with vPilot running on your sim PC. " +
+                    "It never connects to VATSIM itself and does not change these rules.",
+                fontSize = 15.sp,
+                color = colors.textMuted,
+                modifier = Modifier.padding(top = 10.dp)
+            )
+            Text(
+                "VATSIM's published penalty scale for this rule: 7-day suspension for a first " +
+                    "offence, 14 days for a second, 30 days for a third, 60 days for a fourth.",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = penaltyRed,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            Text(
+                "Read the Code of Conduct",
+                fontSize = 15.sp,
+                color = colors.accent,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .clickable { uriHandler.openUri(VatsimCodeOfConductUrl) }
+            )
+        }
+        Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = onAcknowledge, modifier = Modifier.fillMaxWidth()) {
+                Text("I have read and understood the VATSIM Code of Conduct", fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
         }
     }
