@@ -40,6 +40,8 @@ this contract actually changes shape; a release with no protocol changes adds no
 
 ### Unreleased
 
+### [0.8.0] - 2026-10-24
+
 Issue #186 -- new controller-entry boolean `isNewStation`: a station that came online at the
 pilot's departure airport after the initial post-connect burst, true for about 5 seconds (timed on
 the plugin's clock). Additive per the Compatibility section -- older clients ignore the field and
