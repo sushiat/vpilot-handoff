@@ -19,7 +19,8 @@ class RowColorsTest {
         isLikelyNext: Boolean = false,
         isPinned: Boolean = false,
         isStandbyTuned: Boolean = false,
-        isSelcalActive: Boolean = false
+        isSelcalActive: Boolean = false,
+        isNewStation: Boolean = false
     ) = Controller(
         callsign = callsign,
         frequency = frequency,
@@ -33,7 +34,8 @@ class RowColorsTest {
         isLikelyNext = isLikelyNext,
         isPinned = isPinned,
         isStandbyTuned = isStandbyTuned,
-        isSelcalActive = isSelcalActive
+        isSelcalActive = isSelcalActive,
+        isNewStation = isNewStation
     )
 
     @Test
@@ -313,5 +315,17 @@ class RowColorsTest {
     fun controllerBadges_emptyWhenNoFlagsSet() {
         val badges = controllerBadges(controller(), com1Active = null, com2Active = null)
         assertTrue(badges.isEmpty())
+    }
+
+    @Test
+    fun newStation_flashesUntilDismissedOrTuned() {
+        val colors = LightHandoffColors
+        fun flashing(c: Controller, dismissed: Boolean = false) =
+            controllerRowColors(c, null, null, colors, newStationDismissed = dismissed).isFlashing
+
+        assertTrue(flashing(controller(isNewStation = true)))
+        assertFalse(flashing(controller(isNewStation = true), dismissed = true))
+        assertFalse(flashing(controller(isNewStation = true, isCurrent = true)))
+        assertFalse(flashing(controller()))
     }
 }

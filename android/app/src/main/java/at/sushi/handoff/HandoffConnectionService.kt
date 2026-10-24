@@ -321,7 +321,7 @@ class HandoffConnectionService : Service() {
             connectionJob?.cancel()
             cdmPollingJob?.cancel()
             client.close()
-        })
+        }, scope)
     }
 
     /** Leaves demo mode and resumes the real connection/CDM-polling loops from scratch. */

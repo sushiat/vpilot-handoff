@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin + Android (issue #186): a station that opens at your departure airport now blinks its row
+  for a few seconds, then stops by itself (tap the row or tune it to stop sooner). Stations already
+  online when you connect never blink, and a station that drops and returns within 2 minutes does not blink
+  again. Demo mode shows it on the Tower, 10 seconds in, and raises its SELCAL alert after 30 seconds.
 - Android + README (issue #188): a one-time "Unattended connections" notice. The app now opens with a
   dialog that explains VATSIM's Code of Conduct rules on unattended connections (A9, and B3(b)'s
   30-minute limit for pilots), shows VATSIM's published penalty scale in red, links to the Code of

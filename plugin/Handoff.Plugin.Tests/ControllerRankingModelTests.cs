@@ -2107,5 +2107,42 @@ namespace Handoff.Plugin.Tests
 
             Assert.Null(model.Current.Single().ContactMeText);
         }
+            // ---- Issue #186: IsNewStation -----------------------------------------------------
+
+        private async Task<(ControllerRankingModel Model, Action<TimeSpan> Advance)> CreateNewStationModelAsync()
+        {
+            var now = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var state = new HandoffControllerStateModel(_broker, _chat, () => now);
+            var flightPlan = await CreateFlightPlanAsync("LOWW", "LOWI");
+            var model = new ControllerRankingModel(state, _radio, flightPlan, _vatsimFeed, _pilotSession, _vatGlassesData, _vatSpyData, now: () => now);
+            now = now.AddSeconds(60); // past the post-connect burst window
+            return (model, delta => { now = now.Add(delta); _radio.RaiseChanged(); });
+        }
+
+        [Fact]
+        public async Task NewStationAtDepartureAirport_IsFlaggedOnlyForTheFlashWindow()
+        {
+            var (model, advance) = await CreateNewStationModelAsync();
+            AddController("LOWW_TWR", 21800);
+            AddController("EDDM_TWR", 21850);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "LOWW_TWR").IsNewStation);
+            Assert.False(model.Current.Single(c => c.Callsign == "EDDM_TWR").IsNewStation);
+
+            advance(TimeSpan.FromSeconds(6));
+            Assert.False(model.Current.Single(c => c.Callsign == "LOWW_TWR").IsNewStation);
+        }
+
+        [Fact]
+        public async Task NewStationAfterTakeoff_IsNotFlagged()
+        {
+            var (model, advance) = await CreateNewStationModelAsync();
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 500, 0, 0, 0, 0, DateTimeOffset.Now);
+            advance(TimeSpan.Zero);
+
+            AddController("LOWW_APP", 21800);
+
+            Assert.False(model.Current.Single().IsNewStation);
+        }
     }
 }

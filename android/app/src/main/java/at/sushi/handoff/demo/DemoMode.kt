@@ -13,6 +13,7 @@ import at.sushi.handoff.protocol.MarkChatReadCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.protocol.RadioStateMessage
+import at.sushi.handoff.protocol.SelcalAlert
 import at.sushi.handoff.protocol.SelectCom1TransmitterCommand
 import at.sushi.handoff.protocol.SelectCom2TransmitterCommand
 import at.sushi.handoff.protocol.SendPrivateMessageCommand
@@ -27,6 +28,10 @@ import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import java.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Demo mode (issue #169): fills [HandoffState] with [DemoData]'s made-up sample data so the app
  *  can be looked at without the Windows plugin, and answers interactive taps locally instead of
@@ -46,7 +51,7 @@ object DemoMode {
      *  direct HandoffConnectionService reference, so this object doesn't need an Android Service
      *  or Context) -- run first, before any sample data is written, so a genuinely-connected
      *  plugin's live state is torn down rather than overwritten mid-update. */
-    fun enable(stopRealConnection: () -> Unit) {
+    fun enable(stopRealConnection: () -> Unit, scope: CoroutineScope? = null) {
         stopRealConnection()
         // DISCONNECTED is also the truthful connectionStatus while demo mode is on -- there is no
         // real plugin link -- and clears whatever live plugin state might still be sitting in
@@ -55,6 +60,81 @@ object DemoMode {
         HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
         HandoffState.setDemoModeEnabled(true)
         populate()
+        // Issue #186 -- one station opens a few seconds in, blinking, to show the new-station cue.
+        // Skipped without a scope (the unit tests that only look at the static sample data).
+        newStationJob?.cancel()
+        newStationJob = scope?.let { scriptScope ->
+            // Hidden synchronously, so the list never shows either before its scripted moment.
+            val station = hideNewStation()
+            val selcalAlert = hideSelcal()
+            scriptScope.launch {
+                if (station != null) launch { runNewStationScript(station) }
+                if (selcalAlert != null) launch { runSelcalScript(selcalAlert) }
+            }
+        }
+    }
+
+    /** Issue #186 -- demo timeline: [NewStationCallsign] is hidden at first, appears after
+     *  [NewStationAppearDelayMillis] (a var only so tests can shorten it) with `isNewStation` set, and stops blinking
+     *  [NewStationFlashMillis] later (the plugin's real window is the same length). The sample
+     *  SELCAL alert follows the same hidden-then-raised pattern, see [SelcalDelayMillis]. */
+    internal const val NewStationCallsign = "LOWW_TWR"
+    internal var NewStationAppearDelayMillis = 10_000L
+    internal var NewStationFlashMillis = 5_000L
+    private var newStationJob: Job? = null
+
+    /** The sample SELCAL alert (on [SelcalCallsign]) is held back and raised [SelcalDelayMillis] in. */
+    internal const val SelcalCallsign = "LOVV_CTR"
+    internal var SelcalDelayMillis = 30_000L
+
+    private fun hideSelcal(): SelcalAlert? {
+        val chat = HandoffState.chat.value
+        val alert = chat.selcalAlerts.firstOrNull { it.from == SelcalCallsign } ?: return null
+        HandoffState.update(chat.copy(selcalAlerts = chat.selcalAlerts.filterNot { it === alert }))
+        setSelcalFlag(false)
+        return alert
+    }
+
+    private suspend fun runSelcalScript(alert: SelcalAlert) {
+        delay(SelcalDelayMillis)
+        val chat = HandoffState.chat.value
+        HandoffState.update(chat.copy(selcalAlerts = chat.selcalAlerts + alert.copy(timestamp = Instant.now().toString())))
+        setSelcalFlag(true)
+        refreshControllerFlags()
+    }
+
+    private fun setSelcalFlag(flag: Boolean) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers.map {
+            if (it.callsign == SelcalCallsign) it.copy(isSelcalActive = flag) else it
+        }))
+    }
+
+    private fun hideNewStation(): Controller? {
+        val current = HandoffState.controllers.value
+        val station = current.controllers.firstOrNull { it.callsign == NewStationCallsign } ?: return null
+        HandoffState.update(current.copy(controllers = current.controllers.filterNot { it === station }))
+        return station
+    }
+
+    private suspend fun runNewStationScript(station: Controller) {
+        delay(NewStationAppearDelayMillis)
+        addNewStation(station.copy(isNewStation = true))
+        delay(NewStationFlashMillis)
+        setNewStationFlag(false)
+    }
+
+    private fun addNewStation(station: Controller) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers + station))
+        refreshControllerFlags()
+    }
+
+    private fun setNewStationFlag(flag: Boolean) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers.map {
+            if (it.callsign == NewStationCallsign) it.copy(isNewStation = flag) else it
+        }))
     }
 
     /** Leaves demo mode: clears the sample data (so it can never linger once a real connection
@@ -65,6 +145,8 @@ object DemoMode {
      *  an ordinary reconnect); the sample chat/selcal/read-state written by [populate] are not
      *  that kind of history, so they're cleared explicitly here instead. */
     fun disable(resumeRealConnection: () -> Unit) {
+        newStationJob?.cancel()
+        newStationJob = null
         HandoffState.setDemoModeEnabled(false)
         HandoffState.setConnectionStatus(ConnectionStatus.DISCONNECTED)
         HandoffState.update(ChatMessage(messages = emptyList(), selcalAlerts = emptyList()))

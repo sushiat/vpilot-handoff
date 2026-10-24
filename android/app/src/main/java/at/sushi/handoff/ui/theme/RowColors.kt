@@ -109,6 +109,11 @@ fun facilitySuffixName(callsign: String): String? {
 fun isContactMeResolved(controller: Controller, com1Active: Int?, com2Active: Int?): Boolean =
     controller.isContactMe && (controller.frequency == com1Active || controller.frequency == com2Active)
 
+/** Issue #186 -- a new departure-airport station blinks until the plugin's window lapses, or the
+ *  pilot taps it ([dismissed], row-local) or it becomes tuned. */
+private fun isNewStationActive(controller: Controller, dismissed: Boolean): Boolean =
+    controller.isNewStation && !dismissed && !controller.isCurrent
+
 private fun isContactMeActive(controller: Controller, com1Active: Int?, com2Active: Int?): Boolean =
     controller.isContactMe && controller.frequency != com1Active && controller.frequency != com2Active
 
@@ -171,7 +176,8 @@ fun controllerRowColors(
     colors: HandoffColors,
     com1Standby: Int? = null,
     com2Standby: Int? = null,
-    palette: RowColorPalette = DefaultRowColorPalette
+    palette: RowColorPalette = DefaultRowColorPalette,
+    newStationDismissed: Boolean = false
 ): RowColors {
     val hue = facilityHue(controller, palette)
     val isAtis = controller.callsign.endsWith("_ATIS")
@@ -217,7 +223,7 @@ fun controllerRowColors(
     // consistent chip style, not independently optimized per hue.
     val tunedBadgeText = tunedBadgeBackground?.let { Color.White }
 
-    return RowColors(backgroundColor, borderColor, text, badgeBackground, contactMeActive, tunedBadgeText, tunedBadgeBackground)
+    return RowColors(backgroundColor, borderColor, text, badgeBackground, contactMeActive || isNewStationActive(controller, newStationDismissed), tunedBadgeText, tunedBadgeBackground)
 }
 
 /** Which of the 3 visually-distinct groups a row falls into, in the same order the server already

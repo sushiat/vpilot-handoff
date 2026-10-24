@@ -53,11 +53,18 @@ namespace Handoff.Plugin
         // ordinary IsContactMe path, showing its real callsign and a parsed-or-zero frequency.
         public bool IsOffList { get; }
 
+        // Issue #186 -- when this station first came online *after* the initial post-connect burst
+        // (null for burst stations, off-list synthetics and anything else that isn't a genuine new
+        // opening). Set once in HandoffControllerStateModel.OnControllerAdded and carried through
+        // every copy, so a hide-then-reconnect blip keeps the original stamp and never re-flashes.
+        public DateTimeOffset? OpenedAtUtc { get; }
+
         public HandoffController(
             string callsign, int frequency, double latitude, double longitude,
             bool isHidden = false, DateTimeOffset? hiddenSinceUtc = null,
             DateTimeOffset? contactMeExpiresAtUtc = null, DateTimeOffset? selcalExpiresAtUtc = null,
-            bool isPinned = false, bool isOffList = false, string contactMeText = null)
+            bool isPinned = false, bool isOffList = false, string contactMeText = null,
+            DateTimeOffset? openedAtUtc = null)
         {
             Callsign = callsign;
             Frequency = frequency;
@@ -70,6 +77,7 @@ namespace Handoff.Plugin
             IsPinned = isPinned;
             IsOffList = isOffList;
             ContactMeText = contactMeText;
+            OpenedAtUtc = openedAtUtc;
         }
 
         /// <summary>An off-list "contact me" (see <see cref="IsOffList"/>): a private "contact me" from a callsign never seen via ControllerAdded. Frequency is parsed from the message text when present, else 0 (unknown -- the pilot reads the original chat message).</summary>
@@ -77,31 +85,31 @@ namespace Handoff.Plugin
             new HandoffController(callsign, frequency, 0, 0, contactMeExpiresAtUtc: contactMeExpiresAtUtc, isOffList: true);
 
         internal HandoffController WithFrequency(int frequency) =>
-            new HandoffController(Callsign, frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
+            new HandoffController(Callsign, frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText, OpenedAtUtc);
 
         internal HandoffController WithLocation(double latitude, double longitude) =>
-            new HandoffController(Callsign, Frequency, latitude, longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
+            new HandoffController(Callsign, Frequency, latitude, longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText, OpenedAtUtc);
 
-        /// <summary>ControllerAdded firing again for an already-known, currently-hidden callsign -- a reconnect within the expiry window. Every other field survives untouched.</summary>
-        internal HandoffController Reconnected() =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
+        /// <summary>ControllerAdded firing again for an already-known, currently-hidden callsign -- a reconnect within the expiry window. Every other field survives untouched, except the opened-at stamp, which the caller decides (a long enough absence counts as a fresh opening).</summary>
+        internal HandoffController Reconnected(DateTimeOffset? openedAtUtc) =>
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText, openedAtUtc);
 
         /// <summary>A real ControllerAdded finally arrived for a callsign we'd only ever seen as an off-list contact-me -- adopt its real frequency/location and drop the synthetic marker, keeping any outstanding contact-me/SELCAL/pin.</summary>
         internal HandoffController Promoted(int frequency, double latitude, double longitude) =>
-            new HandoffController(Callsign, frequency, latitude, longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, false, ContactMeText);
+            new HandoffController(Callsign, frequency, latitude, longitude, false, null, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, false, ContactMeText, OpenedAtUtc);
 
         /// <summary>ControllerDeleted -- marked hidden rather than removed, so a brief reconnect can restore it via Reconnected() above.</summary>
         internal HandoffController Hidden(DateTimeOffset hiddenSinceUtc) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, true, hiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, true, hiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, ContactMeText, OpenedAtUtc);
 
         /// <summary>Sets (or, with a null expiry, clears) the outstanding contact-me. The text always travels with it -- clearing the expiry drops any text too.</summary>
         internal HandoffController WithContactMeExpiry(DateTimeOffset? expiresAtUtc, string contactMeText = null) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, expiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, expiresAtUtc.HasValue ? contactMeText : null);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, expiresAtUtc, SelcalExpiresAtUtc, IsPinned, IsOffList, expiresAtUtc.HasValue ? contactMeText : null, OpenedAtUtc);
 
         internal HandoffController WithSelcalExpiry(DateTimeOffset? expiresAtUtc) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, expiresAtUtc, IsPinned, IsOffList, ContactMeText);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, expiresAtUtc, IsPinned, IsOffList, ContactMeText, OpenedAtUtc);
 
         internal HandoffController WithPinned(bool isPinned) =>
-            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, isPinned, IsOffList, ContactMeText);
+            new HandoffController(Callsign, Frequency, Latitude, Longitude, IsHidden, HiddenSinceUtc, ContactMeExpiresAtUtc, SelcalExpiresAtUtc, isPinned, IsOffList, ContactMeText, OpenedAtUtc);
     }
 }

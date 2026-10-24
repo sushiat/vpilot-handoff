@@ -36,6 +36,10 @@ namespace Handoff.Plugin
         private static readonly TimeSpan HiddenExpiryWindow = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan ContactMeExpiryWindow = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan SelcalExpiryWindow = TimeSpan.FromMinutes(5);
+        // Issue #186 -- ControllerAdded events within this long after the model was created or the
+        // network (re)connected are vPilot replaying the stations already online, not new openings.
+        private static readonly TimeSpan InitialBurstWindow = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan NewStationReopenAfter = TimeSpan.FromMinutes(2);
         private const string ContactMePhrase = "contact me";
 
         // Pulls a VHF airband frequency out of a free-text "contact me" (e.g. "please contact me on
@@ -51,6 +55,7 @@ namespace Handoff.Plugin
             new Dictionary<string, HandoffController>(StringComparer.OrdinalIgnoreCase);
         private readonly Func<DateTimeOffset> _now;
         private int _processedSelcalAlertCount;
+        private DateTimeOffset _burstStartedUtc;
 
         /// <summary>Fires after any add/hide/reconnect/frequency/location/contact-me/SELCAL/pin change.</summary>
         public event EventHandler Changed;
@@ -60,6 +65,9 @@ namespace Handoff.Plugin
             if (broker == null) throw new ArgumentNullException(nameof(broker));
             if (chatModel == null) throw new ArgumentNullException(nameof(chatModel));
             _now = now ?? (() => DateTimeOffset.Now);
+            _burstStartedUtc = _now();
+
+            broker.NetworkConnected += (s, e) => { lock (_gate) _burstStartedUtc = _now(); };
 
             broker.ControllerAdded += OnControllerAdded;
             broker.ControllerDeleted += OnControllerDeleted;
@@ -177,9 +185,21 @@ namespace Handoff.Plugin
                     // contact-me: adopt its real telemetry, keep the outstanding contact-me/pin.
                     _controllers[e.Callsign] = existing.Promoted(e.Frequency, e.Latitude, e.Longitude);
                 else if (existing != null && existing.IsHidden)
-                    _controllers[e.Callsign] = existing.Reconnected();
+                {
+                    // A blip keeps the original stamp (no re-blink); gone for NewStationReopenAfter
+                    // or longer, the pilot would be on unicom by then, so it counts as opening anew.
+                    var now = _now();
+                    var goneLong = existing.HiddenSinceUtc.HasValue && now - existing.HiddenSinceUtc.Value >= NewStationReopenAfter
+                        && now - _burstStartedUtc >= InitialBurstWindow;
+                    _controllers[e.Callsign] = existing.Reconnected(goneLong ? now : existing.OpenedAtUtc);
+                }
                 else
-                    _controllers[e.Callsign] = new HandoffController(e.Callsign, e.Frequency, e.Latitude, e.Longitude);
+                {
+                    var now = _now();
+                    var isNewOpening = now - _burstStartedUtc >= InitialBurstWindow;
+                    _controllers[e.Callsign] = new HandoffController(
+                        e.Callsign, e.Frequency, e.Latitude, e.Longitude, openedAtUtc: isNewOpening ? now : (DateTimeOffset?)null);
+                }
             }
             RaiseChanged();
         }

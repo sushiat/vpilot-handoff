@@ -74,6 +74,7 @@ namespace Handoff.Plugin
                     isPinned = c.IsPinned,
                     isStandbyTuned = c.IsStandbyTuned,
                     isSelcalActive = c.IsSelcalActive,
+                    isNewStation = c.IsNewStation,
                     etaMinutes = c.EtaMinutes,
                     debug = c.DebugExplain == null ? null : new
                     {
