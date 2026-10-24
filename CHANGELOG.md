@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Android (issue #187): release builds are now minified and obfuscated with R8, which also makes the
+  APK/AAB smaller. Google Play Console had flagged the 0.7.0 bundle for 0% code obfuscation.
 - Plugin (issue #183): the plugin self-update now explains the wait. The "update available"
   prompt says that Install Now opens a setup window that waits until vPilot is closed (and that
   closing vPilot ends the VATSIM connection, so do it after flying). The setup window itself now

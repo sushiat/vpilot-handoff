@@ -60,7 +60,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Issue #187 -- Play Console requires >= 25% obfuscation coverage; R8 also shrinks
+            // the APK/AAB. Both flavors share this build type.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
         debug {

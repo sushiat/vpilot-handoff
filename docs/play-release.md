@@ -41,6 +41,14 @@ floating. What's left is to set `FloatingOverlay = false` for `play` and remove 
 Play manifest overlay. The debug window would become an in-window dialog or be hidden in the Play
 build. The sideload channel keeps the floating overlay either way.
 
+### R8 / mapping file
+
+Release builds of both flavors run R8 (issue #187; Play Console flags under 25% obfuscation). The
+AAB carries its deobfuscation mapping, so Play crash reports are readable. The sideload APK has no
+mapping uploaded anywhere; its `mapping.txt` is in `app/build/outputs/mapping/sideloadRelease/`
+of the CI build. Rules live in `app/proguard-rules.pro`; add a `-keep` there if a release-only
+crash points at reflection-style access.
+
 ## Signing: Play's app signing key differs from the sideload key
 
 The release keystore signs the sideload APK (CI secrets `RELEASE_KEYSTORE_*`). The original plan was
