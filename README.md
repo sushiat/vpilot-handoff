@@ -49,6 +49,15 @@ plugin process and talks to a native Android client over your LAN. That gets you
   replaces the controller list via the same MSG button) and locks to portrait, since
   landscape wouldn't leave enough room for the list to be useful.
 
+## Using Handoff responsibly
+
+Handoff only works on your local network, with vPilot running on your sim PC, and it never
+connects to VATSIM itself. VATSIM's
+[Code of Conduct](https://vatsim.net/docs/policy/code-of-conduct) still applies in full: you must
+not leave your connection unattended (**A9**), and a pilot connection may never be unattended for
+more than 30 minutes (**B3(b)**). Stay at your sim while you're connected. The app shows this
+notice once and asks you to acknowledge it.
+
 ## Screenshots
 
 [![Fullscreen controller list, light mode](assets/01-fullscreen-interface.png)](https://raw.githubusercontent.com/sushiat/vpilot-handoff/master/assets/01-fullscreen-interface.png)
