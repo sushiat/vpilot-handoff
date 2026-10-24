@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Android (issue #191): the TOBT/start-up tile no longer requires the departure airport to be flagged
+  as CDM (`isCdm`/`tobtReady`) in the backend. Any airport the backend lists now gets the tile, so a
+  TOBT can be set at an airport whose CDM isn't active yet and is already in place once a controller
+  starts using it.
 - Android (issue #187): release builds are now minified and obfuscated with R8, which also makes the
   APK/AAB smaller. Google Play Console had flagged the 0.7.0 bundle for 0% code obfuscation.
 - Plugin (issue #183): the plugin self-update now explains the wait. The "update available"
