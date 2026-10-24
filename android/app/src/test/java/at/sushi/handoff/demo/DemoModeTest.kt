@@ -152,6 +152,8 @@ class DemoModeTest {
         val oldFlash = DemoMode.NewStationFlashMillis
         DemoMode.NewStationAppearDelayMillis = 300
         DemoMode.NewStationFlashMillis = 300
+        val oldSelcal = DemoMode.SelcalDelayMillis
+        DemoMode.SelcalDelayMillis = 300
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
         try {
             DemoMode.enable(stopRealConnection = {}, scope = scope)
@@ -162,13 +164,19 @@ class DemoModeTest {
                 assertTrue(condition())
             }
 
+            fun selcal() = HandoffState.controllers.value.controllers.first { it.callsign == DemoMode.SelcalCallsign }.isSelcalActive
             assertEquals(null, station(), "hidden until the scripted opening")
+            assertFalse(selcal(), "SELCAL held back until its scripted moment")
+            assertTrue(HandoffState.chat.value.selcalAlerts.isEmpty())
+            waitFor { selcal() }
+            assertEquals(1, HandoffState.chat.value.selcalAlerts.size)
             waitFor { station()?.isNewStation == true }
             waitFor { station() != null && station()?.isNewStation == false }
         } finally {
             scope.cancel()
             DemoMode.NewStationAppearDelayMillis = oldAppear
             DemoMode.NewStationFlashMillis = oldFlash
+            DemoMode.SelcalDelayMillis = oldSelcal
         }
     }
 }

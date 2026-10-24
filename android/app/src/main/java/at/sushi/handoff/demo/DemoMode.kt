@@ -13,6 +13,7 @@ import at.sushi.handoff.protocol.MarkChatReadCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.protocol.RadioStateMessage
+import at.sushi.handoff.protocol.SelcalAlert
 import at.sushi.handoff.protocol.SelectCom1TransmitterCommand
 import at.sushi.handoff.protocol.SelectCom2TransmitterCommand
 import at.sushi.handoff.protocol.SendPrivateMessageCommand
@@ -63,19 +64,51 @@ object DemoMode {
         // Skipped without a scope (the unit tests that only look at the static sample data).
         newStationJob?.cancel()
         newStationJob = scope?.let { scriptScope ->
-            // Hidden synchronously, so the list never shows the station before its scripted opening.
+            // Hidden synchronously, so the list never shows either before its scripted moment.
             val station = hideNewStation()
-            if (station == null) null else scriptScope.launch { runNewStationScript(station) }
+            val selcalAlert = hideSelcal()
+            scriptScope.launch {
+                if (station != null) launch { runNewStationScript(station) }
+                if (selcalAlert != null) launch { runSelcalScript(selcalAlert) }
+            }
         }
     }
 
     /** Issue #186 -- demo timeline: [NewStationCallsign] is hidden at first, appears after
      *  [NewStationAppearDelayMillis] (a var only so tests can shorten it) with `isNewStation` set, and stops blinking
-     *  [NewStationFlashMillis] later (the plugin's real window is the same length). */
+     *  [NewStationFlashMillis] later (the plugin's real window is the same length). The sample
+     *  SELCAL alert follows the same hidden-then-raised pattern, see [SelcalDelayMillis]. */
     internal const val NewStationCallsign = "LOWW_TWR"
-    internal var NewStationAppearDelayMillis = 3_000L
+    internal var NewStationAppearDelayMillis = 10_000L
     internal var NewStationFlashMillis = 5_000L
     private var newStationJob: Job? = null
+
+    /** The sample SELCAL alert (on [SelcalCallsign]) is held back and raised [SelcalDelayMillis] in. */
+    internal const val SelcalCallsign = "LOVV_CTR"
+    internal var SelcalDelayMillis = 30_000L
+
+    private fun hideSelcal(): SelcalAlert? {
+        val chat = HandoffState.chat.value
+        val alert = chat.selcalAlerts.firstOrNull { it.from == SelcalCallsign } ?: return null
+        HandoffState.update(chat.copy(selcalAlerts = chat.selcalAlerts.filterNot { it === alert }))
+        setSelcalFlag(false)
+        return alert
+    }
+
+    private suspend fun runSelcalScript(alert: SelcalAlert) {
+        delay(SelcalDelayMillis)
+        val chat = HandoffState.chat.value
+        HandoffState.update(chat.copy(selcalAlerts = chat.selcalAlerts + alert.copy(timestamp = Instant.now().toString())))
+        setSelcalFlag(true)
+        refreshControllerFlags()
+    }
+
+    private fun setSelcalFlag(flag: Boolean) {
+        val current = HandoffState.controllers.value
+        HandoffState.update(current.copy(controllers = current.controllers.map {
+            if (it.callsign == SelcalCallsign) it.copy(isSelcalActive = flag) else it
+        }))
+    }
 
     private fun hideNewStation(): Controller? {
         val current = HandoffState.controllers.value
