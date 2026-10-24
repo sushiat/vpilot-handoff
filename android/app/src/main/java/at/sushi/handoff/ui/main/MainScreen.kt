@@ -235,17 +235,17 @@ private fun NotConnectedOverlay(onTryDemo: () -> Unit) {
 /** The app's whole screen: top bar, controller list, footer, and every dialog/overlay it can
  *  open -- replaces the old bottom-nav tab Scaffold entirely (see issue #13). */
 @Composable
-fun MainScreen() {
+fun MainScreen(onAttendedSimAcknowledged: () -> Unit = {}) {
     val theme by HandoffState.theme.collectAsState()
     val rowColorPalette by HandoffState.rowColorPalette.collectAsState()
 
     HandoffTheme(theme, rowColorPalette) {
-        MainScreenContent()
+        MainScreenContent(onAttendedSimAcknowledged)
     }
 }
 
 @Composable
-private fun MainScreenContent() {
+private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(HandoffConnectionService.PrefsName, android.content.Context.MODE_PRIVATE) }
 
@@ -1088,6 +1088,9 @@ private fun MainScreenContent() {
             onAcknowledge = {
                 prefs.edit { putBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, true) }
                 attendedSimAcked = true
+                // The activity holds back the permission prompts and the connection service
+                // until the notice is acknowledged; this is its cue to start them.
+                onAttendedSimAcknowledged()
             }
         )
     }

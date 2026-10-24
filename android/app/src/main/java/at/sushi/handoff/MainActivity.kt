@@ -36,12 +36,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         MediaProjectionRequester.bind { intent -> requestMediaProjection.launch(intent) }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            requestLocalNetworkPermissionThenStart()
+        // Issue #188 -- nothing connects (and no permission prompt appears over the notice) until
+        // the pilot has acknowledged the "stay at your sim" notice; MainScreen calls
+        // beginStartup() itself at that moment. Every later launch starts straight away.
+        if (attendedSimAcknowledged()) {
+            beginStartup()
         }
 
         // Issue #123 -- a phone-class screen doesn't have room for the tablet-focused two-pane
@@ -58,7 +57,21 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MainScreen()
+            MainScreen(onAttendedSimAcknowledged = ::beginStartup)
+        }
+    }
+
+    private fun attendedSimAcknowledged(): Boolean =
+        getSharedPreferences(HandoffConnectionService.PrefsName, MODE_PRIVATE)
+            .getBoolean(HandoffConnectionService.PrefKeyAttendedSimAckV1, false)
+
+    private fun beginStartup() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestLocalNetworkPermissionThenStart()
         }
     }
 

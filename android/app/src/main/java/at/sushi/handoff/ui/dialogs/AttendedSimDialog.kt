@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,7 +58,7 @@ fun AttendedSimDialog(onAcknowledge: () -> Unit) {
                 .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(18.dp)
         ) {
-            Text("Stay at your sim", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.text)
+            Text("Unattended connections", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.text)
             Column(
                 Modifier
                     .weight(1f, fill = false)
@@ -99,7 +100,7 @@ fun AttendedSimDialog(onAcknowledge: () -> Unit) {
             }
             Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = onAcknowledge, modifier = Modifier.fillMaxWidth()) {
-                    Text("I understand - I'll stay at my sim", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("I have read and understood the VATSIM Code of Conduct", fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
             }
         }
