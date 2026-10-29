@@ -9,6 +9,7 @@ import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.SendRadioMessageCommand
 import at.sushi.handoff.protocol.SetCom1FrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -150,11 +151,20 @@ class DemoModeTest {
     fun newStationScript_hidesThenShowsBlinkingThenStops() {
         val oldAppear = DemoMode.NewStationAppearDelayMillis
         val oldFlash = DemoMode.NewStationFlashMillis
-        DemoMode.NewStationAppearDelayMillis = 300
-        DemoMode.NewStationFlashMillis = 300
+        // Issue #207 -- the timings are staggered and the blink window is wide: with every delay at
+        // 300 ms both scripts fired together, and the 300 ms blink was only caught by 10 ms polling,
+        // which a stalled CI runner could miss.
+        DemoMode.NewStationAppearDelayMillis = 600
+        DemoMode.NewStationFlashMillis = 1_000
         val oldSelcal = DemoMode.SelcalDelayMillis
         DemoMode.SelcalDelayMillis = 300
-        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        // One thread for both scripts: each of their controller updates reads the list, copies it and
+        // writes it back, so on Dispatchers.Default two scripts could interleave and one would
+        // overwrite the other's change (the station or the SELCAL flag silently lost).
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val scope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + executor.asCoroutineDispatcher()
+        )
         try {
             DemoMode.enable(stopRealConnection = {}, scope = scope)
             fun station() = HandoffState.controllers.value.controllers.firstOrNull { it.callsign == DemoMode.NewStationCallsign }
@@ -174,6 +184,7 @@ class DemoModeTest {
             waitFor { station() != null && station()?.isNewStation == false }
         } finally {
             scope.cancel()
+            executor.shutdownNow()
             DemoMode.NewStationAppearDelayMillis = oldAppear
             DemoMode.NewStationFlashMillis = oldFlash
             DemoMode.SelcalDelayMillis = oldSelcal
