@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Android (issue #199): the release build now asks Gradle to bundle a native symbol table into the
+  Play App Bundle. The only native library (AndroidX's `libandroidx.graphics.path.so`) is shipped
+  stripped upstream, so this has no effect yet. No user-visible change.
+
 ### Fixed
 
 - Android (issue #202): frequencies (and the nearby-aircraft and debug-window distances) always

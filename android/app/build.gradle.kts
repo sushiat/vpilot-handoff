@@ -66,6 +66,10 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
+            // Issue #199 -- the only native code is AndroidX's libandroidx.graphics.path.so; a
+            // symbol table in the AAB clears Play's "no debug symbols" warning (FULL is overkill
+            // for a third-party library).
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
         debug {
             // Distinct applicationId so a locally-built debug APK installs alongside the
