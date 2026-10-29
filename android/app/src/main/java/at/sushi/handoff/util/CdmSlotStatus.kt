@@ -6,6 +6,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlin.math.abs
 
 /** Where the pilot stands relative to the start-up window (issue #165), mirroring the banner on the
@@ -152,7 +153,7 @@ fun subtractMinutesHhmm(hhmm: String, minutes: Int): String? {
     val minute = t.substring(2, 4).toInt()
     if (hour !in 0..23 || minute !in 0..59) return null
     val total = Math.floorMod(hour * 60 + minute - minutes, 24 * 60)
-    return "%02d%02d".format(total / 60, total % 60)
+    return String.format(Locale.ROOT, "%02d%02d", total / 60, total % 60)
 }
 
 /** The backend sends the same time as "HHmm" (flight-level fields) or "HHmmss" (the CDM sequencer's

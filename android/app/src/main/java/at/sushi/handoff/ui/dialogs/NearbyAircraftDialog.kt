@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.NearbyAircraft
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import java.util.Locale
 
 /** "Private chat to callsign" dialog -- issue #13 screen 6, matching the reference's
  *  `nearbyDialog` object (340dp panel, a rounded-*square* confirm button -- not a circle). The
@@ -158,7 +159,7 @@ private fun ColumnScope.NearbyAircraftContent(aircraft: List<NearbyAircraft>, on
                 ) {
                     Text(entry.callsign, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.text, modifier = Modifier.weight(1.4f))
                     Text(entry.aircraftType ?: "--", fontSize = 12.sp, color = colors.textMuted, modifier = Modifier.weight(1f))
-                    Text("%.1fnm".format(entry.distanceNm), fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                    Text(String.format(Locale.ROOT, "%.1fnm", entry.distanceNm), fontSize = 12.sp, color = colors.textMuted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
                 }
             }
         }
