@@ -38,6 +38,7 @@ import at.sushi.handoff.ChannelFeatures
 import at.sushi.handoff.protocol.Controller
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.protocol.SubsystemStatusMessage
+import java.util.Locale
 import kotlin.math.roundToInt
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
@@ -268,7 +269,7 @@ private fun DebugControllerRow(controller: Controller) {
 private fun formatWaypoint(ident: String?, bearingTrue: Double?, distanceNm: Double?): String {
     if (ident == null) return "-"
     if (bearingTrue == null || distanceNm == null) return ident
-    return "$ident (${bearingTrue.roundToInt()}° ${"%.1f".format(distanceNm)}nm)"
+    return "$ident (${bearingTrue.roundToInt()}° ${String.format(Locale.ROOT, "%.1f", distanceNm)}nm)"
 }
 
 /** "3s ago"/"4m ago" instead of a full ISO-8601 timestamp with fractional seconds and an offset --

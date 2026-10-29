@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -425,6 +426,13 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     var disconnectNetworkDialogOpen by remember { mutableStateOf(false) }
     var footerExpanded by remember { mutableStateOf(false) }
     var chatOpen by remember { mutableStateOf(false) }
+
+    // Issue #204 -- back steps out of what the pilot opened before it ever leaves the app. Compose
+    // Dialogs already close on back themselves; these are the non-dialog surfaces. The one
+    // registered last wins, so the chat (which hides the list and footer's context) comes first.
+    // Back on the bare controller list is left to Android's own default on purpose.
+    BackHandler(enabled = footerExpanded) { footerExpanded = false }
+    BackHandler(enabled = singlePaneChat && chatOpen) { chatOpen = false }
 
     var openChatTabs by remember { mutableStateOf(listOf<String>()) }
     var activeChatTab by remember { mutableStateOf<String?>(null) } // null = RADIO
