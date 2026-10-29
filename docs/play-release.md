@@ -49,6 +49,17 @@ mapping uploaded anywhere; its `mapping.txt` is in `app/build/outputs/mapping/si
 of the CI build. Rules live in `app/proguard-rules.pro`; add a `-keep` there if a release-only
 crash points at reflection-style access.
 
+### Native debug symbols
+
+The only native code is AndroidX's `libandroidx.graphics.path.so` (a hard dependency of Compose's
+`ui-graphics`; it can't be excluded). Play shows a "no debug symbols" warning right after an upload
+for it. AndroidX ships that library already stripped (no `.symtab`, no debug info, checked in 1.0.1 and
+1.1.0), so `ndk { debugSymbolLevel = "SYMBOL_TABLE" }` on the release build type (issue #199) has
+nothing to extract and the AAB gets no `BUNDLE-METADATA/com.android.tools.build.debugsymbols` entry.
+The setting is kept so symbols are bundled if AndroidX starts shipping them. The warning is only
+shown briefly after publishing; it is not findable in the Console afterwards. The sideload APK is
+unaffected.
+
 ## Signing: Play's app signing key differs from the sideload key
 
 The release keystore signs the sideload APK (CI secrets `RELEASE_KEYSTORE_*`). The original plan was
