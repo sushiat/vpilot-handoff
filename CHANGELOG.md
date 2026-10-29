@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Android (issue #202): frequencies (and the nearby-aircraft and debug-window distances) always
+  use a "." as the decimal separator. On a device set to a comma locale such as German they showed
+  as "121,600".
+- Android (issue #204): the back button now steps out of what you opened before it leaves the app:
+  it closes the chat panel on phones and in the in-window split-screen chat, and collapses the
+  expanded footer drawer. On the bare controller list it behaves as before.
+
 ## [0.8.0] - 2026-10-24
 
 ### Added

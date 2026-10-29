@@ -3,6 +3,7 @@ package at.sushi.handoff.network
 import java.security.MessageDigest
 import java.security.cert.Certificate
 import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.security.auth.x500.X500Principal
 
 /** SHA-256 of a certificate's public key, formatted the same way as the plugin side
@@ -10,7 +11,7 @@ import javax.security.auth.x500.X500Principal
  *  so a fingerprint typed/shown on either side compares directly against the other. */
 fun sha256Fingerprint(cert: Certificate): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded)
-    return digest.joinToString(":") { "%02X".format(it) }
+    return digest.joinToString(":") { String.format(Locale.ROOT, "%02X", it) }
 }
 
 /** Pulls the CN out of the presented cert's subject DN -- the plugin bakes its Windows machine
