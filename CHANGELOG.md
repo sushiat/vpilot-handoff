@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android (issue #209): fixed crashes (Play Console, Android 15+) after the app had been left in the
+  background for hours. Android caps the background connection service at 6 hours (the timer resets
+  whenever the app comes to the foreground) and the app did not handle hitting that limit. The service
+  now stops itself after 5 minutes in the background when it has no plugin connection (demo mode
+  included) and after 15 minutes when connected to the plugin but not to VATSIM. While connected to
+  both it keeps running, posts a silent "Handoff will stop in about 30 minutes" notification after
+  5.5 hours in the background (opening the app clears it), and if Android does stop it, posts "Handoff
+  stopped, tap to reconnect" and exits cleanly instead of crashing.
 - Android (issue #202): frequencies (and the nearby-aircraft and debug-window distances) always
   use a "." as the decimal separator. On a device set to a comma locale such as German they showed
   as "121,600".
