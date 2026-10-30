@@ -245,8 +245,10 @@ fun FooterStatusBar(
                 Icon(
                     if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
                     contentDescription = if (expanded) "Collapse status details" else "Expand status details",
-                    tint = colors.textMuted,
-                    modifier = Modifier.padding(start = 4.dp).size(18.dp)
+                    // Accent-coloured and a step larger, like the tab strip's and tour's scroll hints: the
+                    // muted gray it had was easy to miss unless you were already looking for it.
+                    tint = colors.accent,
+                    modifier = Modifier.padding(start = 4.dp).size(22.dp)
                 )
                 if (flightPlanWarning) {
                     Icon(
