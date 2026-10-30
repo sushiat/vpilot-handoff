@@ -617,6 +617,13 @@ private val ExpandedBarVisibleHeight = 190.dp
  *  the 500dp the other bar pages use: shrinking 500dp onto a phone made the text unreadably small. */
 private val ExpandedBarDesignWidth = 340.dp
 
+/** Height of the torn edge at [x]: a sine wave of the given [amplitude] and [length] around [baseline]. One
+ *  place for the clip shape and the line drawn along it, so the two can't drift apart. */
+private fun waveY(x: Float, baseline: Float, amplitude: Float, length: Float): Float {
+    val angle = (x / length) * (2f * Math.PI.toFloat())
+    return baseline + (amplitude * kotlin.math.sin(angle))
+}
+
 private val WaveHeight = 10.dp
 private val WaveLength = 26.dp
 
@@ -631,7 +638,7 @@ private class WavyBottomShape(private val waveHeight: Dp = WaveHeight, private v
             lineTo(size.width, 0f)
             var x = size.width
             while (x >= 0f) {
-                lineTo(x, baseline + amplitude * kotlin.math.sin(x / length * 2f * Math.PI.toFloat()))
+                lineTo(x, waveY(x, baseline, amplitude, length))
                 x -= 2f
             }
             close()
@@ -719,7 +726,7 @@ private fun StatusBarVisual(
                         moveTo(0f, baseline)
                         var x = 0f
                         while (x <= size.width) {
-                            lineTo(x, baseline + amplitude * kotlin.math.sin(x / length * 2f * Math.PI.toFloat()))
+                            lineTo(x, waveY(x, baseline, amplitude, length))
                             x += 2f
                         }
                     }
