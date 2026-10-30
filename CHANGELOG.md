@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android (issue #203): on a phone, a chat opened with a station with a long callsign (e.g. LOWW_D_ATIS)
+  landed clipped at the edge of the chat tab strip with nothing saying it scrolls. The selected tab now
+  scrolls into view, and an accent-coloured chevron on a fade marks each edge with more tabs beyond it.
+  The status bar's expand chevron and the tour's scroll hint use the same accent colour.
 - Android (issue #209): fixed crashes (Play Console, Android 15+) after the app had been left in the
   background for hours. Android caps the background connection service at 6 hours (the timer resets
   whenever the app comes to the foreground) and the app did not handle hitting that limit. The service
