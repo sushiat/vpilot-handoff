@@ -63,6 +63,7 @@ import at.sushi.handoff.ui.main.TopBar
 import at.sushi.handoff.ui.main.isPhoneClassDevice
 import at.sushi.handoff.ui.main.RadioControlsPreview
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import at.sushi.handoff.ui.main.AppHeaderRow
 import at.sushi.handoff.ui.theme.oklch
 import androidx.compose.foundation.clickable
 import kotlin.math.roundToInt
@@ -93,10 +94,11 @@ fun TourVisual(page: TourPage) {
             clipHeight = ExpandedBarVisibleHeight,
             designWidth = ExpandedBarDesignWidth,
             maxScale = 1.5f,
-            callouts = listOf(1 to (26.dp to 12.dp))
+            callouts = listOf(1 to (26.dp to 12.dp), 2 to KeepAwakeCorner)
         )
         TourPage.VATSIM_CONNECTION -> VatsimConnectionVisual()
         TourPage.STARTUP_WINDOW -> StartupWindowVisual()
+        TourPage.ALL_SET -> ReplayHintVisual()
     }
 }
 
@@ -136,6 +138,33 @@ private fun ScaledToWidth(designWidth: Dp, maxScale: Float = 1f, content: @Compo
                     transformOrigin = TransformOrigin(0f, 0f)
                 }
             }
+        }
+    }
+}
+
+/** The top bar's whole header line on a card, with the "?" button that replays the tour: the real composable (not
+ *  a drawing), so it can't drift from the header. Taps are swallowed, like the chat page. */
+@Composable
+private fun ReplayHintVisual() {
+    val colors = LocalHandoffColors.current
+    ScaledToWidth(designWidth = 340.dp, maxScale = 1.5f) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.panel, RoundedCornerShape(12.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                // The header row carries 8dp of padding above it and none below (it hangs from the top of the
+                // screen), so the card pads the bottom by that much more to centre the row vertically.
+                .padding(top = 12.dp, bottom = 20.dp)
+        ) {
+            AppHeaderRow(onShowTour = {})
+            Box(
+                Modifier.matchParentSize().clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    onClick = {}
+                )
+            )
         }
     }
 }
@@ -650,6 +679,12 @@ private class WavyBottomShape(private val waveHeight: Dp = WaveHeight, private v
 // Same estimate-from-layout caveat as the radio callouts: the plug sits second of the three 36dp icons
 // that end the 500dp status bar (14dp padding, 2dp gaps); the start-up chip ends 8dp before them.
 private val PlugCorner = 448.dp to 14.dp
+
+// The keep-screen-awake button is the first of the three icons ending the bar. This page lays the bar out at
+// ExpandedBarDesignWidth (340dp), below the width where the bar uses its roomy 36dp icons, so they are 30dp
+// each here: settings ends 14dp from the edge, the plug and this button follow 32dp apart. Top is the 1dp
+// divider plus half of what is left of the 64dp row.
+private val KeepAwakeCorner = 262.dp to 18.dp
 private val CdmChipCorner = 366.dp to 12.dp
 
 @Composable

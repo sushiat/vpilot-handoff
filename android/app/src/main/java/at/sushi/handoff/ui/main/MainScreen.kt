@@ -422,7 +422,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     var xpdrDialogOpen by remember { mutableStateOf(false) }
     var settingsDialogOpen by remember { mutableStateOf(false) }
     // Issue #205 -- first-launch tour; shown once the attended-sim notice (see below) has been
-    // acknowledged so the two never stack, and replayable from Settings.
+    // acknowledged so the two never stack, and replayable from the "?" button in the top bar's header.
     var tourOpen by remember { mutableStateOf(!OnboardingStore.isSeen(prefs)) }
     var cdmWebOpen by remember { mutableStateOf(false) }
     var rowColorDialogOpen by remember { mutableStateOf(false) }
@@ -845,6 +845,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 onOpenCom1Dialog = { comDialogOpen = 1 },
                 onOpenCom2Dialog = { comDialogOpen = 2 },
                 onOpenXpdrDialog = { xpdrDialogOpen = true },
+                onShowTour = { tourOpen = true },
                 // Flip which COM transmits -- the plugin doesn't enforce mutual exclusivity, but
                 // real avionics only ever have one, so a simple toggle is the natural gesture.
                 onToggleMic = {
@@ -1168,7 +1169,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
-            onShowTour = { tourOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
                 prefs.edit {
                     putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)

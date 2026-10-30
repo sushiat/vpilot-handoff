@@ -102,8 +102,6 @@ fun SettingsDialog(
     onClearIgnoredDevices: () -> Unit,
     onDismiss: () -> Unit,
     onOpenRowColorEditor: () -> Unit,
-    // Issue #205 -- replays the first-launch tour; the dialog saves and closes first.
-    onShowTour: () -> Unit,
     onSave: (
         host: String?,
         simbriefUserId: String?,
@@ -387,17 +385,6 @@ fun SettingsDialog(
                                     ),
                                     updateInterval
                                 ) { updateInterval = it }
-
-                                SectionLabel("HELP")
-                                Text(
-                                    "Show tour",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.accent,
-                                    modifier = Modifier
-                                        .clickable { saveAndDismiss(); onShowTour() }
-                                        .padding(vertical = 6.dp)
-                                )
                             }
 
                             if (!singleColumn) {
