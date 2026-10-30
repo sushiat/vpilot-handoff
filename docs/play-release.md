@@ -89,7 +89,10 @@ Console > App integrity which key setup this app ended up with before relying on
 vPilot plugin on their local network so controller and chat updates arrive while the app is in the
 background (the tablet runs other apps alongside). Without the foreground service Android would
 suspend the connection and the pilot would miss incoming controller and chat messages mid-flight.
-The notification is shown for the whole time the connection is open.
+The notification is shown for the whole time the connection is open. The service stops itself after
+5 minutes in the background when it has no connection to the plugin, and after 15 minutes when it has
+no VATSIM connection through the plugin (issue #209; Android 15+ limits a background `dataSync` service
+to 6 hours, see `HandoffConnectionService.onTimeout`).
 
 **Display over other apps** (`SYSTEM_ALERT_WINDOW`): used only to draw the app's own chat panel as a
 floating window while the pilot runs the app in split-screen next to another app, and for an

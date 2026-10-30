@@ -2,9 +2,13 @@ package at.sushi.handoff.notifications
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.core.app.NotificationCompat
 import at.sushi.handoff.HandoffState
+import at.sushi.handoff.MainActivity
+import at.sushi.handoff.R
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
@@ -60,8 +64,68 @@ class HandoffNotifier(private val context: Context) {
             NotificationChannel(ChannelContactMe, "Contact me requests", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(ChannelSelcal, "SELCAL alerts", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(ChannelIncomingRadio, "Incoming radio messages", NotificationManager.IMPORTANCE_DEFAULT),
-            NotificationChannel(ChannelIncomingPrivate, "Incoming private messages", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(ChannelIncomingPrivate, "Incoming private messages", NotificationManager.IMPORTANCE_DEFAULT),
+            // Visual only, like every other alert here (vPilot already beeps for what matters).
+            NotificationChannel(ChannelServiceStatus, "Background connection status", NotificationManager.IMPORTANCE_LOW)
         ).forEach(notificationManager::createNotificationChannel)
+    }
+
+    /** Issue #209 -- Android caps a dataSync foreground service at 6 hours in the background
+     *  (reset whenever the app comes to the foreground); this is the heads-up shortly before that
+     *  hits, for a pilot connected to both the plugin and VATSIM (the one state that never
+     *  auto-stops). Opening the app is the way out, see [cancelTimeLimitWarning]. */
+    fun onTimeLimitWarning() {
+        postServiceStatus(
+            TimeLimitWarningId,
+            "Handoff will stop in about 30 minutes",
+            "Android limits background connections to 6 hours. Open the app to keep it running."
+        )
+    }
+
+    /** Issue #209 -- the limit was actually reached and the service is quitting. Posted right
+     *  before the process is killed; the notification outlives it, and tapping it relaunches. */
+    fun onTimeLimitReached() {
+        notificationManager.cancel(TimeLimitWarningId)
+        postServiceStatus(
+            TimeLimitReachedId,
+            "Handoff stopped",
+            "Android's 6-hour background limit was reached. Tap to reconnect."
+        )
+    }
+
+    /** The warning is only true while the service is still running and backgrounded -- gone as soon
+     *  as the service quits for any reason (see HandoffConnectionService.quit). */
+    fun cancelTimeLimitWarning() {
+        notificationManager.cancel(TimeLimitWarningId)
+    }
+
+    /** Both time-limit notifications, for when the app is on screen again: the warning no longer
+     *  applies (coming to the foreground resets Android's limit) and "Handoff stopped" has been
+     *  seen, whether the pilot tapped it or just opened the app another way. A cold launch after
+     *  a stop runs this too, from the fresh service's first onStart. */
+    fun cancelTimeLimitNotifications() {
+        notificationManager.cancel(TimeLimitWarningId)
+        notificationManager.cancel(TimeLimitReachedId)
+    }
+
+    private fun postServiceStatus(notificationId: Int, title: String, text: String) {
+        val openApp = PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, ChannelServiceStatus)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(R.drawable.ic_handoff_mark)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        notificationManager.notify(notificationId, notification)
     }
 
     fun onControllersUpdate(message: ControllersMessage) {
@@ -189,5 +253,11 @@ class HandoffNotifier(private val context: Context) {
         const val ChannelSelcal = "selcal_alert"
         const val ChannelIncomingRadio = "incoming_radio"
         const val ChannelIncomingPrivate = "incoming_private"
+        const val ChannelServiceStatus = "service_status"
+
+        // Fixed ids (not hashed from a key like the per-message ones) -- at most one of each can
+        // exist. Kept clear of the connection notification's id 1 in HandoffConnectionService.
+        private const val TimeLimitWarningId = 9001
+        private const val TimeLimitReachedId = 9002
     }
 }
