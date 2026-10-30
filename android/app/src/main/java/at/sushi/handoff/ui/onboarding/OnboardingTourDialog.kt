@@ -185,13 +185,16 @@ fun OnboardingTourDialog(onFinish: () -> Unit) {
                                         .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
                                         .height(44.dp)
-                                        .background(Brush.verticalGradient(listOf(Color.Transparent, colors.bg))),
+                                        // Opaque over the lower part so the chevron sits on a clean background, and
+                                        // accent-coloured like the chat tab strip's hints: the muted gray it had was
+                                        // easy to miss unless you were already looking for it.
+                                        .background(Brush.verticalGradient(0f to Color.Transparent, 0.45f to colors.bg, 1f to colors.bg)),
                                     contentAlignment = Alignment.BottomCenter
                                 ) {
                                     Icon(
                                         Icons.Filled.KeyboardArrowDown,
                                         contentDescription = "Scroll for more",
-                                        tint = colors.textMuted,
+                                        tint = colors.accent,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
