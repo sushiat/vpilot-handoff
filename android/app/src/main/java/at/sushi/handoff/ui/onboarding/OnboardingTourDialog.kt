@@ -65,7 +65,7 @@ import at.sushi.handoff.ui.theme.LocalHandoffColors
 
 /** First-launch onboarding tour (issue #205). Deliberately not closable by scrim tap or the back
  *  gesture: the only ways out are Skip (every page but the last) and the last page's Get started (Go on a phone),
- *  both of which call [onFinish]. Replaying it from Settings goes through the same dialog. */
+ *  both of which call [onFinish]. Replaying it from the top bar's "?" button goes through the same dialog. */
 @Composable
 fun OnboardingTourDialog(onFinish: () -> Unit) {
     val colors = LocalHandoffColors.current

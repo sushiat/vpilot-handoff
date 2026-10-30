@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Android (issue #205): a first-launch tour explains what the app does. Ten pages (what Handoff is, how
+- Android (issue #205): a first-launch tour explains what the app does. Eleven pages (what Handoff is, how
   to connect or try demo mode, controllers, radios, transponder and messages, Contact Me/SELCAL, chat,
-  the status bar, the VATSIM connection button and the start-up window) built from the app's real controls
+  the status bar, the VATSIM connection button, the start-up window and a closing welcome that points to the "?" button) built from the app's real controls
   with the demo-mode sample data. It can only be left with Skip or Get started ("Go" on a phone), shows after the
-  first-run attended-sim notice, and can be replayed from Settings ("Show tour"). The status bar also
+  first-run attended-sim notice, and can be replayed from the "?" button in the top bar's header. The status bar also
   gained an expand/collapse chevron so it is obvious it opens.
 - Android (issue #205): demo mode's start-up (TOBT/VDGS) page now looks like the real page: header with
   a live UTC clock, a banner that ticks down and changes with the start-up window (yellow before it,

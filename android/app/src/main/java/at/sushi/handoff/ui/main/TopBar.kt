@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -108,7 +110,9 @@ fun TopBar(
     onOpenXpdrDialog: () -> Unit,
     onToggleMic: () -> Unit,
     onToggleMon: () -> Unit,
-    onToggleChat: () -> Unit
+    onToggleChat: () -> Unit,
+    // Issue #205 -- replays the first-launch tour; null (the tour's own mock-up) hides the button.
+    onShowTour: (() -> Unit)? = null
 ) {
     val colors = LocalHandoffColors.current
     Column(
@@ -116,7 +120,7 @@ fun TopBar(
             .fillMaxWidth()
             .background(colors.panel)
     ) {
-        AppHeaderRow()
+        AppHeaderRow(onShowTour)
 
         val com1Value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---"
         val com2Value = radioState.com2Frequency?.let(RadioFrequency::format) ?: "---.---"
@@ -234,18 +238,8 @@ private fun micMonBadgeFor(txCom: Int?, neutralBg: Color, neutralText: Color): M
     txCom?.let { comBadge(it) } ?: MicMonBadge("-", neutralBg)
 
 @Composable
-private fun AppHeaderRow() {
+internal fun AppHeaderRow(onShowTour: (() -> Unit)?) {
     val colors = LocalHandoffColors.current
-    val context = LocalContext.current
-    val versionName = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
-    }
-    // Issue #65 -- the version string doubles as the hidden debug-window toggle, but only once
-    // debug mode has been turned on via Settings' own 7-tap first (two-step gate: someone would
-    // need to be told both halves exist, not stumble into either alone). Before that, this tap
-    // behaves exactly as it always has: a no-op.
-    val debugModeEnabled by HandoffState.debugModeEnabled.collectAsState()
-    val debugWindowOpen by HandoffState.debugWindowOpen.collectAsState()
     Row(
         Modifier
             .fillMaxWidth()
@@ -262,6 +256,48 @@ private fun AppHeaderRow() {
         Text("Handoff", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
         Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
         Box(Modifier.weight(1f))
+        HeaderTrailing(onShowTour)
+    }
+}
+
+/** The header row's right end: the "?" button that replays the first-launch tour (when [onShowTour]
+ *  is set) and the version string. Its own composable so the tour's closing page can show this exact
+ *  pair, enlarged. */
+@Composable
+internal fun HeaderTrailing(onShowTour: (() -> Unit)?) {
+    val colors = LocalHandoffColors.current
+    val context = LocalContext.current
+    val versionName = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+    }
+    // Issue #65 -- the version string doubles as the hidden debug-window toggle, but only once
+    // debug mode has been turned on via Settings' own 7-tap first (two-step gate: someone would
+    // need to be told both halves exist, not stumble into either alone). Before that, this tap
+    // behaves exactly as it always has: a no-op.
+    val debugModeEnabled by HandoffState.debugModeEnabled.collectAsState()
+    val debugWindowOpen by HandoffState.debugWindowOpen.collectAsState()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (onShowTour != null) {
+            // Same look as MainScreen's "Try demo" button (accent fill, white semibold label, rounded
+            // rect), shrunk to the header row's own height. Replays the first-launch tour.
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .background(colors.accent, RoundedCornerShape(6.dp))
+                    .clickable(onClick = onShowTour),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "?",
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    // No legacy font padding, or the glyph sits low in the 22dp box.
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    modifier = Modifier.semantics { contentDescription = "Show tour" }
+                )
+            }
+        }
         Text(
             "v$versionName",
             fontSize = 12.sp,
