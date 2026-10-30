@@ -1,7 +1,6 @@
 package at.sushi.handoff.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -26,8 +25,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +42,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,16 +52,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.protocol.ChatEntry
@@ -73,6 +72,7 @@ import at.sushi.handoff.protocol.RadioFrequency
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.util.formatLocalTime
+import kotlin.math.roundToInt
 
 // Not private: MainScreen.kt's unread-tracking needs the same tab key for radio/broadcast
 // messages as this file uses for the RADIO tab's own unread lookup.
@@ -200,11 +200,29 @@ fun ChatPanelContent(
             // Both only show up when the tabs really overflow, so a wide pane is unchanged.
             val tabScrollState = rememberScrollState()
             val hintThresholdPx = with(LocalDensity.current) { 12.dp.toPx() }
+            val tabHintWidthPx = with(LocalDensity.current) { TabStripHintWidth.toPx() }
+            // The selected tab is scrolled into view by driving this strip's own scroll state, never
+            // via bringIntoView: that bubbles up through every scrollable ancestor, and when this
+            // panel is composed inside the onboarding tour's pager (as the next page is prefetched)
+            // it scrolled the whole tour back to its first page. The target is padded by the edge
+            // hint's width so the tab ends up clear of the fade, not underneath it.
+            val tabBounds = remember { mutableStateMapOf<String, IntRange>() }
+            var tabViewportPx by remember { mutableIntStateOf(0) }
+            val selectedBounds = tabBounds[activeTab ?: RADIO_TAB]
+            LaunchedEffect(activeTab, selectedBounds, tabViewportPx) {
+                if (selectedBounds == null || tabViewportPx == 0) return@LaunchedEffect
+                val left = (selectedBounds.first - tabHintWidthPx).toInt().coerceAtLeast(0)
+                val right = selectedBounds.last + 1 + tabHintWidthPx.toInt()
+                when {
+                    left < tabScrollState.value -> tabScrollState.animateScrollTo(left)
+                    right > tabScrollState.value + tabViewportPx -> tabScrollState.animateScrollTo(right - tabViewportPx)
+                }
+            }
             val moreBefore = tabScrollState.value > hintThresholdPx
             val moreAfter = tabScrollState.maxValue - tabScrollState.value > hintThresholdPx
             // IntrinsicSize.Min pins the box to the tabs' height, so the hints' fillMaxHeight()
             // below follows the tab row instead of growing to whatever height the parent allows.
-            Box(Modifier.weight(1f).height(IntrinsicSize.Min)) {
+            Box(Modifier.weight(1f).height(IntrinsicSize.Min).onSizeChanged { tabViewportPx = it.width }) {
                 Row(
                     Modifier.horizontalScroll(tabScrollState),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -215,7 +233,8 @@ fun ChatPanelContent(
                         unread = unreadByTab[RADIO_TAB] ?: 0,
                         closable = false,
                         onSelect = { onSelectTab(null) },
-                        onClose = {}
+                        onClose = {},
+                        onBounds = { tabBounds[RADIO_TAB] = it }
                     )
                     openTabs.forEach { peer ->
                         ChatTab(
@@ -224,7 +243,8 @@ fun ChatPanelContent(
                             unread = unreadByTab[peer] ?: 0,
                             closable = true,
                             onSelect = { onSelectTab(peer) },
-                            onClose = { onCloseTab(peer) }
+                            onClose = { onCloseTab(peer) },
+                            onBounds = { tabBounds[peer] = it }
                         )
                     }
                 }
@@ -341,25 +361,21 @@ private fun BoxScope.TabStripEdgeHint(
  *  text; unselected = transparent + muted text -- no accent/blue color at all (that was a real
  *  divergence: this previously used the theme's blue `accent`, which read as a Material-style
  *  selected pill rather than a plain tab). Top-rounded corners only, like a tab under a strip. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatTab(label: String, selected: Boolean, unread: Int, closable: Boolean, onSelect: () -> Unit, onClose: () -> Unit) {
+private fun ChatTab(
+    label: String,
+    selected: Boolean,
+    unread: Int,
+    closable: Boolean,
+    onSelect: () -> Unit,
+    onClose: () -> Unit,
+    // Where this tab sits inside the strip's scrolling row, so the strip can scroll it into view.
+    onBounds: (IntRange) -> Unit
+) {
     val colors = LocalHandoffColors.current
-    // Scrolls the tab strip so a tab that becomes selected (a newly opened chat, or one picked from
-    // elsewhere) is fully visible rather than clipped at the strip's edge. The requested rect is
-    // padded by the edge hint's width so the tab ends up clear of the fade, not underneath it.
-    val bringIntoView = remember { BringIntoViewRequester() }
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    val hintWidthPx = with(LocalDensity.current) { TabStripHintWidth.toPx() }
-    LaunchedEffect(selected, size) {
-        if (selected && size != IntSize.Zero) {
-            bringIntoView.bringIntoView(Rect(-hintWidthPx, 0f, size.width + hintWidthPx, size.height.toFloat()))
-        }
-    }
     Row(
         Modifier
-            .onSizeChanged { size = it }
-            .bringIntoViewRequester(bringIntoView)
+            .onPlaced { onBounds(it.positionInParent().x.roundToInt().let { x -> x until x + it.size.width }) }
             .background(
                 if (selected) colors.panelAlt else Color.Transparent,
                 RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
