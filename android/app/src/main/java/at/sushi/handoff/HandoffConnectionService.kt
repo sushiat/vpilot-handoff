@@ -53,14 +53,17 @@ import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import at.sushi.handoff.util.cdmWaitingDisplay
+import at.sushi.handoff.util.ServiceIdleStop
 import at.sushi.handoff.util.deriveCdmSlotDisplay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -122,6 +125,7 @@ class HandoffConnectionService : Service() {
     private var connectionJob: Job? = null
     private var pingJob: Job? = null
     private var cdmPollingJob: Job? = null
+    private var idlePolicyJob: Job? = null
     private var quitRequested = false
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
@@ -187,11 +191,15 @@ class HandoffConnectionService : Service() {
         override fun onStart(owner: LifecycleOwner) {
             HandoffState.setAppVisible(true)
             ServiceCompat.stopForeground(this@HandoffConnectionService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            // Issue #209 -- coming to the foreground resets Android's background time limit, so a
+            // "about to be stopped" heads-up no longer applies, and a leftover "Handoff stopped"
+            // from an earlier limit has been seen by now.
+            notifier.cancelTimeLimitNotifications()
         }
 
         override fun onStop(owner: LifecycleOwner) {
             HandoffState.setAppVisible(false)
-            ServiceCompat.startForeground(this@HandoffConnectionService, NotificationId, buildConnectionNotification(), ForegroundServiceTypeNormal)
+            tryStartForeground(ForegroundServiceTypeNormal)
         }
     }
 
@@ -228,7 +236,14 @@ class HandoffConnectionService : Service() {
         // then unconditionally post the notification right afterward with nothing left to hide
         // it until the next real background/foreground transition, leaving it stuck showing on
         // a fresh launch even though the app is already on screen.
-        ServiceCompat.startForeground(this, NotificationId, buildConnectionNotification(), ForegroundServiceTypeNormal)
+        //
+        // Issue #209 -- Android 15+ rejects this outright once the dataSync background time limit
+        // is used up and the app hasn't been brought to the foreground since. Nothing can be
+        // done about that from in here, so stop cleanly instead of crashing on the exception.
+        if (!tryStartForeground(ForegroundServiceTypeNormal)) {
+            stopSelf()
+            return
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         HandoffState.setKeepScreenAwake(isCharging())
@@ -240,6 +255,75 @@ class HandoffConnectionService : Service() {
         )
         reconnectLoop()
         startCdmPollingLoop()
+        startIdlePolicyLoop()
+    }
+
+    /** Issue #209 -- [ServiceCompat.startForeground] can be rejected with a
+     *  ForegroundServiceStartNotAllowedException (an IllegalStateException since API 31, so no API
+     *  gate is needed to catch it) once Android 15+'s dataSync time limit is exhausted. Returns
+     *  false instead of letting that crash the app. */
+    private fun tryStartForeground(type: Int): Boolean = try {
+        ServiceCompat.startForeground(this, NotificationId, buildConnectionNotification(), type)
+        true
+    } catch (e: IllegalStateException) {
+        Log.w("HandoffConn", "startForeground(type=$type) rejected", e)
+        false
+    }
+
+    /** Tears the whole service down: the notification's Quit action, the idle auto-stop and
+     *  [onTimeout] all end up here. [onDestroy] (triggered by stopSelf) then kills the process, so
+     *  the next launch is a genuine fresh start -- see the note on [ActionQuit]'s handling. Safe to
+     *  call from any thread. */
+    private fun quit() {
+        // A still-showing "will stop in 30 minutes" is wrong once this has quit (Quit tapped,
+        // idle stop). Only the warning: onTimeout posts "Handoff stopped" right before calling this.
+        notifier.cancelTimeLimitWarning()
+        quitRequested = true
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /** Issue #209 -- Android 15+ calls this when the dataSync foreground service has used up its
+     *  background time limit (6 hours, reset whenever the app comes to the foreground); the
+     *  service must stop within a few seconds or the app crashes with a
+     *  ForegroundServiceDidNotStopInTimeException. Never called below Android 15. Tell the pilot,
+     *  then quit -- nothing slow in between. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w("HandoffConn", "foreground service time limit reached (type=$fgsType) -- notifying and quitting")
+        notifier.onTimeLimitReached()
+        quit()
+    }
+
+    /** Issue #209 -- stops a forgotten service before it can run into Android's background time
+     *  limit, and warns the one state that never auto-stops (connected to the plugin and VATSIM)
+     *  shortly before the limit; the policy itself lives in [ServiceIdleStop]. The timers restart
+     *  whenever the policy changes, which includes the app coming back to the foreground. */
+    private fun startIdlePolicyLoop() {
+        idlePolicyJob = scope.launch {
+            combine(
+                HandoffState.appVisible,
+                HandoffState.connectionStatus,
+                HandoffState.flightPlan.map { it.vatsimCallsign != null }.distinctUntilChanged()
+            ) { visible, status, onVatsim ->
+                ServiceIdleStop.policy(visible, pluginConnected = status == ConnectionStatus.CONNECTED, onVatsim = onVatsim)
+            }
+                .distinctUntilChanged()
+                .collectLatest { policy ->
+                    coroutineScope {
+                        policy.warnAfterMillis?.let { warnAfter ->
+                            launch {
+                                delay(warnAfter)
+                                notifier.onTimeLimitWarning()
+                            }
+                        }
+                        policy.stopAfterMillis?.let { stopAfter ->
+                            delay(stopAfter)
+                            Log.i("HandoffConn", "backgrounded and idle for ${stopAfter}ms -- stopping the service")
+                            quit()
+                        }
+                    }
+                }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -254,9 +338,7 @@ class HandoffConnectionService : Service() {
             // existing Activity instead of recreating it -- and startConnectionService() only
             // runs from onCreate(), so the service would never come back. Killing the process
             // guarantees the next launch is a genuine fresh start.
-            quitRequested = true
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            quit()
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -266,9 +348,14 @@ class HandoffConnectionService : Service() {
         connectionJob?.cancel()
         pingJob?.cancel()
         cdmPollingJob?.cancel()
-        client.close()
+        idlePolicyJob?.cancel()
+        // Issue #209 -- onCreate can stop the service before any of this was set up (startForeground
+        // rejected), so there is no client or registered receiver to undo in that case.
+        if (::client.isInitialized) {
+            client.close()
+            unregisterReceiver(powerConnectedReceiver)
+        }
         ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
-        unregisterReceiver(powerConnectedReceiver)
         instance = null
         super.onDestroy()
         if (quitRequested) {
@@ -340,7 +427,7 @@ class HandoffConnectionService : Service() {
      *  visible screen-capture indicator is driven by the MediaProjection instance itself
      *  (MediaProjectionRequester/DebugOverlayHost), not by this foreground-service type flag. */
     fun promoteToMediaProjectionForeground() {
-        ServiceCompat.startForeground(this, NotificationId, buildConnectionNotification(), ForegroundServiceTypeWithMediaProjection)
+        tryStartForeground(ForegroundServiceTypeWithMediaProjection)
     }
 
     private fun reconnectLoop() {

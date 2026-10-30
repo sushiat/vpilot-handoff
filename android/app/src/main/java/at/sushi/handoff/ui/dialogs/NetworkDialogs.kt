@@ -3,6 +3,7 @@ package at.sushi.handoff.ui.dialogs
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -108,7 +109,10 @@ fun ConnectNetworkDialog(
     initialSelcal: String,
     operations: Map<String, OperationProgressState>,
     onSend: (ConnectNetworkCommand) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Issue #205 -- the onboarding tour shows this form as plain inline content (no Dialog window,
+    // see SimpleDialogPanelChrome) whose buttons do nothing.
+    preview: Boolean = false
 ) {
     val colors = LocalHandoffColors.current
     var callsign by remember { mutableStateOf(initialCallsign) }
@@ -122,7 +126,7 @@ fun ConnectNetworkDialog(
     val blockedReason = NetworkConnect.connectBlockedReason(callsign, aircraftType, observer)
     val selcalWarning = if (observer) null else NetworkConnect.selcalWarning(selcal)
 
-    SimpleDialogPanel(title = "Connect to VATSIM", width = 320.dp, onDismiss = onDismiss) {
+    val content: @Composable ColumnScope.() -> Unit = {
         FieldLabel("Callsign")
         HandoffTextField(
             callsign,
@@ -177,6 +181,7 @@ fun ConnectNetworkDialog(
             Button(
                 enabled = blockedReason == null && !waiting,
                 onClick = {
+                    if (preview) return@Button
                     val operationId = UUID.randomUUID().toString()
                     val cleanSelcal = NetworkConnect.formatSelcal(selcal)
                     error = null
@@ -194,6 +199,11 @@ fun ConnectNetworkDialog(
                 modifier = Modifier.weight(1f)
             ) { Text("Connect", fontSize = 15.sp) }
         }
+    }
+    if (preview) {
+        SimpleDialogPanelChrome(title = "Connect to VATSIM", width = 320.dp, onDismiss = onDismiss, content = content)
+    } else {
+        SimpleDialogPanel(title = "Connect to VATSIM", width = 320.dp, onDismiss = onDismiss, content = content)
     }
 }
 

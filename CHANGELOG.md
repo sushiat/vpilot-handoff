@@ -7,8 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android (issue #205): a first-launch tour explains what the app does. Ten pages (what Handoff is, how
+  to connect or try demo mode, controllers, radios, transponder and messages, Contact Me/SELCAL, chat,
+  the status bar, the VATSIM connection button and the start-up window) built from the app's real controls
+  with the demo-mode sample data. It can only be left with Skip or Get started ("Go" on a phone), shows after the
+  first-run attended-sim notice, and can be replayed from Settings ("Show tour"). The status bar also
+  gained an expand/collapse chevron so it is obvious it opens.
+- Android (issue #205): demo mode's start-up (TOBT/VDGS) page now looks like the real page: header with
+  a live UTC clock, a banner that ticks down and changes with the start-up window (yellow before it,
+  green inside it, red once missed, matching the status bar chip), the flight-data grid and the
+  TOBT entry form. The sample SID is now SOVI1C. JavaScript is now enabled in that demo WebView for the
+  page's own clock script; it still loads nothing and cannot navigate anywhere.
+
+### Changed
+
+- Android (issue #199): the release build now asks Gradle to bundle a native symbol table into the
+  Play App Bundle. The only native library (AndroidX's `libandroidx.graphics.path.so`) is shipped
+  stripped upstream, so this has no effect yet. No user-visible change.
+
 ### Fixed
 
+- Android (issue #209): fixed crashes (Play Console, Android 15+) after the app had been left in the
+  background for hours. Android caps the background connection service at 6 hours (the timer resets
+  whenever the app comes to the foreground) and the app did not handle hitting that limit. The service
+  now stops itself after 5 minutes in the background when it has no plugin connection (demo mode
+  included) and after 15 minutes when connected to the plugin but not to VATSIM. While connected to
+  both it keeps running, posts a silent "Handoff will stop in about 30 minutes" notification after
+  5.5 hours in the background (opening the app clears it), and if Android does stop it, posts "Handoff
+  stopped, tap to reconnect" and exits cleanly instead of crashing.
 - Android (issue #202): frequencies (and the nearby-aircraft and debug-window distances) always
   use a "." as the decimal separator. On a device set to a comma locale such as German they showed
   as "121,600".

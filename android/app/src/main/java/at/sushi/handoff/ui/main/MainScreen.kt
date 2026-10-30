@@ -52,6 +52,8 @@ import at.sushi.handoff.network.UpdateSource
 import at.sushi.handoff.network.updateSourceFor
 import at.sushi.handoff.network.IgnoredDeviceStore
 import at.sushi.handoff.network.VersionMismatchDismissStore
+import at.sushi.handoff.ui.onboarding.OnboardingStore
+import at.sushi.handoff.ui.onboarding.OnboardingTourDialog
 import at.sushi.handoff.network.isInstalledViaObtainium
 import at.sushi.handoff.network.versionSkew
 import at.sushi.handoff.protocol.ClearPinnedControllerCommand
@@ -419,6 +421,9 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     var comDialogOpen by remember { mutableStateOf<Int?>(null) } // 1 or 2
     var xpdrDialogOpen by remember { mutableStateOf(false) }
     var settingsDialogOpen by remember { mutableStateOf(false) }
+    // Issue #205 -- first-launch tour; shown once the attended-sim notice (see below) has been
+    // acknowledged so the two never stack, and replayable from Settings.
+    var tourOpen by remember { mutableStateOf(!OnboardingStore.isSeen(prefs)) }
     var cdmWebOpen by remember { mutableStateOf(false) }
     var rowColorDialogOpen by remember { mutableStateOf(false) }
     var nearbyDialogOpen by remember { mutableStateOf(false) }
@@ -1088,7 +1093,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     }
 
     if (cdmWebOpen) {
-        CdmWebDialog(demo = demoModeEnabled, onDismiss = { cdmWebOpen = false })
+        CdmWebDialog(demo = demoModeEnabled, demoSlot = cdmSlot, onDismiss = { cdmWebOpen = false })
     }
 
     if (!attendedSimAcked) {
@@ -1101,6 +1106,13 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 onAttendedSimAcknowledged()
             }
         )
+    }
+
+    if (tourOpen && attendedSimAcked) {
+        OnboardingTourDialog(onFinish = {
+            OnboardingStore.markSeen(prefs)
+            tourOpen = false
+        })
     }
 
     if (overlayExplainerOpen && attendedSimAcked) {
@@ -1156,6 +1168,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
+            onShowTour = { tourOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
                 prefs.edit {
                     putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)
@@ -1344,7 +1357,7 @@ private fun displayAndOwnWidthPx(context: Context, configuration: Configuration)
  *  smallestScreenWidthDp shrinks with the pane, so a tablet in a narrow split would wrongly read as
  *  a phone via [Configuration.smallestScreenWidthDp]. Phones are portrait-locked and never split
  *  side by side, so this is what gates things that only make sense on a tablet-class display. */
-private fun isPhoneClassDevice(context: Context, configuration: Configuration): Boolean {
+internal fun isPhoneClassDevice(context: Context, configuration: Configuration): Boolean {
     // Below API 30 there's no non-deprecated way to read the physical display's size, so the
     // window value (which shrinks in split-screen) is the best available there.
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {

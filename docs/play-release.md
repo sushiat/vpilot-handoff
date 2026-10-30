@@ -49,6 +49,17 @@ mapping uploaded anywhere; its `mapping.txt` is in `app/build/outputs/mapping/si
 of the CI build. Rules live in `app/proguard-rules.pro`; add a `-keep` there if a release-only
 crash points at reflection-style access.
 
+### Native debug symbols
+
+The only native code is AndroidX's `libandroidx.graphics.path.so` (a hard dependency of Compose's
+`ui-graphics`; it can't be excluded). Play shows a "no debug symbols" warning right after an upload
+for it. AndroidX ships that library already stripped (no `.symtab`, no debug info, checked in 1.0.1 and
+1.1.0), so `ndk { debugSymbolLevel = "SYMBOL_TABLE" }` on the release build type (issue #199) has
+nothing to extract and the AAB gets no `BUNDLE-METADATA/com.android.tools.build.debugsymbols` entry.
+The setting is kept so symbols are bundled if AndroidX starts shipping them. The warning is only
+shown briefly after publishing; it is not findable in the Console afterwards. The sideload APK is
+unaffected.
+
 ## Signing: Play's app signing key differs from the sideload key
 
 The release keystore signs the sideload APK (CI secrets `RELEASE_KEYSTORE_*`). The original plan was
@@ -78,7 +89,10 @@ Console > App integrity which key setup this app ended up with before relying on
 vPilot plugin on their local network so controller and chat updates arrive while the app is in the
 background (the tablet runs other apps alongside). Without the foreground service Android would
 suspend the connection and the pilot would miss incoming controller and chat messages mid-flight.
-The notification is shown for the whole time the connection is open.
+The notification is shown for the whole time the connection is open. The service stops itself after
+5 minutes in the background when it has no connection to the plugin, and after 15 minutes when it has
+no VATSIM connection through the plugin (issue #209; Android 15+ limits a background `dataSync` service
+to 6 hours, see `HandoffConnectionService.onTimeout`).
 
 **Display over other apps** (`SYSTEM_ALERT_WINDOW`): used only to draw the app's own chat panel as a
 floating window while the pilot runs the app in split-screen next to another app, and for an
