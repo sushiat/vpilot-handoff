@@ -36,9 +36,14 @@ building ahead of time.
 
 Tracks changes to this document's message shapes specifically, not every plugin/app feature
 release — see the top-level `CHANGELOG.md` for that. Only gets an entry here when something in
-this contract actually changes shape; a release with no protocol changes adds nothing below.
+this contract actually changes shape. A release with no protocol changes still gets a one-line
+"no protocol changes" section, so a missing version means "not checked", not "nothing changed".
 
 ### Unreleased
+
+### [0.9.0] - 2026-10-30
+
+No protocol changes in this release.
 
 ### [0.8.0] - 2026-10-24
 
