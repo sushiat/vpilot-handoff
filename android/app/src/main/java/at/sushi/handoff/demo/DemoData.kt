@@ -232,7 +232,7 @@ object DemoData {
             reason = null,
             atfcmStatus = null,
             depRunway = "29",
-            sid = "LNZ2C",
+            sid = "SOVI1C",
             referenceLabel = "TSAT",
             referenceHhmm = referenceHhmm,
             asrtSet = false,

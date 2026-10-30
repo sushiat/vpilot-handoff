@@ -466,7 +466,7 @@ private val MessageBubbleIcon: ImageVector by lazy {
  *  without a separate branch, and this can't silently drift out of sync if the bubble hues are
  *  ever retuned. */
 @Composable
-private fun MessageIcon(
+internal fun MessageIcon(
     unreadCount: Int,
     iconSize: Dp,
     countFontSize: TextUnit,
@@ -563,6 +563,63 @@ private fun TopBarWide(
             WideMicMonButton(Modifier.width(s.fixedMicMonWidth).fillMaxHeight(), "MON", monBadges, onToggleMon)
             WideComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby2Value, large = false, callsign = com2StandbyCallsign, onClick = onOpenCom2Dialog)
             WideMsgButton(Modifier.width(s.fixedXpdrMsgWidth).fillMaxHeight(), unreadCount, hasDirectedUnread, msgDisplayValue, onToggleChat)
+        }
+    }
+}
+
+/** Issue #205 -- the onboarding tour's reduced radio panel: just COM1 with its standby and the MIC/MON audio
+ *  column of the wide layout (COM2, the squawk and the message button are left out), made of the very same
+ *  buttons so it can't drift from the real bar. [badge] draws a numbered callout, which sits on the top-right
+ *  corner of each control: 1 active COM1, 2 its standby, 3 MIC, 4 MON. */
+@Composable
+internal fun RadioControlsPreview(
+    radioState: RadioStateMessage,
+    com1Callsign: String?,
+    com1StandbyCallsign: String?,
+    badge: @Composable (Int) -> Unit
+) {
+    val colors = LocalHandoffColors.current
+    val s = WideSizes
+    val txCom = when {
+        radioState.com1TransmitEnabled -> 1
+        radioState.com2TransmitEnabled -> 2
+        else -> null
+    }
+    val monListeningBoth = when (txCom) {
+        1 -> radioState.com2ReceiveEnabled
+        2 -> radioState.com1ReceiveEnabled
+        else -> false
+    }
+    val micBadges = listOf(micMonBadgeFor(txCom, colors.border, colors.textMuted))
+    val monBadges = if (monListeningBoth) listOf(comBadge(1), comBadge(2)) else micBadges
+    val com1Value = radioState.com1Frequency?.let(RadioFrequency::format) ?: "---.---"
+    val stby1Value = radioState.com1StandbyFrequency?.let(RadioFrequency::format) ?: "---.---"
+
+    @Composable
+    fun Cornered(number: Int, modifier: Modifier, content: @Composable () -> Unit) {
+        Box(modifier) {
+            content()
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)) { badge(number) }
+        }
+    }
+
+    // The top and right padding leave room for the badges that overhang the first row and last column.
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(s.rowGap)) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(s.colGap)) {
+            Cornered(1, Modifier.weight(1f).fillMaxHeight()) {
+                Row { WideComButton(Modifier.weight(1f).fillMaxHeight(), "COM1", com1Value, large = true, callsign = com1Callsign, onClick = {}) }
+            }
+            Cornered(3, Modifier.width(s.fixedMicMonWidth).fillMaxHeight()) {
+                Row { WideMicMonButton(Modifier.weight(1f).fillMaxHeight(), "MIC", micBadges, {}) }
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(s.colGap)) {
+            Cornered(2, Modifier.weight(1f).fillMaxHeight()) {
+                Row { WideComButton(Modifier.weight(1f).fillMaxHeight(), "STBY", stby1Value, large = false, callsign = com1StandbyCallsign, onClick = {}) }
+            }
+            Cornered(4, Modifier.width(s.fixedMicMonWidth).fillMaxHeight()) {
+                Row { WideMicMonButton(Modifier.weight(1f).fillMaxHeight(), "MON", monBadges, {}) }
+            }
         }
     }
 }
