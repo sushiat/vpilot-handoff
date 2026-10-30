@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Power
 import androidx.compose.material.icons.filled.PowerOff
@@ -238,6 +240,13 @@ fun FooterStatusBar(
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
+                )
+                // Issue #205 -- the bar opens a drawer, but nothing said so.
+                Icon(
+                    if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    contentDescription = if (expanded) "Collapse status details" else "Expand status details",
+                    tint = colors.textMuted,
+                    modifier = Modifier.padding(start = 4.dp).size(18.dp)
                 )
                 if (flightPlanWarning) {
                     Icon(

@@ -327,7 +327,7 @@ private val RatingBadgeWidth = 32.dp // ~30dp badge + 2dp gap to the icons group
 private val InfoColumnEstimatedWidth = 90.dp
 
 @Composable
-private fun ControllerRow(
+internal fun ControllerRow(
     controller: Controller,
     etaMinutes: Double?,
     callsignColWidth: Dp,
@@ -342,7 +342,10 @@ private fun ControllerRow(
     onTuneCom2Active: () -> Unit,
     onTuneCom1Standby: () -> Unit,
     onTuneCom2Standby: () -> Unit,
-    onDismissSelcal: () -> Unit
+    onDismissSelcal: () -> Unit,
+    // False for the onboarding tour's sample rows (issue #205): they animate like real rows but a tap
+    // must not open the tune menu.
+    interactive: Boolean = true
 ) {
     val colors = LocalHandoffColors.current
     val palette = LocalRowColorPalette.current
@@ -420,7 +423,7 @@ private fun ControllerRow(
                     .fillMaxWidth()
                     .background(background, rowShape)
                     .border(1.5.dp, rowColors.border, rowShape)
-                    .clickable { menuOpen = true; newStationDismissed = true }
+                    .clickable(enabled = interactive) { menuOpen = true; newStationDismissed = true }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Row(

@@ -466,7 +466,7 @@ private val MessageBubbleIcon: ImageVector by lazy {
  *  without a separate branch, and this can't silently drift out of sync if the bubble hues are
  *  ever retuned. */
 @Composable
-private fun MessageIcon(
+internal fun MessageIcon(
     unreadCount: Int,
     iconSize: Dp,
     countFontSize: TextUnit,
