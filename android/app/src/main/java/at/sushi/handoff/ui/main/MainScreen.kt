@@ -1357,7 +1357,7 @@ private fun displayAndOwnWidthPx(context: Context, configuration: Configuration)
  *  smallestScreenWidthDp shrinks with the pane, so a tablet in a narrow split would wrongly read as
  *  a phone via [Configuration.smallestScreenWidthDp]. Phones are portrait-locked and never split
  *  side by side, so this is what gates things that only make sense on a tablet-class display. */
-private fun isPhoneClassDevice(context: Context, configuration: Configuration): Boolean {
+internal fun isPhoneClassDevice(context: Context, configuration: Configuration): Boolean {
     // Below API 30 there's no non-deprecated way to read the physical display's size, so the
     // window value (which shrinks in split-screen) is the best available there.
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {

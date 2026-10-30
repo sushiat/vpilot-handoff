@@ -77,6 +77,10 @@ body{margin:0;padding:16px;background:#0B0F1A;color:#E2E8F0;font-family:sans-ser
 .msg{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;font-size:15px;font-weight:bold;margin-bottom:14px}
 .msg i{flex:none;font-style:normal;font-size:22px;line-height:24px}
 .msg .t{flex:1}.msg .n{font-size:18px;white-space:nowrap}
+@media (max-width:600px){
+.msg{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:6px;align-items:start;padding:12px 14px;font-size:14px}
+.msg .n{grid-column:2;font-size:22px}
+}
 .msg.warn{background:#1C1405;border:1px solid #B45309;color:#FDE68A}
 .msg.ok{background:#06180E;border:1px solid #15803D;color:#86EFAC}
 .msg.bad{background:#240808;border:1px solid #DC2626;color:#FCA5A5}
