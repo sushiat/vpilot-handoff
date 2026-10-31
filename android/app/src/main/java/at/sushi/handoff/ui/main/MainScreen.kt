@@ -89,6 +89,8 @@ import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.AttendedSimDialog
 import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
 import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
+import at.sushi.handoff.util.KeepScreenOn
+import at.sushi.handoff.util.SimbriefCredentials
 import at.sushi.handoff.util.shouldPromptOverlayExplainer
 import at.sushi.handoff.util.useFloatingChat
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
@@ -168,23 +170,6 @@ private fun rememberVisibleOperations(operations: Map<String, at.sushi.handoff.O
         }
     }
     return visible
-}
-
-/** Reduces every currently-visible operation to the one icon state the footer's collapsed row
- *  has room for -- see [at.sushi.handoff.OperationIndicator]'s doc for what each value means.
- *  Null when nothing's visible at all. */
-private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationProgressState>): at.sushi.handoff.OperationIndicator? {
-    if (visible.isEmpty()) return null
-    val anyRunning = visible.any { !it.message.finished }
-    val anyFailed = visible.any { it.message.finished && !it.message.success }
-    val anySucceeded = visible.any { it.message.finished && it.message.success }
-    return when {
-        anyRunning && anyFailed -> at.sushi.handoff.OperationIndicator.RUNNING_BAD
-        anyRunning && anySucceeded -> at.sushi.handoff.OperationIndicator.RUNNING_GOOD
-        anyRunning -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
-        anyFailed -> at.sushi.handoff.OperationIndicator.FAILURE
-        else -> at.sushi.handoff.OperationIndicator.SUCCESS
-    }
 }
 
 /** Issue #151 -- the same tab key the plugin's own `readThrough` map uses: a private entry's
@@ -386,6 +371,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val hideTunedControllers by HandoffState.hideTunedControllers.collectAsState()
     val defaultChannelSpacing by HandoffState.defaultChannelSpacing.collectAsState()
     val keypadBlockMode by HandoffState.keypadBlockMode.collectAsState()
+    val keepScreenOnMode by HandoffState.keepScreenOnMode.collectAsState()
     val theme by HandoffState.theme.collectAsState()
     val splitSide by HandoffState.splitSide.collectAsState()
     // Issue #123 -- phones are portrait-locked (MainActivity), so "phone-class" alone (no width
@@ -412,7 +398,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val updateAvailable by HandoffState.updateAvailable.collectAsState()
     val versionMismatch by HandoffState.versionMismatch.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
-    val operationIndicator = combineOperationIndicator(visibleOperations)
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -939,7 +924,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 cdmSlot = cdmSlot,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
-                operationIndicator = operationIndicator,
                 visibleOperations = visibleOperations,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
@@ -1163,6 +1147,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             initialTheme = theme,
             initialChannelSpacing = defaultChannelSpacing,
             initialKeypadBlockMode = keypadBlockMode,
+            initialKeepScreenOnMode = keepScreenOnMode,
             initialFloatingChat = !floatingChatDeclined,
             showFloatingChatSetting = ChannelFeatures.FloatingOverlay && !isPhoneClassDevice(context, configuration),
             // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
@@ -1177,7 +1162,14 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newKeepScreenOnMode, newFloatingChat, newUpdateInterval ->
+                // Read before the edit below overwrites them (issue #216).
+                val simbriefChanged = SimbriefCredentials.changed(
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUserId, null),
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUsername, null),
+                    simbriefUserId,
+                    simbriefUsername
+                )
                 prefs.edit {
                     putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)
                     putString(HandoffConnectionService.PrefKeyHost, host)
@@ -1186,18 +1178,31 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                     putString(HandoffConnectionService.PrefKeyTheme, newTheme.name)
                     putString(HandoffConnectionService.PrefKeyChannelSpacing, newSpacing.name)
                     putString(HandoffConnectionService.PrefKeyKeypadBlockMode, newKeypadMode.name)
+                    putString(HandoffConnectionService.PrefKeyKeepScreenOnMode, newKeepScreenOnMode.name)
                     putString(HandoffConnectionService.PrefKeyUpdateInterval, newUpdateInterval.wire)
                 }
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
                 HandoffState.setKeypadBlockMode(newKeypadMode)
+                // Issue #218 -- only on an actual mode change, so saving some other setting
+                // doesn't undo the pilot's own footer flip.
+                if (newKeepScreenOnMode != keepScreenOnMode) {
+                    HandoffState.setKeepScreenOnMode(newKeepScreenOnMode)
+                    HandoffState.setKeepScreenAwake(
+                        KeepScreenOn.initialValue(newKeepScreenOnMode, KeepScreenOn.isCharging(context))
+                    )
+                }
                 // Issue #177 -- turning it back On also forgets this session's "Not now", so the
                 // explainer can come straight back if the permission is still missing.
                 if (newFloatingChat) HandoffState.setOverlayExplainerSnoozed(false)
                 HandoffState.setFloatingChatDeclined(!newFloatingChat)
                 HandoffConnectionService.instance?.reconnectNow()
-                send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
-                send(RefreshFlightPlanCommand())
+                // Only when the SimBrief credentials actually changed: any other setting saved
+                // mid-flight must not fetch (and swap in) a plan the pilot prepared for the next leg.
+                if (simbriefChanged) {
+                    send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
+                    send(RefreshFlightPlanCommand())
+                }
                 // Plugin persists this itself (mirrors SimBrief creds), so no reconnect needed --
                 // it applies live and is re-pushed by the plugin on its next RadioHost (re)connect.
                 send(SetUpdateIntervalCommand(interval = newUpdateInterval.wire))

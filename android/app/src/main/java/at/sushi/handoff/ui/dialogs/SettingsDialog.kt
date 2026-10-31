@@ -40,6 +40,7 @@ import at.sushi.handoff.ChannelSpacing
 import at.sushi.handoff.ConnectionStatus
 import at.sushi.handoff.HandoffConnectionService
 import at.sushi.handoff.HandoffState
+import at.sushi.handoff.KeepScreenOnMode
 import at.sushi.handoff.KeypadBlockMode
 import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.UpdateInterval
@@ -94,6 +95,7 @@ fun SettingsDialog(
     initialTheme: ThemeMode,
     initialChannelSpacing: ChannelSpacing,
     initialKeypadBlockMode: KeypadBlockMode,
+    initialKeepScreenOnMode: KeepScreenOnMode,
     initialFloatingChat: Boolean,
     // False on phone-class devices (never split-screen side by side) and builds without the overlay.
     showFloatingChatSetting: Boolean,
@@ -109,6 +111,7 @@ fun SettingsDialog(
         theme: ThemeMode,
         channelSpacing: ChannelSpacing,
         keypadBlockMode: KeypadBlockMode,
+        keepScreenOnMode: KeepScreenOnMode,
         floatingChat: Boolean,
         updateInterval: UpdateInterval
     ) -> Unit
@@ -121,6 +124,7 @@ fun SettingsDialog(
     var theme by remember { mutableStateOf(initialTheme) }
     var channelSpacing by remember { mutableStateOf(initialChannelSpacing) }
     var keypadBlockMode by remember { mutableStateOf(initialKeypadBlockMode) }
+    var keepScreenOnMode by remember { mutableStateOf(initialKeepScreenOnMode) }
     var floatingChat by remember { mutableStateOf(initialFloatingChat) }
     var updateInterval by remember { mutableStateOf(initialUpdateInterval) }
     var discoveryStatus by remember { mutableStateOf("") }
@@ -163,6 +167,7 @@ fun SettingsDialog(
             theme,
             channelSpacing,
             keypadBlockMode,
+            keepScreenOnMode,
             floatingChat,
             updateInterval
         )
@@ -358,6 +363,18 @@ fun SettingsDialog(
                                     ),
                                     keypadBlockMode
                                 ) { keypadBlockMode = it }
+
+                                // Issue #218 -- Off/On pin the footer's keep-screen-awake toggle at
+                                // each start; Charging follows the charger.
+                                SectionLabel("KEEP SCREEN ON")
+                                ToggleRow(
+                                    listOf(
+                                        ToggleOption(KeepScreenOnMode.OFF, "Off"),
+                                        ToggleOption(KeepScreenOnMode.ON, "On"),
+                                        ToggleOption(KeepScreenOnMode.CHARGING, "Charging")
+                                    ),
+                                    keepScreenOnMode
+                                ) { keepScreenOnMode = it }
 
                                 // Issue #177 -- Off = in-window chat in split-screen; turning On
                                 // without the permission re-opens the explainer on close (MainScreen).
