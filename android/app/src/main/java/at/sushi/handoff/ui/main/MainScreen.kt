@@ -87,6 +87,7 @@ import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.AttendedSimDialog
 import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
 import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
+import at.sushi.handoff.util.SimbriefCredentials
 import at.sushi.handoff.util.shouldPromptOverlayExplainer
 import at.sushi.handoff.util.useFloatingChat
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
@@ -166,23 +167,6 @@ private fun rememberVisibleOperations(operations: Map<String, at.sushi.handoff.O
         }
     }
     return visible
-}
-
-/** Reduces every currently-visible operation to the one icon state the footer's collapsed row
- *  has room for -- see [at.sushi.handoff.OperationIndicator]'s doc for what each value means.
- *  Null when nothing's visible at all. */
-private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationProgressState>): at.sushi.handoff.OperationIndicator? {
-    if (visible.isEmpty()) return null
-    val anyRunning = visible.any { !it.message.finished }
-    val anyFailed = visible.any { it.message.finished && !it.message.success }
-    val anySucceeded = visible.any { it.message.finished && it.message.success }
-    return when {
-        anyRunning && anyFailed -> at.sushi.handoff.OperationIndicator.RUNNING_BAD
-        anyRunning && anySucceeded -> at.sushi.handoff.OperationIndicator.RUNNING_GOOD
-        anyRunning -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
-        anyFailed -> at.sushi.handoff.OperationIndicator.FAILURE
-        else -> at.sushi.handoff.OperationIndicator.SUCCESS
-    }
 }
 
 /** Issue #151 -- the same tab key the plugin's own `readThrough` map uses: a private entry's
@@ -410,7 +394,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val updateAvailable by HandoffState.updateAvailable.collectAsState()
     val versionMismatch by HandoffState.versionMismatch.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
-    val operationIndicator = combineOperationIndicator(visibleOperations)
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -937,7 +920,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 cdmSlot = cdmSlot,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
-                operationIndicator = operationIndicator,
                 visibleOperations = visibleOperations,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,
@@ -1170,6 +1152,13 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
+                // Read before the edit below overwrites them (issue #216).
+                val simbriefChanged = SimbriefCredentials.changed(
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUserId, null),
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUsername, null),
+                    simbriefUserId,
+                    simbriefUsername
+                )
                 prefs.edit {
                     putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)
                     putString(HandoffConnectionService.PrefKeyHost, host)
@@ -1188,8 +1177,12 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 if (newFloatingChat) HandoffState.setOverlayExplainerSnoozed(false)
                 HandoffState.setFloatingChatDeclined(!newFloatingChat)
                 HandoffConnectionService.instance?.reconnectNow()
-                send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
-                send(RefreshFlightPlanCommand())
+                // Only when the SimBrief credentials actually changed: any other setting saved
+                // mid-flight must not fetch (and swap in) a plan the pilot prepared for the next leg.
+                if (simbriefChanged) {
+                    send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
+                    send(RefreshFlightPlanCommand())
+                }
                 // Plugin persists this itself (mirrors SimBrief creds), so no reconnect needed --
                 // it applies live and is re-pushed by the plugin on its next RadioHost (re)connect.
                 send(SetUpdateIntervalCommand(interval = newUpdateInterval.wire))

@@ -38,6 +38,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,15 +120,9 @@ fun FooterStatusBar(
     // discovery instead of typing an IP in Settings, even while genuinely connected.
     address: String?,
     subsystemStatus: SubsystemStatusMessage,
-    // The one combined icon the collapsed row has room for, reduced from every currently-visible
-    // operation (docs/protocol.md's operationProgress, several can be active/lingering at once --
-    // see MainScreen.kt's combineOperationIndicator) -- null when nothing's visible at all. Shown
-    // in the same slot flightPlanWarning's triangle uses, hidden while expanded (the drawer shows
-    // each operation's own row instead, see visibleOperations below).
-    operationIndicator: at.sushi.handoff.OperationIndicator?,
-    // Every currently-visible operation (MainScreen.kt's rememberVisibleOperations already
-    // dropped anything past its display window) -- one drawer row each, independent of the single
-    // combined icon above.
+    // Every currently-visible operation (docs/protocol.md's operationProgress; several can be
+    // active/lingering at once, and MainScreen.kt's rememberVisibleOperations already dropped
+    // anything past its display window) -- one notice row each, above the face row (issue #216).
     visibleOperations: List<at.sushi.handoff.OperationProgressState>,
     latencyMs: Long?,
     expanded: Boolean,
@@ -154,6 +150,23 @@ fun FooterStatusBar(
             .background(colors.panel)
     ) {
         HorizontalDivider(color = colors.border) // the reference's border-top only, not a full box
+        // Issue #216 -- operation results (sync finished, refresh failed, ...) as their own rows
+        // *above* the face row. This container is bottom-anchored with the face row as its first
+        // child, so anything added below it would push the face row, and the settings/connect
+        // buttons in it, up the screen under the pilot's thumb; added above, the face row stays put
+        // and only the controller list above the footer gets shorter. The extra border only exists
+        // while there is something to show.
+        if (visibleOperations.isNotEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                visibleOperations.forEach { state -> OperationNoticeRow(state) }
+            }
+            HorizontalDivider(color = colors.border)
+        }
         // Pinned to the same 64dp height as the expanded drawer's detail-line row and the chat
         // compose bar -- this row's height used to fall out implicitly from IconButton's 48dp
         // touch target + this padding (48+2*8=64dp); switching to tight 30dp icon boxes dropped
@@ -222,8 +235,18 @@ fun FooterStatusBar(
             // known yet; kept once at least one side is, same as before.
             val hasRoute = origin != null || destination != null
             val route = "${origin ?: "----"} → ${destination ?: "----"}"
+            // On a phone the plain word "Connected" pushed the end of the route off the line
+            // ("Connected · LOWW → E…", worse at a large font size). The dot already shows that
+            // state, so the healthy default drops its word there; a callsign, "Connecting",
+            // "Disconnected" and "DEMO" keep theirs. The tablet line is unchanged.
+            val context = LocalContext.current
+            val configuration = LocalConfiguration.current
+            val phone = remember(configuration) { isPhoneClassDevice(context, configuration) }
+            val quietConnected = phone && !demoModeEnabled &&
+                connectionStatus == ConnectionStatus.CONNECTED && activeCallsign == null
             val statusText = when {
                 !hasRoute -> statusLabel
+                quietConnected -> route
                 showStatusLabel -> "$statusLabel · $route"
                 else -> route
             }
@@ -256,18 +279,6 @@ fun FooterStatusBar(
                         contentDescription = "Flight plan mismatch or not filed",
                         tint = colors.attention,
                         modifier = Modifier.padding(start = 4.dp).size(14.dp)
-                    )
-                } else if (operationIndicator != null && !expanded) {
-                    // Same slot as the warning triangle above -- the two are mutually exclusive
-                    // attention icons; if a mismatch were ever flagged mid-sync, the triangle
-                    // wins since it's the more actionable one. Hidden while expanded: the
-                    // drawer's own rows (below) show each operation's icon there instead, so
-                    // nothing's shown in both places at once.
-                    OperationStatusIcon(
-                        indicator = operationIndicator,
-                        size = 14.dp,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.padding(start = 4.dp)
                     )
                 }
             }
@@ -345,7 +356,6 @@ fun FooterStatusBar(
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                visibleOperations.forEach { state -> OperationProgressRow(state) }
                 SubsystemStatusRow(
                     if (demoModeEnabled) "Demo mode -- no plugin" else "Connected to Handoff vPilot plugin",
                     demoModeEnabled || connectionStatus == ConnectionStatus.CONNECTED
@@ -628,23 +638,20 @@ private fun CdmDrawerRow(initial: CdmSlotDisplay, onClick: () -> Unit, compactAc
     }
 }
 
-/** Mirrors SubsystemStatusRow's layout, but with OperationStatusIcon instead of a static dot --
- *  this is the "same indicator, now sitting next to the status line" effect from the collapsed
- *  row's version (see the face row's operationIndicator branch above), both ultimately driven
- *  off the same underlying per-operation data. One row per still-visible operation (see
- *  visibleOperations above) -- unlike the collapsed row's single combined icon, each row here
- *  only ever reflects its own operation, never combined with any other. */
+/** One operation's notice above the face row (issue #216): its own status icon and the plugin's
+ *  status text, never combined with any other operation. Plain text colour and a step larger than
+ *  the drawer rows -- these are the messages that were too easy to overlook. */
 @Composable
-private fun OperationProgressRow(state: at.sushi.handoff.OperationProgressState) {
+private fun OperationNoticeRow(state: at.sushi.handoff.OperationProgressState) {
     val colors = LocalHandoffColors.current
     val indicator = when {
-        !state.message.finished -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
+        !state.message.finished -> at.sushi.handoff.OperationIndicator.RUNNING
         state.message.success -> at.sushi.handoff.OperationIndicator.SUCCESS
         else -> at.sushi.handoff.OperationIndicator.FAILURE
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OperationStatusIcon(indicator = indicator, size = 10.dp, strokeWidth = 1.5.dp)
-        Text(state.message.status, fontSize = 13.5.sp, color = colors.textMuted)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        OperationStatusIcon(indicator = indicator, size = 12.dp, strokeWidth = 2.dp)
+        Text(state.message.status, fontSize = 14.sp, color = colors.text)
     }
 }
 
@@ -655,21 +662,14 @@ private fun OperationProgressRow(state: at.sushi.handoff.OperationProgressState)
 // spinner-to-icon swap doesn't look like a size change.
 private const val StatusIconSizeCorrection = 1.35f
 
-/** Renders one [at.sushi.handoff.OperationIndicator] -- a spinner for the three RUNNING_* values
- *  (tinted neutral/green/red depending on what else is known about the operations combined into
- *  it, see MainScreen.kt's combineOperationIndicator), or a green check / red X once nothing
- *  combined into it is running anymore. Shared by both places this footer shows operation status
- *  (the collapsed row's single combined icon and each of the drawer's per-operation rows). */
+/** Renders one [at.sushi.handoff.OperationIndicator] -- a spinner while the operation runs, then a
+ *  green check or red X for its result. */
 @Composable
 private fun OperationStatusIcon(indicator: at.sushi.handoff.OperationIndicator, size: Dp, strokeWidth: Dp, modifier: Modifier = Modifier) {
     val colors = LocalHandoffColors.current
     when (indicator) {
-        at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL ->
+        at.sushi.handoff.OperationIndicator.RUNNING ->
             CircularProgressIndicator(color = colors.textMuted, strokeWidth = strokeWidth, modifier = modifier.size(size))
-        at.sushi.handoff.OperationIndicator.RUNNING_GOOD ->
-            CircularProgressIndicator(color = colors.ok, strokeWidth = strokeWidth, modifier = modifier.size(size))
-        at.sushi.handoff.OperationIndicator.RUNNING_BAD ->
-            CircularProgressIndicator(color = at.sushi.handoff.ui.dialogs.outOfBandRed, strokeWidth = strokeWidth, modifier = modifier.size(size))
         at.sushi.handoff.OperationIndicator.SUCCESS ->
             Icon(Icons.Filled.CheckCircle, contentDescription = "Succeeded", tint = colors.ok, modifier = modifier.size(size * StatusIconSizeCorrection))
         at.sushi.handoff.OperationIndicator.FAILURE ->

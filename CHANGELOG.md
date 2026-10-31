@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,
+  connect/disconnect) now show as their own lines above the status bar, with the plugin's wording, instead
+  of one small icon that only made sense with the drawer open. Every active operation gets a line while
+  it is visible (10 seconds after a success, 30 after a failure); the status bar itself no longer moves,
+  and the drawer no longer repeats them.
+- Android (issue #216): on a phone the status bar no longer starts with the word "Connected" once a route
+  is known, so the whole "LOWW → EGLL" fits at larger font sizes (the dot still shows the state, as the
+  tablet already does in a narrow split-screen). A callsign, "Connecting", "Disconnected" and "DEMO"
+  keep their words.
+- Android (issue #216): saving the settings dialog only asks the plugin for the SimBrief plan again when
+  the SimBrief user ID or username actually changed. Before, any save (a new theme, say) refetched it, which
+  could swap in a plan prepared for the next leg while still flying the current one. Saving still
+  reconnects, as before.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

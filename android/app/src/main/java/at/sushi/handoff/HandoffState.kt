@@ -88,16 +88,12 @@ enum class SplitSide { LEFT, RIGHT }
  *  Multiple operations can be active/lingering at once (docs/protocol.md's operationId is
  *  per-invocation, not per-operation-type -- e.g. tapping SimBrief refresh twice in a row is two
  *  separate ids), so HandoffState.operationProgress is keyed by operationId rather than holding
- *  a single value; see FooterStatusBar for how several are combined into the one collapsed-row
- *  icon there's room for. */
+ *  a single value; FooterStatusBar shows one notice row per visible operation (issue #216). */
 data class OperationProgressState(val message: OperationProgressMessage, val receivedAtMillis: Long)
 
-/** The one combined icon state the footer's collapsed row has room for, when several operations
- *  are visible at once -- see MainScreen.kt's combineOperationIndicator for how a list of
- *  [OperationProgressState] reduces to one of these. RUNNING_NEUTRAL/GOOD/BAD are all still a
- *  spinner, just tinted differently depending on what's known about the operations still
- *  in-flight alongside it; SUCCESS/FAILURE only apply once nothing's running anymore. */
-enum class OperationIndicator { RUNNING_NEUTRAL, RUNNING_GOOD, RUNNING_BAD, SUCCESS, FAILURE }
+/** What one operation's notice row in the footer shows: a spinner while it runs, then a green
+ *  check or red X for its result. */
+enum class OperationIndicator { RUNNING, SUCCESS, FAILURE }
 
 /** A device-pairing prompt awaiting the pilot's action (issue #15) -- set by
  *  HandoffConnectionService.handleAuthResult when the plugin reports "pairingRequired" (no
