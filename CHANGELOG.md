@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android (issue #218): new "Keep screen on" setting with Off, On and Charging (the default, the previous
+  behavior: on at start when charging, and whenever a charger connects). Off and On fix the starting
+  state regardless of the charger; the footer icon can still be flipped for the current session.
+
 ### Changed
 
 - Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,

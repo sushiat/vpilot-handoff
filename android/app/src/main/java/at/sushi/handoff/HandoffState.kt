@@ -40,6 +40,10 @@ enum class ChannelSpacing { KHZ_25, KHZ_8_33 }
 
 enum class KeypadBlockMode { BLOCK_INVALID, ALLOW_ALL }
 
+/** Issue #218 -- OFF/ON are fixed overrides for the footer's keep-screen-awake toggle; CHARGING
+ *  follows the charger (on at start if charging, on whenever a charger connects). */
+enum class KeepScreenOnMode { OFF, ON, CHARGING }
+
 /** Issue #88 -- update-interval tier. The plugin owns the actual poll/broadcast cadences each tier
  *  maps to; this is just the pilot's Fast/Normal/Slow choice. The wire form is a lowercase string
  *  ("fast"/"normal"/"slow"), kept separate from the enum names so the protocol doesn't couple to
@@ -228,11 +232,15 @@ object HandoffState {
     private val _keypadBlockMode = MutableStateFlow(KeypadBlockMode.BLOCK_INVALID)
     val keypadBlockMode: StateFlow<KeypadBlockMode> = _keypadBlockMode.asStateFlow()
 
-    // HandoffConnectionService sets this from the live charging state at startup (on battery:
-    // off, on a charger: on) and forces it on whenever a charger connects -- not a persisted user
-    // preference, see the service's powerConnectedReceiver. This placeholder default only matters
-    // for the brief window before that first check runs. MainScreen applies the result to the
-    // window via View.keepScreenOn.
+    private val _keepScreenOnMode = MutableStateFlow(KeepScreenOnMode.CHARGING)
+    val keepScreenOnMode: StateFlow<KeepScreenOnMode> = _keepScreenOnMode.asStateFlow()
+
+    // The footer toggle's current value -- a per-session flip, not itself persisted. The service
+    // derives it from keepScreenOnMode (plus the live charging state) at startup, the settings
+    // dialog re-derives it on save, and a charger connecting forces it on in CHARGING mode, see
+    // KeepScreenOn and the service's powerConnectedReceiver. This placeholder default only
+    // matters for the brief window before that first check runs. MainScreen applies the result
+    // to the window via View.keepScreenOn.
     private val _keepScreenAwake = MutableStateFlow(true)
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
 
@@ -412,6 +420,10 @@ object HandoffState {
 
     fun setDebugOverlayPermissionMissing(missing: Boolean) {
         _debugOverlayPermissionMissing.value = missing
+    }
+
+    fun setKeepScreenOnMode(mode: KeepScreenOnMode) {
+        _keepScreenOnMode.value = mode
     }
 
     fun setKeypadBlockMode(mode: KeypadBlockMode) {

@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.os.BatteryManager
 import android.os.IBinder
 import android.os.Process
 import android.content.SharedPreferences
@@ -53,6 +52,7 @@ import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SubsystemStatusMessage
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import at.sushi.handoff.util.cdmWaitingDisplay
+import at.sushi.handoff.util.KeepScreenOn
 import at.sushi.handoff.util.ServiceIdleStop
 import at.sushi.handoff.util.deriveCdmSlotDisplay
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +81,7 @@ class HandoffConnectionService : Service() {
         const val PrefKeyTheme = "theme_mode"
         const val PrefKeyChannelSpacing = "default_channel_spacing"
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
+        const val PrefKeyKeepScreenOnMode = "keep_screen_on_mode"
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
         // Issue #177 -- pilot answered "I don't want that" to the floating-chat permission explainer.
         const val PrefKeyFloatingChatDeclined = "floating_chat_declined"
@@ -203,14 +204,19 @@ class HandoffConnectionService : Service() {
         }
     }
 
-    // The tablet is normally docked and wired into power for the whole flight, so "keep screen
-    // awake" should just track that rather than needing to be a persisted user choice: on
-    // battery it defaults off (don't drain a device that isn't charging), on a charger it
-    // defaults on, and plugging in later turns it on even if it had been off -- the user's own
-    // manual toggle in between is left alone otherwise (this never forces it back off).
+    // The tablet is normally docked and wired into power for the whole flight, so in the default
+    // CHARGING mode "keep screen awake" just tracks that: on battery it defaults off (don't
+    // drain a device that isn't charging), on a charger it defaults on, and plugging in later
+    // turns it on even if it had been off -- the user's own manual toggle in between is left
+    // alone otherwise (this never forces it back off). Off/On modes (issue #218) ignore it.
     private val powerConnectedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            HandoffState.setKeepScreenAwake(true)
+            HandoffState.setKeepScreenAwake(
+                KeepScreenOn.onPowerConnected(
+                    HandoffState.keepScreenOnMode.value,
+                    HandoffState.keepScreenAwake.value
+                )
+            )
         }
     }
 
@@ -246,8 +252,10 @@ class HandoffConnectionService : Service() {
         }
         ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
         registerReceiver(powerConnectedReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
-        HandoffState.setKeepScreenAwake(isCharging())
         loadPersistedUiSettings()
+        HandoffState.setKeepScreenAwake(
+            KeepScreenOn.initialValue(HandoffState.keepScreenOnMode.value, KeepScreenOn.isCharging(this))
+        )
         client = HandoffWebSocketClient(
             onMessage = { message -> onServerMessage(message) },
             onStateChanged = { connected -> onConnectionStateChanged(connected) },
@@ -361,16 +369,6 @@ class HandoffConnectionService : Service() {
         if (quitRequested) {
             Process.killProcess(Process.myPid())
         }
-    }
-
-    /** ACTION_BATTERY_CHANGED is a sticky broadcast -- registering for it with a null receiver
-     *  returns the current battery state synchronously instead of waiting for the next change,
-     *  which is what makes this usable as a one-shot "is it charging right now" check at
-     *  startup. EXTRA_PLUGGED is 0 when on battery, non-zero for AC/USB/wireless. */
-    private fun isCharging(): Boolean {
-        val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-        return plugged != 0
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -507,6 +505,9 @@ class HandoffConnectionService : Service() {
         }
         prefs.getString(PrefKeyKeypadBlockMode, null)?.let { name ->
             runCatching { KeypadBlockMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeypadBlockMode)
+        }
+        prefs.getString(PrefKeyKeepScreenOnMode, null)?.let { name ->
+            runCatching { KeepScreenOnMode.valueOf(name) }.getOrNull()?.let(HandoffState::setKeepScreenOnMode)
         }
         HandoffState.setHideTunedControllers(prefs.getBoolean(PrefKeyHideTunedControllers, false))
         HandoffState.setFloatingChatDeclined(prefs.getBoolean(PrefKeyFloatingChatDeclined, false))
