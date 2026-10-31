@@ -732,7 +732,6 @@ private fun StatusBarVisual(
                 cdmSlot = cdm,
                 address = "192.168.1.42",
                 subsystemStatus = subsystem,
-                operationIndicator = null,
                 visibleOperations = emptyList(),
                 latencyMs = 12,
                 expanded = expanded,

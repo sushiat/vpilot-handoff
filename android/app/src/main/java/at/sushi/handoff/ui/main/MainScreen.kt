@@ -168,23 +168,6 @@ private fun rememberVisibleOperations(operations: Map<String, at.sushi.handoff.O
     return visible
 }
 
-/** Reduces every currently-visible operation to the one icon state the footer's collapsed row
- *  has room for -- see [at.sushi.handoff.OperationIndicator]'s doc for what each value means.
- *  Null when nothing's visible at all. */
-private fun combineOperationIndicator(visible: List<at.sushi.handoff.OperationProgressState>): at.sushi.handoff.OperationIndicator? {
-    if (visible.isEmpty()) return null
-    val anyRunning = visible.any { !it.message.finished }
-    val anyFailed = visible.any { it.message.finished && !it.message.success }
-    val anySucceeded = visible.any { it.message.finished && it.message.success }
-    return when {
-        anyRunning && anyFailed -> at.sushi.handoff.OperationIndicator.RUNNING_BAD
-        anyRunning && anySucceeded -> at.sushi.handoff.OperationIndicator.RUNNING_GOOD
-        anyRunning -> at.sushi.handoff.OperationIndicator.RUNNING_NEUTRAL
-        anyFailed -> at.sushi.handoff.OperationIndicator.FAILURE
-        else -> at.sushi.handoff.OperationIndicator.SUCCESS
-    }
-}
-
 /** Issue #151 -- the same tab key the plugin's own `readThrough` map uses: a private entry's
  *  peer callsign, or [RADIO_TAB] for radio/broadcast. Null only for a malformed private entry
  *  with no peer at all. */
@@ -410,7 +393,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     val updateAvailable by HandoffState.updateAvailable.collectAsState()
     val versionMismatch by HandoffState.versionMismatch.collectAsState()
     val visibleOperations = rememberVisibleOperations(operationProgress)
-    val operationIndicator = combineOperationIndicator(visibleOperations)
 
     // View.keepScreenOn is the simple per-window equivalent of FLAG_KEEP_SCREEN_ON -- the docked,
     // wired-into-power cockpit use case wants the screen timeout disabled outright, not just a
@@ -937,7 +919,6 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 cdmSlot = cdmSlot,
                 address = resolvedHost,
                 subsystemStatus = subsystemStatus,
-                operationIndicator = operationIndicator,
                 visibleOperations = visibleOperations,
                 latencyMs = latencyMs,
                 expanded = footerExpanded,

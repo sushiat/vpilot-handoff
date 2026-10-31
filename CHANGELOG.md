@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,
+  connect/disconnect) now show as their own lines above the status bar, with the plugin's wording, instead
+  of one small icon that only made sense with the drawer open. Every active operation gets a line while
+  it is visible (10 seconds after a success, 30 after a failure); the status bar itself no longer moves,
+  and the drawer no longer repeats them.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
