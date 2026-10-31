@@ -41,6 +41,11 @@ this contract actually changes shape. A release with no protocol changes still g
 
 ### Unreleased
 
+Issue #185 -- new client→server `squawkIdent` (no fields): answers "squawk ident" through vPilot.
+Additive per the Compatibility section -- an older plugin logs it as unrecognized and never
+answers, so a client should only offer the control when `subsystemStatus.pluginVersion` is at
+least the release that introduced it (0.10.0).
+
 ### [0.9.0] - 2026-10-30
 
 No protocol changes in this release.
@@ -892,6 +897,19 @@ by the plugin.
 
 ```json
 {"type": "setTransponderCode", "transponderCode": 1200}
+```
+
+### `squawkIdent`
+
+Answers "squawk ident": the plugin calls vPilot's `IBroker.SquawkIdent()`. Carries no fields of
+its own. Ident is momentary, so there is no client-minted `operationId`; the plugin instead
+broadcasts a self-finishing `operationProgress` (plugin-minted id starting `squawkIdent-`) with
+"Ident sent." on success, or `success: false` with "Not connected to VATSIM." (or the error) when
+vPilot refuses. A client should offer the control only while connected to the network and the
+plugin is at least 0.10.0.
+
+```json
+{"type": "squawkIdent"}
 ```
 
 ### `selectCom1Transmitter` / `selectCom2Transmitter`

@@ -33,11 +33,14 @@ private val quickSetCodes = listOf(2000, 1000, 7000, 1200)
  *  construction/theming as the COM dialog. Unlike COM entry, every digit 0-7 is legal at every
  *  position (no prefix validation), so the reference never colors the entry red or mutes
  *  untyped positions -- the whole readout is one uniform color, underscore-padded. Mode C isn't
- *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge). */
+ *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge).
+ *  [showIdent] adds the IDENT button (issue #185), offered only when the plugin supports it. */
 @Composable
 fun XpdrDialog(
     onDismiss: () -> Unit,
-    onSetCode: (Int) -> Unit
+    onSetCode: (Int) -> Unit,
+    showIdent: Boolean = false,
+    onIdent: () -> Unit = {}
 ) {
     var typed by remember { mutableStateOf("") }
     val colors = LocalHandoffColors.current
@@ -142,6 +145,31 @@ fun XpdrDialog(
                         color = colors.text
                     )
                 }
+            }
+        }
+
+        if (showIdent) {
+            // Issue #185 -- momentary, so fire and forget; the plugin's operationProgress ack
+            // shows in the footer after the dialog closes.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .background(colors.panelAlt, RoundedCornerShape(12.dp))
+                    .clickable {
+                        onIdent()
+                        onDismiss()
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "IDENT",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.14f.em,
+                    color = colors.text
+                )
             }
         }
     }

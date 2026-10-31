@@ -23,6 +23,8 @@ namespace Handoff.Plugin
         public const string TypeSetCom1ActiveAndStandbyFrequency = "setCom1ActiveAndStandbyFrequency";
         public const string TypeSetCom2ActiveAndStandbyFrequency = "setCom2ActiveAndStandbyFrequency";
         public const string TypeSetTransponderCode = "setTransponderCode";
+        // Issue #185 -- answers "squawk ident" via IBroker.SquawkIdent; no payload.
+        public const string TypeSquawkIdent = "squawkIdent";
         public const string TypeSelectCom1Transmitter = "selectCom1Transmitter";
         public const string TypeSelectCom2Transmitter = "selectCom2Transmitter";
         public const string TypeSetCom1ReceiveEnabled = "setCom1ReceiveEnabled";

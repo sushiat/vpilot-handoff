@@ -82,7 +82,12 @@ namespace Handoff.Plugin.Tests
         public void SendRadioMessage(string message) => SentRadioMessages.Add(message);
         public void PostDebugMessage(string message) { }
         public void SetModeC(bool modeC) => throw new NotImplementedException();
-        public void SquawkIdent() => throw new NotImplementedException();
+        public int SquawkIdentCount { get; private set; }
+        public void SquawkIdent()
+        {
+            if (RequestException != null) throw RequestException;
+            SquawkIdentCount++;
+        }
         public void SetPtt(bool pressed) => throw new NotImplementedException();
     }
 #pragma warning restore CS0067

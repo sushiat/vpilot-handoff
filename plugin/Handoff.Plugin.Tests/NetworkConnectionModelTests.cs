@@ -213,5 +213,47 @@ namespace Handoff.Plugin.Tests
             Assert.False(last.Success);
             Assert.Contains("boom", last.Status);
         }
+
+        [Fact]
+        public void SquawkIdent_ForwardsToBroker_AndFinishesAsSuccess()
+        {
+            var (broker, model, events) = Create();
+
+            model.SquawkIdent();
+
+            Assert.Equal(1, broker.SquawkIdentCount);
+            var only = Assert.Single(events);
+            Assert.StartsWith("squawkIdent-", only.OperationId);
+            Assert.True(only.Finished);
+            Assert.True(only.Success);
+        }
+
+        [Fact]
+        public void SquawkIdent_NotConnected_FinishesAsFailure()
+        {
+            var (broker, model, events) = Create();
+            broker.RequestException = new NotConnectedException();
+
+            model.SquawkIdent();
+
+            Assert.Equal(0, broker.SquawkIdentCount);
+            var only = Assert.Single(events);
+            Assert.True(only.Finished);
+            Assert.False(only.Success);
+            Assert.Equal("Not connected to VATSIM.", only.Status);
+        }
+
+        [Fact]
+        public void SquawkIdent_UnexpectedFailure_FinishesAsFailure()
+        {
+            var (broker, model, events) = Create();
+            broker.RequestException = new InvalidOperationException("boom");
+
+            model.SquawkIdent();
+
+            var only = Assert.Single(events);
+            Assert.False(only.Success);
+            Assert.Contains("boom", only.Status);
+        }
     }
 }
