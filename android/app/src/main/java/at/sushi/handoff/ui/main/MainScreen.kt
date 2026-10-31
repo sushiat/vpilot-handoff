@@ -1013,9 +1013,11 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
         XpdrDialog(
             onDismiss = { xpdrDialogOpen = false },
             onSetCode = { code -> send(SetTransponderCodeCommand(transponderCode = code)) },
-            // Demo mode shows it like the real app does; only a connected plugin too old to
-            // know squawkIdent (or one that never reported a version) hides it.
-            showIdent = demoModeEnabled || SquawkIdent.isSupported(subsystemStatus.pluginVersion),
+            showIdent = SquawkIdent.isOffered(
+                demoMode = demoModeEnabled,
+                pluginConnected = connectionStatus == ConnectionStatus.CONNECTED,
+                pluginVersion = subsystemStatus.pluginVersion
+            ),
             onIdent = { send(SquawkIdentCommand()) }
         )
     }

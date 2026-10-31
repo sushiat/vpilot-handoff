@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,8 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import kotlinx.coroutines.delay
 
 private val quickSetCodes = listOf(2000, 1000, 7000, 1200)
+
+/** How long the IDENT key stays on "Confirm?" before falling back to "IDENT". */
+private const val IdentConfirmWindowMs = 3_000L
 
 /** Transponder dialog -- issue #13 screen 3, matching the design reference's JS exactly. Same
  *  construction/theming as the COM dialog. Unlike COM entry, every digit 0-7 is legal at every
@@ -44,7 +49,15 @@ fun XpdrDialog(
     onIdent: () -> Unit = {}
 ) {
     var typed by remember { mutableStateOf("") }
+    var identArmed by remember { mutableStateOf(false) }
     val colors = LocalHandoffColors.current
+
+    LaunchedEffect(identArmed) {
+        if (identArmed) {
+            delay(IdentConfirmWindowMs)
+            identArmed = false
+        }
+    }
 
     KeypadDialogPanel(title = "TRANSPONDER", onDismiss = onDismiss) {
         Text(
@@ -90,8 +103,29 @@ fun XpdrDialog(
                 KeypadKey("⌫", enabled = typed.isNotEmpty()) { typed = typed.dropLast(1) }
             }
             item {
-                // Hidden spacer, matching the reference's invisible placeholder in this slot.
-                Box(Modifier)
+                if (showIdent) {
+                    // Issue #185 -- takes the reference's empty slot. Two presses, so a stray tap
+                    // can't ident to a controller: the first arms it ("Confirm?"), the second
+                    // within IdentConfirmWindowMs sends it. The ident is for whatever code the
+                    // sim has now -- the command carries none, and [typed] stays local until the
+                    // confirm key sends it.
+                    KeypadKey(
+                        if (identArmed) "Confirm?" else "IDENT",
+                        background = if (identArmed) colors.attentionBg else null,
+                        contentColor = if (identArmed) colors.attention else null,
+                        fontSize = 13.sp
+                    ) {
+                        if (identArmed) {
+                            onIdent()
+                            onDismiss()
+                        } else {
+                            identArmed = true
+                        }
+                    }
+                } else {
+                    // Hidden spacer, matching the reference's invisible placeholder in this slot.
+                    Box(Modifier)
+                }
             }
             item {
                 val enabled = typed.length == 4
@@ -146,31 +180,6 @@ fun XpdrDialog(
                         color = colors.text
                     )
                 }
-            }
-        }
-
-        if (showIdent) {
-            // Issue #185 -- momentary, so fire and forget; the plugin's operationProgress ack
-            // shows in the footer after the dialog closes.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .background(colors.panelAlt, RoundedCornerShape(12.dp))
-                    .clickable {
-                        onIdent()
-                        onDismiss()
-                    }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "IDENT",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.14f.em,
-                    color = colors.text
-                )
             }
         }
     }
