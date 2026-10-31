@@ -34,12 +34,13 @@ private val quickSetCodes = listOf(2000, 1000, 7000, 1200)
  *  position (no prefix validation), so the reference never colors the entry red or mutes
  *  untyped positions -- the whole readout is one uniform color, underscore-padded. Mode C isn't
  *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge).
- *  [showIdent] adds the IDENT button (issue #185), offered only when the plugin supports it. */
+ *  [showIdent] is the IDENT button (issue #185); shown unless the caller knows the plugin is too
+ *  old to support it. */
 @Composable
 fun XpdrDialog(
     onDismiss: () -> Unit,
     onSetCode: (Int) -> Unit,
-    showIdent: Boolean = false,
+    showIdent: Boolean = true,
     onIdent: () -> Unit = {}
 ) {
     var typed by remember { mutableStateOf("") }

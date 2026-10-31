@@ -905,8 +905,8 @@ Answers "squawk ident": the plugin calls vPilot's `IBroker.SquawkIdent()`. Carri
 its own. Ident is momentary, so there is no client-minted `operationId`; the plugin instead
 broadcasts a self-finishing `operationProgress` (plugin-minted id starting `squawkIdent-`) with
 "Ident sent." on success, or `success: false` with "Not connected to VATSIM." (or the error) when
-vPilot refuses. A client should offer the control only while connected to the network and the
-plugin is at least 0.10.0.
+vPilot refuses. A client should offer the control only when the plugin is at least 0.10.0; it
+need not be on the network to offer it, since the plugin answers "Not connected to VATSIM."
 
 ```json
 {"type": "squawkIdent"}

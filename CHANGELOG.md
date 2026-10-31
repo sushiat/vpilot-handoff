@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Plugin and Android (issue #185): an IDENT button on the transponder dialog answers "squawk ident"
   from the tablet. The plugin forwards it to vPilot's squawk-ident call and reports the outcome in the
-  status bar ("Ident sent." or why it failed). Shown only while connected to VATSIM, and hidden when
-  the plugin is older than 0.10.0 or in demo mode.
+  status bar ("Ident sent." or why it failed). Hidden when the connected plugin is older than 0.10.0;
+  demo mode shows it and answers locally.
 
 ## [0.9.0] - 2026-10-30
 

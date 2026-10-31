@@ -9,6 +9,7 @@ import at.sushi.handoff.protocol.RefreshFlightPlanCommand
 import at.sushi.handoff.protocol.SendRadioMessageCommand
 import at.sushi.handoff.protocol.SetCom1FrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import at.sushi.handoff.protocol.SquawkIdentCommand
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlin.test.AfterTest
@@ -130,6 +131,20 @@ class DemoModeTest {
         DemoMode.handleCommand(SetTransponderCodeCommand(transponderCode = 7000))
 
         assertEquals(7000, HandoffState.radioState.value.transponderCode)
+    }
+
+    @Test
+    fun handleCommand_squawkIdent_postsAFinishedAckLocally() {
+        DemoMode.enable(stopRealConnection = {})
+
+        DemoMode.handleCommand(SquawkIdentCommand())
+
+        val ack = HandoffState.operationProgress.value.values
+            .map { it.message }
+            .single { it.operationId.startsWith("squawkIdent-") }
+        assertEquals("Ident sent.", ack.status)
+        assertTrue(ack.finished)
+        assertTrue(ack.success)
     }
 
     @Test
