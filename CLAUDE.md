@@ -29,7 +29,7 @@ vPilot companion app: live VATSIM controller list + two-way chat on an Android E
 - **Cutting a release means updating two changelogs, not one.** When `CHANGELOG.md`'s `## [Unreleased]`
   becomes a version section, also go through `docs/protocol.md`'s **Changelog** section: every
   message-shape change that ships in that release moves out of `### Unreleased` into a new
-  `### [x.y.z] - <date>` section there (releases with no protocol change get none). The protocol doc
+  `### [x.y.z] - <date>` section there (a release with no protocol change gets a one-line "No protocol changes in this release." section, so the doc has no gaps). The protocol doc
   once fell five releases behind: entries from 0.3.0–0.7.0 were all still sitting under "Unreleased".
 - To see which release an entry belongs to, don't trust the heading it sits under: find the commit that
   added it (`git log --reverse -S <field or command> -- docs/protocol.md`) and ask which tag contains it

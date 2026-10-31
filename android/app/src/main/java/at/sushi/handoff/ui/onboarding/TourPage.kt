@@ -7,8 +7,8 @@ package at.sushi.handoff.ui.onboarding
  *  callout legend under the title, for pages whose visual carries numbered badges. */
 enum class TourPage(val title: String, val body: String, val legend: List<String> = emptyList()) {
     WELCOME(
-        "Welcome to Handoff",
-        "Handoff puts the **live VATSIM controller list** and **ATC chat** from vPilot on your tablet or phone, right next to your sim. The two talk directly over your **local network**, not over the internet, so both must be on the same one."
+        "Your VATSIM cockpit sidekick",
+        "Handoff mirrors your vPilot session on your tablet or phone: the **live VATSIM controller list**, your radios, transponder and **ATC chat**, all within reach of a finger. The two talk directly over your **local network**, not over the internet, so both must be on the same one."
     ),
     GETTING_STARTED(
         "Two ways to start",
@@ -44,7 +44,7 @@ enum class TourPage(val title: String, val body: String, val legend: List<String
     STATUS_BAR(
         "Status at a glance",
         "**Tap the bar at the bottom** to expand it. The dot is green when everything works, amber when something needs attention and red when the plugin is not connected.",
-        legend = listOf("Tap to expand the status details")
+        legend = listOf("Tap to expand the status details", "Keep the screen awake, blue while on")
     ),
     VATSIM_CONNECTION(
         "VATSIM, one tap away",
@@ -55,6 +55,10 @@ enum class TourPage(val title: String, val body: String, val legend: List<String
         "Start-up, always on time",
         "At airports on **VDGS** A-CDM (other CDM systems are not supported), the status bar shows your start-up window: yellow before it opens, green while it is open and red once missed. Tap it to set your **TOBT** on the VDGS site.",
         legend = listOf("Start-up window")
+    ),
+    ALL_SET(
+        "Welcome to Handoff",
+        "That's the tour. Tap the **?** button in the top bar, next to the version number, to run it again whenever you like. Happy flying!"
     );
 
     companion object {
