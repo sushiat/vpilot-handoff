@@ -21,11 +21,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import at.sushi.handoff.ui.main.isPhoneClassDevice
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import kotlinx.coroutines.delay
 
@@ -51,6 +54,9 @@ fun XpdrDialog(
     var typed by remember { mutableStateOf("") }
     var identArmed by remember { mutableStateOf(false) }
     val colors = LocalHandoffColors.current
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val phone = remember(configuration) { isPhoneClassDevice(context, configuration) }
 
     LaunchedEffect(identArmed) {
         if (identArmed) {
@@ -113,7 +119,8 @@ fun XpdrDialog(
                         if (identArmed) "Confirm?" else "IDENT",
                         background = if (identArmed) colors.attentionBg else null,
                         contentColor = if (identArmed) colors.attention else null,
-                        fontSize = 13.sp
+                        // "Confirm?" is wider than the phone's key cell; the tablet keeps 13sp.
+                        fontSize = if (phone) 11.sp else 13.sp
                     ) {
                         if (identArmed) {
                             onIdent()
