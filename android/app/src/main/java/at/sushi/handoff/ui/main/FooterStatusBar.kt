@@ -38,6 +38,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -233,8 +235,18 @@ fun FooterStatusBar(
             // known yet; kept once at least one side is, same as before.
             val hasRoute = origin != null || destination != null
             val route = "${origin ?: "----"} → ${destination ?: "----"}"
+            // On a phone the plain word "Connected" pushed the end of the route off the line
+            // ("Connected · LOWW → E…", worse at a large font size). The dot already shows that
+            // state, so the healthy default drops its word there; a callsign, "Connecting",
+            // "Disconnected" and "DEMO" keep theirs. The tablet line is unchanged.
+            val context = LocalContext.current
+            val configuration = LocalConfiguration.current
+            val phone = remember(configuration) { isPhoneClassDevice(context, configuration) }
+            val quietConnected = phone && !demoModeEnabled &&
+                connectionStatus == ConnectionStatus.CONNECTED && activeCallsign == null
             val statusText = when {
                 !hasRoute -> statusLabel
+                quietConnected -> route
                 showStatusLabel -> "$statusLabel · $route"
                 else -> route
             }
