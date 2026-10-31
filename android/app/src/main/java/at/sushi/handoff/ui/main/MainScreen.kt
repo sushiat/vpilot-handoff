@@ -87,6 +87,7 @@ import at.sushi.handoff.ui.dialogs.AppUpdateDialog
 import at.sushi.handoff.ui.dialogs.AttendedSimDialog
 import at.sushi.handoff.ui.dialogs.DebugOverlayPermissionDialog
 import at.sushi.handoff.ui.dialogs.OverlayPermissionDialog
+import at.sushi.handoff.util.SimbriefCredentials
 import at.sushi.handoff.util.shouldPromptOverlayExplainer
 import at.sushi.handoff.util.useFloatingChat
 import at.sushi.handoff.ui.dialogs.VersionMismatchDialog
@@ -1151,6 +1152,13 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
             onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newFloatingChat, newUpdateInterval ->
+                // Read before the edit below overwrites them (issue #216).
+                val simbriefChanged = SimbriefCredentials.changed(
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUserId, null),
+                    prefs.getString(HandoffConnectionService.PrefKeySimbriefUsername, null),
+                    simbriefUserId,
+                    simbriefUsername
+                )
                 prefs.edit {
                     putBoolean(HandoffConnectionService.PrefKeyFloatingChatDeclined, !newFloatingChat)
                     putString(HandoffConnectionService.PrefKeyHost, host)
@@ -1169,8 +1177,12 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 if (newFloatingChat) HandoffState.setOverlayExplainerSnoozed(false)
                 HandoffState.setFloatingChatDeclined(!newFloatingChat)
                 HandoffConnectionService.instance?.reconnectNow()
-                send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
-                send(RefreshFlightPlanCommand())
+                // Only when the SimBrief credentials actually changed: any other setting saved
+                // mid-flight must not fetch (and swap in) a plan the pilot prepared for the next leg.
+                if (simbriefChanged) {
+                    send(SetSimbriefCredentialsCommand(simbriefUserId = simbriefUserId, simbriefUsername = simbriefUsername))
+                    send(RefreshFlightPlanCommand())
+                }
                 // Plugin persists this itself (mirrors SimBrief creds), so no reconnect needed --
                 // it applies live and is re-pushed by the plugin on its next RadioHost (re)connect.
                 send(SetUpdateIntervalCommand(interval = newUpdateInterval.wire))

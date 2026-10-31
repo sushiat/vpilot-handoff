@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is known, so the whole "LOWW → EGLL" fits at larger font sizes (the dot still shows the state, as the
   tablet already does in a narrow split-screen). A callsign, "Connecting", "Disconnected" and "DEMO"
   keep their words.
+- Android (issue #216): saving the settings dialog only asks the plugin for the SimBrief plan again when
+  the SimBrief user ID or username actually changed. Before, any save (a new theme, say) refetched it, which
+  could swap in a plan prepared for the next leg while still flying the current one. Saving still
+  reconnects, as before.
 
 ## [0.9.0] - 2026-10-30
 
