@@ -1,16 +1,21 @@
 package at.sushi.handoff.ui.theme
 
+import android.app.Activity
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import at.sushi.handoff.ThemeMode
 import kotlinx.coroutines.delay
 
@@ -157,17 +162,43 @@ val LocalHandoffColors: ProvidableCompositionLocal<HandoffColors> =
 val LocalRowColorPalette: ProvidableCompositionLocal<RowColorPalette> =
     staticCompositionLocalOf { DefaultRowColorPalette }
 
+/** Whether [themeMode] resolves to the dark theme right now (SYSTEM follows the device's night mode). */
+@Composable
+fun isHandoffDark(themeMode: ThemeMode): Boolean = when (themeMode) {
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+}
+
+/** Issue #220 -- makes the system status/navigation bar icons contrast with the app's own theme.
+ *  The app draws edge-to-edge, so those icons sit on the app's header/footer, but their color
+ *  otherwise follows the device's night mode, not the app's theme setting (white icons on the light
+ *  header when the two disagree). Light theme gets dark icons, dark theme gets light ones.
+ *
+ *  Call it only from the activity's own composition: the chat/debug overlay windows also host
+ *  [HandoffTheme], and must not touch the activity window's bars (no activity is found there, so
+ *  this does nothing, but that is not the place for it). */
+@Composable
+fun SystemBarIcons(useDark: Boolean) {
+    val view = LocalView.current
+    if (view.isInEditMode) return
+    SideEffect {
+        var context = view.context
+        while (context is ContextWrapper && context !is Activity) context = context.baseContext
+        val window = (context as? Activity)?.window ?: return@SideEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.isAppearanceLightStatusBars = !useDark
+        controller.isAppearanceLightNavigationBars = !useDark
+    }
+}
+
 @Composable
 fun HandoffTheme(
     themeMode: ThemeMode,
     rowColorPalette: RowColorPalette = DefaultRowColorPalette,
     content: @Composable () -> Unit
 ) {
-    val useDark = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-    }
+    val useDark = isHandoffDark(themeMode)
     val colors = if (useDark) DarkHandoffColors else LightHandoffColors
 
     androidx.compose.runtime.CompositionLocalProvider(
