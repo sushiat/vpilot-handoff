@@ -217,6 +217,8 @@ namespace Handoff.Plugin
         private int _dirtyFlag;
         private string _lastRecomputeBreakdown;
         // Per-recompute memo for FindAnySectorLevelForController -- see there. Only touched under _gate inside RecomputeLocked.
+        private readonly Dictionary<(bool UseRoute, double MaxNm), IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch>> _approachSearchCache =
+            new Dictionary<(bool UseRoute, double MaxNm), IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch>>();
         private readonly Dictionary<string, VatGlassesSectorLevel> _sectorLevelCache = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
         // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
         private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
@@ -502,6 +504,7 @@ namespace Handoff.Plugin
         private void RecomputeLocked()
         {
             _sectorLevelCache.Clear();
+            _approachSearchCache.Clear();
             var lapWatch = Stopwatch.StartNew();
             long lapBucket7 = 0, lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
@@ -1875,17 +1878,30 @@ namespace Handoff.Plugin
 
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approachMatches;
 
-            if (remainingWaypoints.Count > 0)
+            // Issue #223: the polygon/route search below is the dearest step of a recompute and
+            // bucket 7c (APP/DEP) and bucket 8a (CTR) run it with identical inputs -- only the owner
+            // tier filter differs -- so compute it once per recompute (cache cleared at its start).
+            var useRoute = remainingWaypoints.Count > 0;
+            var searchKey = (useRoute, useRoute ? routeMaxNm : headingMaxNm);
+            if (_approachSearchCache.TryGetValue(searchKey, out var cachedMatches))
             {
-                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, routeMaxNm);
-            }
-            else if (telemetry.HeadingDegrees.HasValue)
-            {
-                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, headingMaxNm);
+                approachMatches = cachedMatches;
             }
             else
             {
-                return result;
+                if (useRoute)
+                {
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, routeMaxNm);
+                }
+                else if (telemetry.HeadingDegrees.HasValue)
+                {
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, headingMaxNm);
+                }
+                else
+                {
+                    return result;
+                }
+                _approachSearchCache[searchKey] = approachMatches;
             }
 
             foreach (var approach in approachMatches.Where(a => regions.ContainsKey(a.Match.RegionFileName)))
