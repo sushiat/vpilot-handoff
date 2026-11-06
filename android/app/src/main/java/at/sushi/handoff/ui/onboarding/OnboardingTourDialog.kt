@@ -276,7 +276,9 @@ fun OnboardingTourDialog(onFinish: () -> Unit) {
                         val count = pages.size
                         // The active pill is three dots wide: (count - 1) dots + one pill + (count - 1) gaps.
                         val fitting = (maxWidth - 16.dp - gap * (count - 1)) / (count + 2)
-                        val dot = min(8.dp, fitting)
+                        // Never negative: in a very narrow window `fitting` is, and RoundedCornerShape(dot / 2)
+                        // throws on a negative radius (issue #225).
+                        val dot = min(8.dp, fitting).coerceAtLeast(0.dp)
                         Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
                             pages.indices.forEach { i ->
                                 val dotWidth by animateDpAsState(if (i == index) dot * 3 else dot, label = "dotWidth")

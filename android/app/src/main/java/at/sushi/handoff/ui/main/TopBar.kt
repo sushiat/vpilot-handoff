@@ -237,26 +237,34 @@ private fun comBadge(com: Int): MicMonBadge {
 private fun micMonBadgeFor(txCom: Int?, neutralBg: Color, neutralText: Color): MicMonBadge =
     txCom?.let { comBadge(it) } ?: MicMonBadge("-", neutralBg)
 
+/** Below this window width the layout stops making sense: the header drops the version number, and the
+ *  tour won't open (issue #225). Roughly the narrowest tablet split the app is meant for. */
+internal val NarrowWindowMaxWidth = 300.dp
+
 @Composable
 internal fun AppHeaderRow(onShowTour: (() -> Unit)?) {
     val colors = LocalHandoffColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 14.dp, top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            painterResource(R.drawable.ic_handoff_mark),
-            contentDescription = null,
-            tint = colors.textMuted,
-            modifier = Modifier.size(18.dp)
-        )
-        Text("Handoff", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
-        Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
-        Box(Modifier.weight(1f))
-        HeaderTrailing(onShowTour)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // The version wrapped letter by letter ("v0. / 10. / 0") once the row was this tight.
+        val showVersion = maxWidth >= NarrowWindowMaxWidth
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 14.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_handoff_mark),
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(18.dp)
+            )
+            Text("Handoff", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textMuted)
+            Text("by sushi.at", fontSize = 12.sp, color = colors.textMuted.copy(alpha = 0.85f))
+            Box(Modifier.weight(1f))
+            HeaderTrailing(onShowTour, showVersion)
+        }
     }
 }
 
@@ -264,7 +272,7 @@ internal fun AppHeaderRow(onShowTour: (() -> Unit)?) {
  *  is set) and the version string. Its own composable so the tour's closing page can show this exact
  *  pair, enlarged. */
 @Composable
-internal fun HeaderTrailing(onShowTour: (() -> Unit)?) {
+internal fun HeaderTrailing(onShowTour: (() -> Unit)?, showVersion: Boolean = true) {
     val colors = LocalHandoffColors.current
     val context = LocalContext.current
     val versionName = remember {
@@ -298,16 +306,18 @@ internal fun HeaderTrailing(onShowTour: (() -> Unit)?) {
                 )
             }
         }
-        Text(
-            "v$versionName",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            fontFamily = RobotoMono,
-            color = colors.textMuted.copy(alpha = 0.6f),
-            modifier = Modifier.clickable(enabled = debugModeEnabled) {
-                HandoffState.setDebugWindowOpen(!debugWindowOpen)
-            }
-        )
+        if (showVersion) {
+            Text(
+                "v$versionName",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = RobotoMono,
+                color = colors.textMuted.copy(alpha = 0.6f),
+                modifier = Modifier.clickable(enabled = debugModeEnabled) {
+                    HandoffState.setDebugWindowOpen(!debugWindowOpen)
+                }
+            )
+        }
     }
 }
 
