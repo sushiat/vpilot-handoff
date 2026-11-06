@@ -217,8 +217,34 @@ namespace Handoff.Plugin
         private int _dirtyFlag;
         private string _lastRecomputeBreakdown;
         // Per-recompute memo for FindAnySectorLevelForController -- see there. Only touched under _gate inside RecomputeLocked.
-        private readonly Dictionary<(bool UseRoute, double MaxNm), IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch>> _approachSearchCache =
-            new Dictionary<(bool UseRoute, double MaxNm), IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch>>();
+        // Issue #223: the route/sector approach search is the dearest step of a recompute (~200ms
+        // with 40+ controllers) and recompute runs about once a second, so the last result is kept
+        // ACROSS recomputes and reused while its inputs are still effectively the same -- see
+        // TryGetCachedApproachSearch. Only touched under _gate inside RecomputeLocked.
+        private readonly Dictionary<(bool UseRoute, double MaxNm), ApproachSearchMemo> _approachSearchCache =
+            new Dictionary<(bool UseRoute, double MaxNm), ApproachSearchMemo>();
+        private int _approachSearchHits;
+        private int _approachSearchMisses;
+        internal int ApproachSearchHits => _approachSearchHits;
+        internal int ApproachSearchMisses => _approachSearchMisses;
+        // A cached search is reused for at most this long, or until ownship has moved this far from where it ran
+        // (at cruise the time cap bites first: ~4s is about 3 NM, small against the 50+ NM search radius).
+        private static readonly TimeSpan ApproachSearchReuseWindow = TimeSpan.FromSeconds(4);
+        private const double ApproachSearchReuseMaxMovedNm = 3.0;
+        private const double ApproachSearchReuseMaxHeadingChangeDegrees = 2.0;
+
+        private sealed class ApproachSearchMemo
+        {
+            public IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> Matches;
+            public IReadOnlyDictionary<string, VatGlassesRegionData> Regions;
+            public IReadOnlyList<FlightPlanWaypoint> Waypoints;
+            public int WaypointCount;
+            public FlightPlanWaypoint FirstWaypoint;
+            public double Latitude;
+            public double Longitude;
+            public double? Heading;
+            public DateTimeOffset At;
+        }
         private readonly Dictionary<string, VatGlassesSectorLevel> _sectorLevelCache = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
         // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
         private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
@@ -504,7 +530,6 @@ namespace Handoff.Plugin
         private void RecomputeLocked()
         {
             _sectorLevelCache.Clear();
-            _approachSearchCache.Clear();
             var lapWatch = Stopwatch.StartNew();
             long lapBucket7 = 0, lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
@@ -848,7 +873,8 @@ namespace Handoff.Plugin
             _lastRecomputeBreakdown = "setup=" + lapSetup + " sequence=" + (lapSequence - lapSetup) +
                 " highlight=" + (lapHighlight - lapSequence) + " (b7=" + (lapBucket7 > 0 ? lapBucket7 - lapSequence : 0) + ")" + " rest=" + (lapRest - lapHighlight) +
                 " order=" + (lapFinal - lapRest) + " build=" + (lapRank - lapFinal) +
-                " controllers=" + controllers.Count + (isOnGround ? " ground" : " airborne");
+                " controllers=" + controllers.Count + (isOnGround ? " ground" : " airborne") +
+                " search=" + _approachSearchHits + "hit/" + _approachSearchMisses + "miss";
         }
 
         /// <summary>Issue #186 -- a station that opened within <see cref="NewStationFlashWindow"/> whose callsign prefix (up to the first '_') is the departure airport's ICAO. Never true once the takeoff latch is set (the caller passes a null airport then).</summary>
@@ -1863,6 +1889,38 @@ namespace Handoff.Plugin
             return GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
         }
 
+        /// <summary>Issue #223: true when the previous search with this key can stand in for a fresh one -- same region data, same remaining route (same first leg and length, i.e. no waypoint sequenced or route edited), ownship still within a few NM / seconds / degrees of where it ran.</summary>
+        private bool TryGetCachedApproachSearch(
+            (bool UseRoute, double MaxNm) key,
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
+            double lat,
+            double lon,
+            double? heading,
+            out IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> matches)
+        {
+            matches = null;
+            if (!_approachSearchCache.TryGetValue(key, out var memo)) return false;
+            if (!ReferenceEquals(memo.Regions, regions)) return false;
+            if (key.UseRoute)
+            {
+                if (memo.WaypointCount != remainingWaypoints.Count) return false;
+                if (!ReferenceEquals(memo.FirstWaypoint, remainingWaypoints[0])) return false;
+            }
+            else
+            {
+                if (!heading.HasValue || !memo.Heading.HasValue) return false;
+                var diff = Math.Abs(heading.Value - memo.Heading.Value) % 360.0;
+                if (diff > 180.0) diff = 360.0 - diff;
+                if (diff > ApproachSearchReuseMaxHeadingChangeDegrees) return false;
+            }
+            var age = _now() - memo.At;
+            if (age < TimeSpan.Zero || age >= ApproachSearchReuseWindow) return false;
+            if (GeoDistance.NauticalMiles(memo.Latitude, memo.Longitude, lat, lon) > ApproachSearchReuseMaxMovedNm) return false;
+            matches = memo.Matches;
+            return true;
+        }
+
         /// <summary>Shared route/heading-projected "entering" search used by both bucket 7c (APP/DEP) and bucket 8 (CTR) -- walks approach matches nearest-first, resolves each to every online controller matching its chain (see VatGlassesOwnershipResolver -- more than one is possible for an ambiguous same-prefix/tier chain, deliberately not collapsed here so downstream tie-detection sees all of them), and keeps only ones matching tierFilter.</summary>
         private List<(HandoffController Owner, VatGlassesSectorLookup.VatGlassesApproachMatch Match)> FindEnteringOwnerMatches(
             OwnshipTelemetry telemetry,
@@ -1878,30 +1936,45 @@ namespace Handoff.Plugin
 
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approachMatches;
 
-            // Issue #223: the polygon/route search below is the dearest step of a recompute and
-            // bucket 7c (APP/DEP) and bucket 8a (CTR) run it with identical inputs -- only the owner
-            // tier filter differs -- so compute it once per recompute (cache cleared at its start).
+            // Issue #223: bucket 7c (APP/DEP) and 8a (CTR) run this search with identical inputs, and
+            // consecutive recomputes differ only by a few seconds of flight, so reuse the last result
+            // while it is still effectively current (see TryGetCachedApproachSearch).
             var useRoute = remainingWaypoints.Count > 0;
             var searchKey = (useRoute, useRoute ? routeMaxNm : headingMaxNm);
-            if (_approachSearchCache.TryGetValue(searchKey, out var cachedMatches))
+            var lat = telemetry.Latitude.Value;
+            var lon = telemetry.Longitude.Value;
+            if (TryGetCachedApproachSearch(searchKey, regions, remainingWaypoints, lat, lon, telemetry.HeadingDegrees, out var cachedMatches))
             {
                 approachMatches = cachedMatches;
+                _approachSearchHits++;
             }
             else
             {
                 if (useRoute)
                 {
-                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, routeMaxNm);
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, lat, lon, remainingWaypoints, routeMaxNm);
                 }
                 else if (telemetry.HeadingDegrees.HasValue)
                 {
-                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, headingMaxNm);
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, lat, lon, telemetry.HeadingDegrees.Value, headingMaxNm);
                 }
                 else
                 {
                     return result;
                 }
-                _approachSearchCache[searchKey] = approachMatches;
+                _approachSearchMisses++;
+                _approachSearchCache[searchKey] = new ApproachSearchMemo
+                {
+                    Matches = approachMatches,
+                    Regions = regions,
+                    Waypoints = remainingWaypoints,
+                    WaypointCount = remainingWaypoints.Count,
+                    FirstWaypoint = useRoute ? remainingWaypoints[0] : null,
+                    Latitude = lat,
+                    Longitude = lon,
+                    Heading = telemetry.HeadingDegrees,
+                    At = _now()
+                };
             }
 
             foreach (var approach in approachMatches.Where(a => regions.ContainsKey(a.Match.RegionFileName)))

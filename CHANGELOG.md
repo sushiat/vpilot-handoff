@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Recomputes and broadcast ticks slower than 100 ms are now logged to help find any remaining lag.
   The ranking also looks up each approach controller's sector, and searches your route against the sector
   boundaries, once per update instead of several times, which was the main cost of a slow update in flight.
+  That route search is also reused for up to about four seconds while you have barely moved and the route
+  is unchanged, instead of being redone on every update.
 - Android (issue #222): controller rows now slide when the ranking reorders, instead of jumping, so a live
   move is visible and a tap is less likely to land on a row that just moved.
 - Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,

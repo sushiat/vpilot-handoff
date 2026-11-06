@@ -1025,6 +1025,66 @@ namespace Handoff.Plugin.Tests
             Assert.False(model.Current.Single().IsHighlighted);
         }
 
+        // Issue #223: the approach search is memoised across recomputes -- reused while ownship is
+        // within a few NM / seconds / degrees of where it ran, redone once any of those is exceeded.
+        private ControllerRankingModel CreateSearchCacheModel(out Action<TimeSpan> advance)
+        {
+            var clock = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var holder = new[] { clock };
+            advance = d => holder[0] += d;
+            var model = CreateModel(vatGlassesData: vatGlasses, now: () => holder[0]);
+            return model;
+        }
+
+        [Fact]
+        public void ApproachSearch_RecomputeWithinWindowAndTolerance_ReusesCachedSearch()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            Assert.True(model.Current.Single().IsHighlighted);
+            var missesAfterFirst = model.ApproachSearchMisses;
+            Assert.True(missesAfterFirst > 0);
+
+            advance(TimeSpan.FromSeconds(1));
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 1, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // 1 deg turn: within tolerance
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.Equal(missesAfterFirst, model.ApproachSearchMisses);
+            Assert.True(model.ApproachSearchHits > 0);
+        }
+
+        [Fact]
+        public void ApproachSearch_AfterReuseWindowExpires_SearchesAgain()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            _ = model.Current;
+            var missesAfterFirst = model.ApproachSearchMisses;
+
+            advance(TimeSpan.FromSeconds(5));
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.True(model.ApproachSearchMisses > missesAfterFirst);
+        }
+
+        [Fact]
+        public void ApproachSearch_HeadingChangedBeyondTolerance_SearchesAgain()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            _ = model.Current;
+            var missesAfterFirst = model.ApproachSearchMisses;
+
+            advance(TimeSpan.FromSeconds(1));
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 5, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.True(model.ApproachSearchMisses > missesAfterFirst);
+        }
+
         [Fact]
         public void Bucket8a_Ctr_LevelFlightOutsideBand_NeverConverges()
         {
