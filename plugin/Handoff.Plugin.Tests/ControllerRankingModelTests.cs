@@ -830,6 +830,20 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void Bucket7b_AppDep_AboveSectorCeiling_ButFarEnoughToDescend_Highlights()
+        {
+            // Issue #223 flight test: Bremen Radar's sector tops out at FL104 (ceiling FL154), yet
+            // being handed over from Center at FL200 is normal. FL200 is 46 levels over the ceiling
+            // (~14 NM of 3:1 descent) and the sector edge is ~18 NM away, so it must highlight.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
+            AddController("EGLL_APP", 12345, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.6, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
         public void Bucket7b_AppDep_SectorOwnCeiling_HighlightsBelowIt()
         {
             var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));

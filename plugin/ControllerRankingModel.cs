@@ -1739,9 +1739,10 @@ namespace Handoff.Plugin
                 }
                 else if (tier == ControllerTier.AppDep)
                 {
-                    if (IsAboveAppCeiling(c, pressureAltitudeFl, regions, allOnlineControllers)) continue;
-
                     var distance = ResolveAppDistanceNm(c, regions, allOnlineControllers, telemetry);
+                    // Above the ceiling only counts if you can still descend to it over the distance left (same
+                    // rule as 7c's "entering"; a hard ceiling hid Bremen Radar when handed over at FL200).
+                    if (IsBeyondDescentReach(c, pressureAltitudeFl, distance, regions, allOnlineControllers)) continue;
                     if (!PassesDeadband(_appRadiusCommitted, c.Callsign, distance, AppHighlightRadiusNm)) continue;
 
                     result.HighlightedCallsigns.Add(c.Callsign);
@@ -1859,16 +1860,14 @@ namespace Handoff.Plugin
             return null;
         }
 
-        private bool IsAboveAppCeiling(HandoffController controller, double? pressureAltitudeFl, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
-        {
-            return pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ResolveAppCeilingFl(controller, regions, allOnlineControllers);
-        }
-
         /// <summary>Issue #223: true when ownship is too high to get down to the sector's ceiling over the distance left to it, at <see cref="DescentNmPerThousandFeet"/> NM per 1000 ft. Below the ceiling it is never beyond reach; far enough away, even FL340 is reachable.</summary>
         private bool IsBeyondDescentReach(HandoffController controller, double? pressureAltitudeFl, double distanceNm, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
             if (!pressureAltitudeFl.HasValue) return false;
-            var excessThousandFeet = (pressureAltitudeFl.Value - ResolveAppCeilingFl(controller, regions, allOnlineControllers)) / 10.0;
+            var ceilingFl = ResolveAppCeilingFl(controller, regions, allOnlineControllers);
+            // No sector data for this station: the flat fallback ceiling is arbitrary, so it stays a hard cutoff.
+            if (FindAnySectorLevelForController(controller, regions, allOnlineControllers) == null) return pressureAltitudeFl.Value > ceilingFl;
+            var excessThousandFeet = (pressureAltitudeFl.Value - ceilingFl) / 10.0;
             return excessThousandFeet > 0 && excessThousandFeet * DescentNmPerThousandFeet > distanceNm;
         }
 
