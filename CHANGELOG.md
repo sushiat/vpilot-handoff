@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Android (issue #222): controller rows now slide when the ranking reorders, instead of jumping, so a live
+  move is visible and a tap is less likely to land on a row that just moved.
 - Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,
   connect/disconnect) now show as their own lines above the status bar, with the plugin's wording, instead
   of one small icon that only made sense with the drawer open. Every active operation gets a line while

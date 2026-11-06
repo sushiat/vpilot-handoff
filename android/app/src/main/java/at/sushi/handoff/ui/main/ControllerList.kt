@@ -256,7 +256,10 @@ fun ControllerList(
             }.collect { settledAtTop -> if (settledAtTop) userScrolled = false }
         }
         LaunchedEffect(visibleControllers) {
-            if (!userScrolled) listState.scrollToItem(0)
+            // Issue #222: animated, so the viewport follows the reorder together with the sliding
+            // rows. An instant jump to 0 right after the reorder swallowed the placement animation
+            // whenever the list overflowed (a narrow split) and the key anchor had moved the viewport.
+            if (!userScrolled) listState.animateScrollToItem(0)
         }
         // A pilot who scrolled and then walked away shouldn't come back to a list that's stopped
         // following the top: once the list has sat untouched for UserScrollResetMillis, hand
@@ -288,26 +291,30 @@ fun ControllerList(
             itemsIndexed(visibleControllers, key = { _, controller -> controller.callsign }) { index, controller ->
                 val previousGroup = visibleControllers.getOrNull(index - 1)?.let { controllerRowGroup(it, com1Active, com2Active) }
                 val thisGroup = controllerRowGroup(controller, com1Active, com2Active)
-                if (previousGroup != null && previousGroup != thisGroup) {
-                    Spacer(Modifier.height(10.dp))
+                // Issue #222: one animated root per item, so the group-gap Spacer slides together
+                // with its row, and a live reorder is visible instead of an instant jump.
+                Column(Modifier.animateItem()) {
+                    if (previousGroup != null && previousGroup != thisGroup) {
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    ControllerRow(
+                        controller = controller,
+                        etaMinutes = controller.etaMinutes,
+                        callsignColWidth = callsignColWidth,
+                        frequencyTextWidth = frequencyTextWidth,
+                        com1Active = com1Active,
+                        com2Active = com2Active,
+                        com1Standby = com1Standby,
+                        com2Standby = com2Standby,
+                        onTogglePin = { onTogglePin(controller.callsign) },
+                        onOpenChat = { onOpenChatWith(controller.callsign) },
+                        onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
+                        onTuneCom2Active = { onTuneCom2Active(controller.frequency) },
+                        onTuneCom1Standby = { onTuneCom1Standby(controller.frequency) },
+                        onTuneCom2Standby = { onTuneCom2Standby(controller.frequency) },
+                        onDismissSelcal = { onDismissSelcal(controller.callsign) }
+                    )
                 }
-                ControllerRow(
-                    controller = controller,
-                    etaMinutes = controller.etaMinutes,
-                    callsignColWidth = callsignColWidth,
-                    frequencyTextWidth = frequencyTextWidth,
-                    com1Active = com1Active,
-                    com2Active = com2Active,
-                    com1Standby = com1Standby,
-                    com2Standby = com2Standby,
-                    onTogglePin = { onTogglePin(controller.callsign) },
-                    onOpenChat = { onOpenChatWith(controller.callsign) },
-                    onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
-                    onTuneCom2Active = { onTuneCom2Active(controller.frequency) },
-                    onTuneCom1Standby = { onTuneCom1Standby(controller.frequency) },
-                    onTuneCom2Standby = { onTuneCom2Standby(controller.frequency) },
-                    onDismissSelcal = { onDismissSelcal(controller.callsign) }
-                )
             }
         }
     }
