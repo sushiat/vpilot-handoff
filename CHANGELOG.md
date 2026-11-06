@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android (issue #225): the tour no longer crashes the app in a very narrow window. Below about 300dp wide
   the "?" now explains that the tour needs a wider window instead of opening it, and the header drops the
   version number, which had wrapped letter by letter.
+- Android (issue #220): the system status and navigation bar icons now follow the app's theme. With the
+  app set to Light while the device was in dark mode (or the other way round), the icons were white on
+  the light header and hard to see.
 
 ## [0.9.0] - 2026-10-30
 

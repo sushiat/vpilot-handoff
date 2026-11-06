@@ -102,6 +102,8 @@ import at.sushi.handoff.ui.dialogs.SettingsDialog
 import at.sushi.handoff.ui.dialogs.TourNeedsWiderWindowDialog
 import at.sushi.handoff.ui.dialogs.XpdrDialog
 import at.sushi.handoff.ui.theme.HandoffTheme
+import at.sushi.handoff.ui.theme.SystemBarIcons
+import at.sushi.handoff.ui.theme.isHandoffDark
 import at.sushi.handoff.ui.theme.DefaultRowColorPalette
 import at.sushi.handoff.ui.theme.RowColorThemeStore
 import at.sushi.handoff.ui.theme.SavedRowColorTheme
@@ -228,6 +230,8 @@ fun MainScreen(onAttendedSimAcknowledged: () -> Unit = {}) {
     val theme by HandoffState.theme.collectAsState()
     val rowColorPalette by HandoffState.rowColorPalette.collectAsState()
 
+    // Issue #220: the system bar icons follow the app's theme, not just the device's night mode.
+    SystemBarIcons(isHandoffDark(theme))
     HandoffTheme(theme, rowColorPalette) {
         MainScreenContent(onAttendedSimAcknowledged)
     }
