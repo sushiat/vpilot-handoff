@@ -246,7 +246,11 @@ namespace Handoff.Plugin
             public double? Heading;
             public DateTimeOffset At;
         }
-        private readonly Dictionary<string, VatGlassesSectorLevel> _sectorLevelCache = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
+        // Controller callsign -> first sector level it owns; rebuilt only when the region data or the online set changes.
+        private Dictionary<string, VatGlassesSectorLevel> _sectorLevelMap = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyDictionary<string, VatGlassesRegionData> _sectorLevelMapRegions;
+        private string _sectorLevelMapSignature;
+        private bool _sectorLevelMapChecked; // validated already this recompute (reset at its start)
         // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
         private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
         private bool _debugModeEnabled;
@@ -530,7 +534,7 @@ namespace Handoff.Plugin
         /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>
         private void RecomputeLocked()
         {
-            _sectorLevelCache.Clear();
+            _sectorLevelMapChecked = false;
             var lapWatch = Stopwatch.StartNew();
             long lapBucket7 = 0, lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
@@ -1830,34 +1834,39 @@ namespace Handoff.Plugin
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
             IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
-            // Issue #223: this scans every sector of every region and resolves ownership for
-            // each, and one recompute asks for the same controller up to three times (7b ceiling,
-            // 7b distance, 7b matched flag) plus the 7c/8a passes. The answer can't change within
-            // one recompute (regions and the online set are fixed for it), so memoize per
-            // recompute -- the cache is cleared at the start of RecomputeLocked.
-            if (_sectorLevelCache.TryGetValue(controller.Callsign, out var cached)) return cached;
-            var level = FindAnySectorLevelForControllerUncached(controller, regions, allOnlineControllers);
-            _sectorLevelCache[controller.Callsign] = level;
-            return level;
+            // Issue #223: asked for the same controller several times per recompute (7b ceiling,
+            // distance, matched flag, 7c/8a passes), and answering from scratch scanned every sector
+            // of every region against every online controller. One pass now maps every online
+            // controller to its first owning sector level, and that map is reused across recomputes
+            // until the data or the online set changes (see EnsureSectorLevelMap).
+            EnsureSectorLevelMap(regions, allOnlineControllers);
+            return _sectorLevelMap.TryGetValue(controller.Callsign, out var level) ? level : null;
         }
 
-        private static VatGlassesSectorLevel FindAnySectorLevelForControllerUncached(
-            HandoffController controller,
-            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
-            IReadOnlyCollection<HandoffController> allOnlineControllers)
+        private void EnsureSectorLevelMap(IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
+            if (_sectorLevelMapChecked && ReferenceEquals(_sectorLevelMapRegions, regions)) return;
+            _sectorLevelMapChecked = true;
+
+            var signature = string.Join("|", allOnlineControllers.Select(c => c.Callsign).OrderBy(cs => cs, StringComparer.OrdinalIgnoreCase));
+            if (ReferenceEquals(_sectorLevelMapRegions, regions) && string.Equals(_sectorLevelMapSignature, signature, StringComparison.Ordinal)) return;
+
+            var map = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
             foreach (var region in regions.Values)
             {
                 foreach (var sector in region.Airspace)
                 {
-                    var owners = VatGlassesOwnershipResolver.ResolveOnlineControllers(sector.Owner, region.Positions, allOnlineControllers);
-                    if (owners.Any(o => string.Equals(o.Callsign, controller.Callsign, StringComparison.OrdinalIgnoreCase)))
+                    // Same "first sector found wins" rule as before, but resolving each sector's owners once for all controllers.
+                    var level = sector.Levels.FirstOrDefault();
+                    foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(sector.Owner, region.Positions, allOnlineControllers))
                     {
-                        return sector.Levels.FirstOrDefault();
+                        if (!map.ContainsKey(owner.Callsign)) map[owner.Callsign] = level;
                     }
                 }
             }
-            return null;
+            _sectorLevelMap = map;
+            _sectorLevelMapRegions = regions;
+            _sectorLevelMapSignature = signature;
         }
 
         /// <summary>Issue #223: true when ownship is too high to get down to the sector's ceiling over the distance left to it, at <see cref="DescentNmPerThousandFeet"/> NM per 1000 ft. Below the ceiling it is never beyond reach; far enough away, even FL340 is reachable.</summary>

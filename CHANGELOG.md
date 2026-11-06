@@ -20,8 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ranking no longer blocks the incoming radio state while it recomputes, and a COM frequency change
   now sends one extra station-list update right away instead of waiting for the next regular one.
   Recomputes and broadcast ticks slower than 100 ms are now logged to help find any remaining lag.
-  The ranking also looks up each approach controller's sector, and searches your route against the sector
-  boundaries, once per update instead of several times, which was the main cost of a slow update in flight.
+  The ranking also works out which sector each approach controller covers in one pass, reused until the
+  set of online controllers changes, and searches your route against the sector boundaries once per update
+  instead of several times; both were the main cost of a slow update in flight.
   That route search is also reused for up to about four seconds while you have barely moved and the route
   is unchanged, instead of being redone on every update.
 - Android (issue #222): controller rows now slide when the ranking reorders, instead of jumping, so a live

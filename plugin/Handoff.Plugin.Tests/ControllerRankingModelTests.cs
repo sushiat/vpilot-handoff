@@ -844,6 +844,23 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void Bucket7b_AppDep_ControllerOnlineAfterFirstRecompute_StillGetsItsSectorCeiling()
+        {
+            // Issue #223: the controller -> sector level map is cached across recomputes, so a station
+            // that comes online later must invalidate it (online set changed) and be gated by its own
+            // sector ceiling (FL100 + 50 = FL150), not the flat FL290 fallback.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
+            AddController("EGLL_GND", 21800, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.2, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200, inside the sector
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            _ = model.Current; // first recompute builds the map without EGLL_APP
+
+            AddController("EGLL_APP", 12345, 0, 0);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EGLL_APP").IsHighlighted);
+        }
+
+        [Fact]
         public void Bucket7b_AppDep_SectorOwnCeiling_HighlightsBelowIt()
         {
             var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
