@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could swap in a plan prepared for the next leg while still flying the current one. Saving still
   reconnects, as before.
 
+### Fixed
+
+- Android (issue #221): on a phone, or a tablet in a narrow split screen, a controller's PINNED badge was
+  cut off to "PI" next to another badge. It is now a pin icon, and any badges that still do not fit wrap
+  onto a second line. The full-width tablet layout is unchanged.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
