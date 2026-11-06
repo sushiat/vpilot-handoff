@@ -61,6 +61,18 @@ namespace Handoff.Plugin
             return alongTrack * EarthRadiusNauticalMiles * sign;
         }
 
+        /// <summary>
+        /// Absolute cross-track distance (nm) of `point` from the great-circle course from `from`
+        /// toward `courseTo` (issue #223 follow-up -- seeding the route sequencer mid-flight).
+        /// </summary>
+        public static double CrossTrackDistanceNm(double fromLat, double fromLon, double courseToLat, double courseToLon, double pointLat, double pointLon)
+        {
+            var angularDistanceToPoint = NauticalMiles(fromLat, fromLon, pointLat, pointLon) / EarthRadiusNauticalMiles;
+            var bearingToPoint = ToRadians(InitialBearingDegrees(fromLat, fromLon, pointLat, pointLon));
+            var bearingToCourse = ToRadians(InitialBearingDegrees(fromLat, fromLon, courseToLat, courseToLon));
+            return Math.Abs(Math.Asin(Math.Sin(angularDistanceToPoint) * Math.Sin(bearingToPoint - bearingToCourse))) * EarthRadiusNauticalMiles;
+        }
+
         private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
     }
 }

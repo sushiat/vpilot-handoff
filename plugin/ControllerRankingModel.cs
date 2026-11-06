@@ -2248,6 +2248,45 @@ namespace Handoff.Plugin
         /// gets the same flapping protection and re-anchors at ownship's position on commit --
         /// no new state, just another way naturalIndex can advance.
         /// </summary>
+        /// <summary>
+        /// Index of the first waypoint still ahead of (lat, lon), judged by the nearest route leg
+        /// the position projects onto. Falls back to the nearest waypoint when it projects onto no
+        /// leg (before the first or past the last). 0 means "nothing passed".
+        /// </summary>
+        private static int NearestRouteLegEndIndex(IReadOnlyList<FlightPlanWaypoint> all, double lat, double lon)
+        {
+            var bestLegEnd = -1;
+            var bestCrossTrack = double.MaxValue;
+            for (var i = 0; i + 1 < all.Count; i++)
+            {
+                var from = all[i];
+                var to = all[i + 1];
+                var legLength = GeoDistance.NauticalMiles(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
+                var alongTrack = GeoDistance.AlongTrackDistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude, lat, lon);
+                if (alongTrack < 0 || alongTrack > legLength) continue;
+                var crossTrack = GeoDistance.CrossTrackDistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude, lat, lon);
+                if (crossTrack < bestCrossTrack)
+                {
+                    bestCrossTrack = crossTrack;
+                    bestLegEnd = i + 1;
+                }
+            }
+            // Nearer to the very first waypoint than to any leg means ownship is still on the
+            // way to the start of the route (just after departure): nothing has been passed.
+            var distanceToFirst = GeoDistance.NauticalMiles(lat, lon, all[0].Latitude, all[0].Longitude);
+            if (bestLegEnd >= 0 && bestCrossTrack < distanceToFirst) return bestLegEnd;
+            if (bestLegEnd >= 0) return 0;
+
+            var nearest = 0;
+            var nearestDistance = double.MaxValue;
+            for (var i = 0; i < all.Count; i++)
+            {
+                var d = GeoDistance.NauticalMiles(lat, lon, all[i].Latitude, all[i].Longitude);
+                if (d < nearestDistance) { nearestDistance = d; nearest = i; }
+            }
+            return nearest;
+        }
+
         private List<FlightPlanWaypoint> SequenceRemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
         {
             var all = flightPlan.Waypoints;
@@ -2277,6 +2316,21 @@ namespace Handoff.Plugin
                 {
                     _routeAnchorLat = lat;
                     _routeAnchorLon = lon;
+
+                    // First sight of this route while already airborne (plugin restarted mid-flight,
+                    // or a new plan fetched in flight): nothing has been "passed" from the sequencer's
+                    // point of view, so every waypoint behind ownship would stay in the remaining
+                    // route until a downstream one is overflown -- minutes, on a long direct. Sync
+                    // to the nearest leg instead, like an FMS does. Never on the ground pre-departure.
+                    if (_hasTakenOffThisSession)
+                    {
+                        var seeded = NearestRouteLegEndIndex(all, lat, lon);
+                        if (seeded > _committedWaypointIndex)
+                        {
+                            Log("Route sequencer started mid-flight -- syncing to waypoint index " + seeded + " of " + all.Count + " (nearest leg).");
+                            _committedWaypointIndex = seeded;
+                        }
+                    }
                 }
 
                 var anchorLat = _routeAnchorLat.Value;

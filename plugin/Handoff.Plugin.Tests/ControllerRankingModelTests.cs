@@ -1375,8 +1375,12 @@ namespace Handoff.Plugin.Tests
             AddController("TEST_APP", 12345, 0, 0.8);
 
             var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            // Starts on the ground at A, like a real flight, then lifts off in place: the route
+            // sequencer anchors at A before the takeoff latch sets, so it isn't synced mid-flight.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, null, 0, 0, now);
             var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.RaiseChanged();
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
 
@@ -1393,6 +1397,49 @@ namespace Handoff.Plugin.Tests
             // the along-track sweep alone can never advance past B/C/D on this bearing (see this
             // test's own doc comment above).
             Assert.Equal("proximityCatchUp", model.BuildDebugSnapshot().LastWaypointAdvanceMechanism);
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_StartedMidFlightPastEarlyWaypoints_SyncsToNearestLeg()
+        {
+            // Issue #223 follow-up: plugin restarted at cruise, far along the route. A fresh
+            // sequencer used to start at index 0, keeping every waypoint behind ownship in the
+            // remaining route until a downstream one was overflown -- so a sector near the
+            // departure (here a box on W0) still looked like it was ahead.
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("W0", 0, 0.5),
+                new FlightPlanWaypoint("W1", 0, 2.0),
+                new FlightPlanWaypoint("W2", 0, 4.0),
+                new FlightPlanWaypoint("W3", 0, 6.0),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0.5, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 0, 0.5);
+
+            // Between W1 and W2, already airborne at the very first recompute.
+            _radio.Telemetry = new OwnshipTelemetry(false, 450, 30000, 0, 90, 0, 3.0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+            Assert.Equal(2, model.BuildDebugSnapshot().CommittedWaypointIndex);
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_StartedMidFlightBeforeTheFirstWaypoint_KeepsWholeRoute()
+        {
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("W0", 0, 1.0),
+                new FlightPlanWaypoint("W1", 0, 3.0),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0.1, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+            _ = model.Current;
+
+            Assert.Equal(0, model.BuildDebugSnapshot().CommittedWaypointIndex);
         }
 
         [Fact]
@@ -1414,8 +1461,10 @@ namespace Handoff.Plugin.Tests
             AddController("TEST_APP", 12345, 0, 0.8);
 
             var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, null, 0, 0, now);
             var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.RaiseChanged();
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
 

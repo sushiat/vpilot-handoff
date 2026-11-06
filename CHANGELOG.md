@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin (issue #223): an approach or departure controller could stay marked as likely-next at cruise
   altitude, even miles behind you. The approach altitude ceiling already hid them from the nearby-station
   highlight but not from this "you are about to enter their airspace" prediction; it now applies to both.
+- Plugin (issue #223): restarting the plugin or vPilot in flight no longer leaves the route stuck at its
+  first waypoint. Everything behind you on the route counted as still ahead until you next flew over a
+  waypoint, which on a long direct could take half an hour, so stations near your departure kept being
+  predicted as next. The route now syncs to your nearest leg as soon as it sees you airborne.
 - Android (issue #221): on a phone, or a tablet in a narrow split screen, a controller's PINNED badge was
   cut off to "PI" next to another badge. It is now a pin icon, and any badges that still do not fit wrap
   onto a second line. The full-width tablet layout is unchanged.
