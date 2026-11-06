@@ -215,6 +215,7 @@ namespace Handoff.Plugin
         // never wait on _gate while a long RecomputeLocked() holds it, or the new radio state
         // isn't even recorded until the recompute finishes.
         private int _dirtyFlag;
+        private string _lastRecomputeBreakdown;
         // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
         private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
         private bool _debugModeEnabled;
@@ -480,7 +481,7 @@ namespace Handoff.Plugin
                     stopwatch.Stop();
                     if (stopwatch.Elapsed >= SlowRecomputeLogThreshold)
                     {
-                        Log("Slow ranking recompute: " + (int)stopwatch.Elapsed.TotalMilliseconds + "ms.");
+                        Log("Slow ranking recompute: " + (int)stopwatch.Elapsed.TotalMilliseconds + "ms (" + _lastRecomputeBreakdown + ").");
                     }
                 }
             }
@@ -498,6 +499,8 @@ namespace Handoff.Plugin
         /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>
         private void RecomputeLocked()
         {
+            var lapWatch = Stopwatch.StartNew();
+            long lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
             var radio = _radioState.Current;
             var telemetry = _radioState.Telemetry;
@@ -605,11 +608,13 @@ namespace Handoff.Plugin
                 flightPlan.OriginLatitude.HasValue && flightPlan.OriginLongitude.HasValue &&
                 GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, flightPlan.OriginLatitude.Value, flightPlan.OriginLongitude.Value) > OriginSanityGateMaxNauticalMiles;
 
+            lapSetup = lapWatch.ElapsedMilliseconds;
             var remainingWaypoints = _routeInvalidatedByDiversion || _isOriginMismatched || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue
                 ? new List<FlightPlanWaypoint>()
                 : SequenceRemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
 
             UpdateVerticalTrend(telemetry);
+            lapSequence = lapWatch.ElapsedMilliseconds;
 
             var pressureAltitudeFl = telemetry.PressureAltitudeFeet / 100.0;
             var qnhTrueAltitudeFl = telemetry.PressureAltitudeFeet.HasValue && telemetry.SeaLevelPressureHpa.HasValue
@@ -688,6 +693,7 @@ namespace Handoff.Plugin
                 etaMinutesByCallsign = ComputeEtaMinutesByCallsign(telemetry, bucket8Result);
             }
 
+            lapHighlight = lapWatch.ElapsedMilliseconds;
             var highlightedCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.HighlightedCallsigns), StringComparer.OrdinalIgnoreCase);
             var nextCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.NextCallsigns), StringComparer.OrdinalIgnoreCase);
             var likelyNextCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.LikelyNextCallsigns), StringComparer.OrdinalIgnoreCase);
@@ -714,6 +720,7 @@ namespace Handoff.Plugin
                 }
             }
 
+            lapRest = lapWatch.ElapsedMilliseconds;
             var finalOrder = new List<HandoffController>();
             finalOrder.AddRange(OrderCurrentBucket(controllers, currentCallsigns, radio));
             finalOrder.AddRange(OrderStandbyBucket(remaining.Where(c => standbyCallsigns.Contains(c.Callsign)), radio));
@@ -792,6 +799,7 @@ namespace Handoff.Plugin
                 _lastRankingExplain = null;
             }
 
+            lapFinal = lapWatch.ElapsedMilliseconds;
             var nowUtc = _now();
             var originPrefix = _hasTakenOffThisSession ? null : origin;
             var ranked = finalOrder.Select(c =>
@@ -827,6 +835,13 @@ namespace Handoff.Plugin
 
             _current = ranked;
             _newStationFlagActive = ranked.Any(r => r.IsNewStation);
+            lapRank = lapWatch.ElapsedMilliseconds;
+
+            // Cumulative ms at the end of each stage -- read as differences (issue #223).
+            _lastRecomputeBreakdown = "setup=" + lapSetup + " sequence=" + (lapSequence - lapSetup) +
+                " highlight=" + (lapHighlight - lapSequence) + " rest=" + (lapRest - lapHighlight) +
+                " order=" + (lapFinal - lapRest) + " build=" + (lapRank - lapFinal) +
+                " controllers=" + controllers.Count + (isOnGround ? " ground" : " airborne");
         }
 
         /// <summary>Issue #186 -- a station that opened within <see cref="NewStationFlashWindow"/> whose callsign prefix (up to the first '_') is the departure airport's ICAO. Never true once the takeoff latch is set (the caller passes a null airport then).</summary>

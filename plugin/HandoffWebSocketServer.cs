@@ -79,6 +79,7 @@ namespace Handoff.Plugin
         // Recompute/serialize/broadcast can't pile up overlapping callbacks on the ThreadPool.
         private int _broadcastTickRunning;
         private const int SlowBroadcastTickLogMs = 100;
+        private int _extraBroadcastPending;
 
         // Issue #223 -- extra `controllers` push on a COM frequency change, see
         // OnRadioStateChangedForTuneLatency.
@@ -206,6 +207,10 @@ namespace Handoff.Plugin
             finally
             {
                 Interlocked.Exchange(ref _broadcastTickRunning, 0);
+                if (Interlocked.Exchange(ref _extraBroadcastPending, 0) == 1)
+                {
+                    ThreadPool.QueueUserWorkItem(_ => RunExtraControllersBroadcast());
+                }
             }
         }
 
@@ -237,22 +242,36 @@ namespace Handoff.Plugin
 
             if (!_extraControllersGate.TryEnter()) return;
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            ThreadPool.QueueUserWorkItem(_ => RunExtraControllersBroadcast());
+        }
+
+        /// <summary>
+        /// If a tick is already running, it may be past its own controllers send (a slow tick
+        /// takes seconds -- issue #223 flight log), so don't drop this one: flag it and let the
+        /// running tick's finally block send it the moment the tick is done.
+        /// </summary>
+        private void RunExtraControllersBroadcast()
+        {
+            if (Interlocked.CompareExchange(ref _broadcastTickRunning, 1, 0) != 0)
             {
+                Interlocked.Exchange(ref _extraBroadcastPending, 1);
+                // The tick may have finished between the check above and the flag write.
                 if (Interlocked.CompareExchange(ref _broadcastTickRunning, 1, 0) != 0) return;
-                try
-                {
-                    BroadcastControllers();
-                }
-                catch (Exception ex)
-                {
-                    Log("Extra controllers broadcast failed: " + ex.Message);
-                }
-                finally
-                {
-                    Interlocked.Exchange(ref _broadcastTickRunning, 0);
-                }
-            });
+                Interlocked.Exchange(ref _extraBroadcastPending, 0);
+            }
+
+            try
+            {
+                BroadcastControllers();
+            }
+            catch (Exception ex)
+            {
+                Log("Extra controllers broadcast failed: " + ex.Message);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _broadcastTickRunning, 0);
+            }
         }
 
         /// <summary>Binds the Fleck socket on the current port (issue #98) -- split out from
