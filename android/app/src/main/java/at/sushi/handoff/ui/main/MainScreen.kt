@@ -99,6 +99,7 @@ import at.sushi.handoff.ui.dialogs.CdmWebDialog
 import at.sushi.handoff.ui.dialogs.InlineNearbyAircraftDialog
 import at.sushi.handoff.ui.dialogs.RowColorThemeDialog
 import at.sushi.handoff.ui.dialogs.SettingsDialog
+import at.sushi.handoff.ui.dialogs.TourNeedsWiderWindowDialog
 import at.sushi.handoff.ui.dialogs.XpdrDialog
 import at.sushi.handoff.ui.theme.HandoffTheme
 import at.sushi.handoff.ui.theme.DefaultRowColorPalette
@@ -409,6 +410,8 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     // Issue #205 -- first-launch tour; shown once the attended-sim notice (see below) has been
     // acknowledged so the two never stack, and replayable from the "?" button in the top bar's header.
     var tourOpen by remember { mutableStateOf(!OnboardingStore.isSeen(prefs)) }
+    // Issue #225: the "?" in a window too narrow for the tour explains that instead of opening it.
+    var tourTooNarrowOpen by remember { mutableStateOf(false) }
     var cdmWebOpen by remember { mutableStateOf(false) }
     var rowColorDialogOpen by remember { mutableStateOf(false) }
     var nearbyDialogOpen by remember { mutableStateOf(false) }
@@ -830,7 +833,9 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                 onOpenCom1Dialog = { comDialogOpen = 1 },
                 onOpenCom2Dialog = { comDialogOpen = 2 },
                 onOpenXpdrDialog = { xpdrDialogOpen = true },
-                onShowTour = { tourOpen = true },
+                onShowTour = {
+                    if (configuration.screenWidthDp < NarrowWindowMaxWidth.value) tourTooNarrowOpen = true else tourOpen = true
+                },
                 // Flip which COM transmits -- the plugin doesn't enforce mutual exclusivity, but
                 // real avionics only ever have one, so a simple toggle is the natural gesture.
                 onToggleMic = {
@@ -1098,6 +1103,10 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             OnboardingStore.markSeen(prefs)
             tourOpen = false
         })
+    }
+
+    if (tourTooNarrowOpen) {
+        TourNeedsWiderWindowDialog(onDismiss = { tourTooNarrowOpen = false })
     }
 
     if (overlayExplainerOpen && attendedSimAcked) {

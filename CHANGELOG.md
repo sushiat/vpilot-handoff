@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android (issue #221): on a phone, or a tablet in a narrow split screen, a controller's PINNED badge was
   cut off to "PI" next to another badge. It is now a pin icon, and any badges that still do not fit wrap
   onto a second line. The full-width tablet layout is unchanged.
+- Android (issue #225): the tour no longer crashes the app in a very narrow window. Below about 300dp wide
+  the "?" now explains that the tour needs a wider window instead of opening it, and the header drops the
+  version number, which had wrapped letter by letter.
 
 ## [0.9.0] - 2026-10-30
 
