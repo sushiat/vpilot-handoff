@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Plugin (issue #223): a tuned or standby station is now marked in the list sooner after a frequency
+  change. The radio helper no longer waits out its poll interval before acting on a tune command, the
+  ranking no longer blocks the incoming radio state while it recomputes, and a COM frequency change
+  now sends one extra station-list update right away instead of waiting for the next regular one.
+  Recomputes and broadcast ticks slower than 100 ms are now logged to help find any remaining lag.
 - Android (issue #222): controller rows now slide when the ranking reorders, instead of jumping, so a live
   move is visible and a tap is less likely to land on a row that just moved.
 - Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,

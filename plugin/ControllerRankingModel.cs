@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 namespace Handoff.Plugin
 {
@@ -209,7 +210,13 @@ namespace Handoff.Plugin
         // Issue #134: set by every upstream Changed subscription below instead of recomputing
         // inline -- the actual RecomputeLocked() call is deferred to the next public read (see
         // EnsureRecomputed()), so a burst of broker/feed events only ever costs one recompute.
-        private bool _dirty;
+        // Issue #223: an int driven through Interlocked, not a bool guarded by _gate -- the
+        // upstream Changed handlers (one of which runs on RadioHost's pipe reader thread) must
+        // never wait on _gate while a long RecomputeLocked() holds it, or the new radio state
+        // isn't even recorded until the recompute finishes.
+        private int _dirtyFlag;
+        // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
+        private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
         private bool _debugModeEnabled;
         private RankingDebugExplain _lastRankingExplain;
         private bool _hasTakenOffThisSession;
@@ -263,15 +270,15 @@ namespace Handoff.Plugin
             // burst tens of times a tick in dense traffic/ATC -- each handler here only marks
             // state dirty; the actual recompute is deferred to the next public read via
             // EnsureRecomputed(), so a burst only ever costs one recompute.
-            _controllerState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _radioState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _flightPlanState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatsimFeed.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _pilotSession.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatGlassesData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatSpyData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _controllerState.Changed += (s, e) => MarkDirty();
+            _radioState.Changed += (s, e) => MarkDirty();
+            _flightPlanState.Changed += (s, e) => MarkDirty();
+            _vatsimFeed.Changed += (s, e) => MarkDirty();
+            _pilotSession.Changed += (s, e) => MarkDirty();
+            _vatGlassesData.Changed += (s, e) => MarkDirty();
+            _vatSpyData.Changed += (s, e) => MarkDirty();
 
-            _dirty = true;
+            MarkDirty();
             EnsureRecomputed();
         }
 
@@ -306,7 +313,7 @@ namespace Handoff.Plugin
                 changed = _debugModeEnabled != enabled;
                 _debugModeEnabled = enabled;
                 if (!enabled) _lastRankingExplain = null;
-                if (changed) _dirty = true;
+                if (changed) MarkDirty();
             }
             if (changed) EnsureRecomputed();
         }
@@ -424,7 +431,7 @@ namespace Handoff.Plugin
                 {
                     _routeInvalidatedByDiversion = true;
                     _pendingDiversionDestination = null;
-                    _dirty = true;
+                    MarkDirty();
                 }
             }
             if (changed) EnsureRecomputed();
@@ -440,7 +447,7 @@ namespace Handoff.Plugin
             {
                 changed = _pendingDiversionDestination != null;
                 _pendingDiversionDestination = null;
-                if (changed) _dirty = true;
+                if (changed) MarkDirty();
             }
             if (changed) EnsureRecomputed();
         }
@@ -462,17 +469,30 @@ namespace Handoff.Plugin
             bool recomputed;
             lock (_gate)
             {
-                if (_newStationFlagActive) _dirty = true;
-                recomputed = _dirty;
-                if (_dirty)
+                if (_newStationFlagActive) MarkDirty();
+                // Exchange (not read-then-clear) so a MarkDirty() landing between the check and
+                // the clear from another thread can't be lost.
+                recomputed = Interlocked.Exchange(ref _dirtyFlag, 0) != 0;
+                if (recomputed)
                 {
-                    _dirty = false;
+                    var stopwatch = Stopwatch.StartNew();
                     RecomputeLocked();
+                    stopwatch.Stop();
+                    if (stopwatch.Elapsed >= SlowRecomputeLogThreshold)
+                    {
+                        Log("Slow ranking recompute: " + (int)stopwatch.Elapsed.TotalMilliseconds + "ms.");
+                    }
                 }
             }
             // Raised outside _gate so a Changed subscriber can't block other threads waiting to
             // read Current/PendingDiversionDestination/etc.
             if (recomputed) Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Lock-free: safe to call from any thread without touching _gate (issue #223).</summary>
+        private void MarkDirty()
+        {
+            Interlocked.Exchange(ref _dirtyFlag, 1);
         }
 
         /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>

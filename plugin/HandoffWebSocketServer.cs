@@ -78,6 +78,14 @@ namespace Handoff.Plugin
         // Skips (rather than queues) a tick if the previous one is still running, so a slow
         // Recompute/serialize/broadcast can't pile up overlapping callbacks on the ThreadPool.
         private int _broadcastTickRunning;
+        private const int SlowBroadcastTickLogMs = 100;
+
+        // Issue #223 -- extra `controllers` push on a COM frequency change, see
+        // OnRadioStateChangedForTuneLatency.
+        private readonly MinIntervalGate _extraControllersGate = new MinIntervalGate(TimeSpan.FromMilliseconds(250));
+        private readonly object _tuneKeyGate = new object();
+        private (int? Com1, int? Com2, int? Com1Standby, int? Com2Standby) _lastTuneKey;
+        private bool _hasLastTuneKey;
 
         // Decoupled from Recompute() -- internal ranking stays fully event-driven/reactive, but
         // diffing "did anything meaningful change" is intractable for SimConnect-driven fields
@@ -137,6 +145,7 @@ namespace Handoff.Plugin
             // broadcast only on its own ReadStateChanged event, never piggybacked on every Changed.
             _chatModel.ReadStateChanged += (s, e) => Broadcast(() => ProtocolMessages.BuildChatReadStateMessage(_chatModel.SessionId, _chatModel.ReadThrough));
             _radioState.Changed += (s, e) => Broadcast(() => ProtocolMessages.BuildRadioStateMessage(_radioState.Current));
+            _radioState.Changed += (s, e) => OnRadioStateChangedForTuneLatency();
 
             // flightPlan now blends SimBrief (FlightPlanModel) with the actually-filed VATSIM
             // plan (PilotSessionModel's own callsign, cross-referenced against
@@ -178,7 +187,8 @@ namespace Handoff.Plugin
 
             try
             {
-                Broadcast(() => ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                BroadcastControllers();
                 Broadcast(() => ProtocolMessages.BuildDiversionPendingMessage(_controllerRanking.PendingDiversionDestination));
                 // originMismatch (issue #68) is telemetry-driven and can flip every recompute,
                 // not just on the three Changed events flightPlan is otherwise wired to above --
@@ -186,11 +196,63 @@ namespace Handoff.Plugin
                 // PendingDiversionDestination above.
                 Broadcast(BuildFlightPlanMessage);
                 Broadcast(() => ProtocolMessages.BuildNearbyAircraftMessage(_nearbyAircraft.Current));
+
+                stopwatch.Stop();
+                if (stopwatch.ElapsedMilliseconds >= SlowBroadcastTickLogMs)
+                {
+                    Log("Slow broadcast tick: " + stopwatch.ElapsedMilliseconds + "ms.");
+                }
             }
             finally
             {
                 Interlocked.Exchange(ref _broadcastTickRunning, 0);
             }
+        }
+
+        private void BroadcastControllers()
+        {
+            Broadcast(() => ProtocolMessages.BuildControllersMessage(_controllerRanking.Current, _controllerRanking.PlanWideDebugExplain));
+        }
+
+        /// <summary>
+        /// Issue #223 -- isCurrent/isStandbyTuned only travel on the `controllers` message, which
+        /// otherwise goes out on the fixed tick, so a tuned row could lag up to a full tick behind
+        /// the radioState that already reported the change. When a COM active/standby frequency
+        /// actually differs from the last one seen, push one extra `controllers` message right
+        /// away (rate-limited). Deliberately not on every radioState change -- that would undo the
+        /// decoupled-cadence design. Skipped when a tick is already running: it carries the change.
+        /// </summary>
+        private void OnRadioStateChangedForTuneLatency()
+        {
+            var radio = _radioState.Current;
+            var key = (radio.Com1Frequency, radio.Com2Frequency, radio.Com1StandbyFrequency, radio.Com2StandbyFrequency);
+            lock (_tuneKeyGate)
+            {
+                if (_hasLastTuneKey && _lastTuneKey.Equals(key)) return;
+                var firstObservation = !_hasLastTuneKey;
+                _lastTuneKey = key;
+                _hasLastTuneKey = true;
+                if (firstObservation) return;
+            }
+
+            if (!_extraControllersGate.TryEnter()) return;
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                if (Interlocked.CompareExchange(ref _broadcastTickRunning, 1, 0) != 0) return;
+                try
+                {
+                    BroadcastControllers();
+                }
+                catch (Exception ex)
+                {
+                    Log("Extra controllers broadcast failed: " + ex.Message);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _broadcastTickRunning, 0);
+                }
+            });
         }
 
         /// <summary>Binds the Fleck socket on the current port (issue #98) -- split out from
