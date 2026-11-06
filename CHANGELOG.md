@@ -43,8 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Plugin (issue #223): an approach or departure controller could stay marked as likely-next at cruise
-  altitude, even miles behind you. The approach altitude ceiling already hid them from the nearby-station
-  highlight but not from this "you are about to enter their airspace" prediction; it now applies to both.
+  altitude, even when you were far too high to ever get down into their airspace. The "you are about to
+  enter their airspace" prediction now checks that you can still descend to the sector's ceiling over the
+  distance left (3 NM per 1000 ft), so a station is hidden when you are too high and close, but still shown
+  when you are above its ceiling and being handed over with room to descend.
 - Plugin (issue #223): restarting the plugin or vPilot in flight no longer leaves the route stuck at its
   first waypoint. Everything behind you on the route counted as still ahead until you next flew over a
   waypoint, which on a long direct could take half an hour, so stations near your departure kept being

@@ -161,8 +161,11 @@ one and central to the other.
   toward (widened from the pre-#18 2000ft -- a fast-climbing/descending bizjet can close that gap
   quickly). Level flight outside the band never converges, regardless of proximity.
 - **Vertical (APP, bucket 7c):** decided -- no satisfied-or-converging vertical trend check at all.
-  Bucket 7b's ceiling (the sector's own upper FL + 5000ft, else a flat FL290 fallback) is the only
-  vertical gate; "entering" for 7c is purely lateral route/heading convergence. Simpler than CTR's
+  Bucket 7b's ceiling (the sector's own upper FL + 5000ft, else a flat FL290 fallback) gates the
+  highlight radius outright. "Entering" for 7c is route/heading convergence plus a descent-reach
+  check (issue #223): ownship above that ceiling still counts if it can descend to it over the
+  distance left to the sector at 3nm per 1000ft -- a hard ceiling would hide e.g. Bremen Radar (sector top FL104)
+  when handed over from Center at FL200. Simpler than CTR's
   8a on purpose -- APP/DEP is a much tighter-range, shorter-lived phase than an enroute Center
   prediction, not worth the same trend-tracking machinery.
 - **Combining:** a sector counts as converging when it is not already contained/otherwise resolved

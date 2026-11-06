@@ -92,6 +92,7 @@ namespace Handoff.Plugin
         // would have wrongly suppressed the flag.
         private const double AppHighlightRadiusNm = 30;
         private const double AppCeilingMarginFl = 50; // 5000ft, in FL units
+        private const double DescentNmPerThousandFeet = 3.0; // standard 3:1 descent, for the 7c "can still descend into it" gate
         private const double AppCeilingFallbackFl = 290; // FL290, used when the polygon has no altitude info at all
 
         // Bucket 8a: CTR airborne lateral+vertical convergence prediction.
@@ -1762,12 +1763,12 @@ namespace Handoff.Plugin
             // 7c (APP/DEP) -- entering is independent of the 30nm highlight radius (a route/heading
             // convergence match can exist well beyond it), so a genuinely entering candidate is
             // added to IsHighlighted here too if it wasn't already.
-            // The documented 7b ceiling is the only vertical gate for APP/DEP, and it has to gate
-            // "entering" too, not just the highlight radius above: at cruise an approach sector
-            // is irrelevant however its polygon lines up with the route (EVRA_APP stayed
-            // IsLikelyNext at FL340, miles behind -- issue #223 flight test).
+            // "Entering" is a prediction, so it is vertically gated by whether the aircraft can still
+            // descend into the sector over the distance left (IsBeyondDescentReach), not by a hard
+            // ceiling: a hard one hid Bremen Radar (sector top FL104, ceiling FL154) when handed over
+            // from Center at FL200 -- issue #223 flight test. Close and high is still excluded.
             var rawEntering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
-                .Where(x => !IsAboveAppCeiling(x.Owner, pressureAltitudeFl, regions, allOnlineControllers))
+                .Where(x => !IsBeyondDescentReach(x.Owner, pressureAltitudeFl, x.Match.DistanceNauticalMiles, regions, allOnlineControllers))
                 .GroupBy(x => x.Owner.Callsign, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.OrderBy(x => x.Match.DistanceNauticalMiles).First())
                 .ToList();
@@ -1789,10 +1790,10 @@ namespace Handoff.Plugin
             {
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null) { _appDepEnteringCommitted.Remove(callsign); continue; }
-                if (IsAboveAppCeiling(owner, pressureAltitudeFl, regions, allOnlineControllers)) { _appDepEnteringCommitted.Remove(callsign); continue; }
                 var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
                 if (PassesEnteringDeadband(_appDepEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var distanceNm))
                 {
+                    if (IsBeyondDescentReach(owner, pressureAltitudeFl, distanceNm, regions, allOnlineControllers)) { _appDepEnteringCommitted.Remove(callsign); continue; }
                     entering.Add((owner, distanceNm));
                 }
             }
@@ -1861,6 +1862,14 @@ namespace Handoff.Plugin
         private bool IsAboveAppCeiling(HandoffController controller, double? pressureAltitudeFl, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
             return pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ResolveAppCeilingFl(controller, regions, allOnlineControllers);
+        }
+
+        /// <summary>Issue #223: true when ownship is too high to get down to the sector's ceiling over the distance left to it, at <see cref="DescentNmPerThousandFeet"/> NM per 1000 ft. Below the ceiling it is never beyond reach; far enough away, even FL340 is reachable.</summary>
+        private bool IsBeyondDescentReach(HandoffController controller, double? pressureAltitudeFl, double distanceNm, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        {
+            if (!pressureAltitudeFl.HasValue) return false;
+            var excessThousandFeet = (pressureAltitudeFl.Value - ResolveAppCeilingFl(controller, regions, allOnlineControllers)) / 10.0;
+            return excessThousandFeet > 0 && excessThousandFeet * DescentNmPerThousandFeet > distanceNm;
         }
 
         private double ResolveAppCeilingFl(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)

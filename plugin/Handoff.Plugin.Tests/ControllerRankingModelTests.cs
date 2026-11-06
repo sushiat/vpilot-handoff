@@ -872,13 +872,13 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
-        public void Bucket7c_AppDep_Entering_AboveSectorCeiling_NeverFlagged()
+        public void Bucket7c_AppDep_Entering_TooHighToDescendInTime_NotFlagged()
         {
-            // Issue #223 flight test: an approach sector behind/below stayed IsLikelyNext at FL340
-            // because only 7b's highlight loop checked the ceiling, not the 7c entering path.
-            // Sector ceiling FL100 + 50 margin = FL150; FL340 is far above it.
-            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
-            AddController("TEST_APP", 12345, 2, 0);
+            // Issue #223 flight test: an approach sector stayed IsLikelyNext at FL340 when it was
+            // too close to ever get down into. Ceiling FL100 + 50 margin = FL150; FL340 is 190
+            // levels above it, so a 3:1 descent needs ~57 NM and the box edge is only ~18 NM ahead.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0.5, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 0.5, 0);
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 34000);
             var model = CreateModel(vatGlassesData: vatGlasses);
 
@@ -886,6 +886,20 @@ namespace Handoff.Plugin.Tests
             Assert.False(ranked.IsHighlighted);
             Assert.False(ranked.IsNext);
             Assert.False(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_AboveCeilingButFarEnoughToDescend_StillFlagged()
+        {
+            // Issue #223 flight test: Bremen Radar's sector tops out at FL104 (ceiling FL154), but being
+            // handed over from Center at FL200 is normal -- 46 levels is ~14 NM of descent and the
+            // sector edge is ~108 NM ahead, so it must not be hidden.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsLikelyNext);
         }
 
         [Fact]
