@@ -820,8 +820,7 @@ namespace Handoff.Plugin.Tests
             // Sector's own published ceiling (FL100 + 50 margin = FL150) is tighter than the
             // flat FL290 fallback -- FL200 clears the fallback but must still be excluded. No
             // heading set -- isolates the 7b highlight-radius/ceiling check from 7c's separate
-            // "entering" signal, which (per docs/controller-ranking.md's open question on APP/DEP
-            // vertical gating) isn't altitude-gated at all today.
+            // "entering" signal (which the same ceiling gates too -- see the 7c tests below).
             var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
             AddController("EGLL_APP", 12345, 0, 0);
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.2, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200
@@ -870,6 +869,34 @@ namespace Handoff.Plugin.Tests
             Assert.True(ranked.IsHighlighted);
             Assert.False(ranked.IsNext);
             Assert.True(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_AboveSectorCeiling_NeverFlagged()
+        {
+            // Issue #223 flight test: an approach sector behind/below stayed IsLikelyNext at FL340
+            // because only 7b's highlight loop checked the ceiling, not the 7c entering path.
+            // Sector ceiling FL100 + 50 margin = FL150; FL340 is far above it.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 34000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_APP");
+            Assert.False(ranked.IsHighlighted);
+            Assert.False(ranked.IsNext);
+            Assert.False(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_BelowSectorCeiling_StillFlagged()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 10000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsLikelyNext);
         }
 
         [Fact]

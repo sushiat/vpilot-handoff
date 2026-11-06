@@ -216,6 +216,8 @@ namespace Handoff.Plugin
         // isn't even recorded until the recompute finishes.
         private int _dirtyFlag;
         private string _lastRecomputeBreakdown;
+        // Per-recompute memo for FindAnySectorLevelForController -- see there. Only touched under _gate inside RecomputeLocked.
+        private readonly Dictionary<string, VatGlassesSectorLevel> _sectorLevelCache = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
         // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
         private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
         private bool _debugModeEnabled;
@@ -499,8 +501,9 @@ namespace Handoff.Plugin
         /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>
         private void RecomputeLocked()
         {
+            _sectorLevelCache.Clear();
             var lapWatch = Stopwatch.StartNew();
-            long lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
+            long lapBucket7 = 0, lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
             var radio = _radioState.Current;
             var telemetry = _radioState.Telemetry;
@@ -680,6 +683,7 @@ namespace Handoff.Plugin
             {
                 var twrAppCandidates = bucketCandidates.Where(c => IsTwrOrApp(c.Callsign.ParseControllerTier())).ToList();
                 var bucket7Result = ComputeBucket7Highlight(twrAppCandidates, controllers, routeAirport, remainingWaypoints, telemetry, vatGlassesRegions);
+                lapBucket7 = lapWatch.ElapsedMilliseconds;
                 highlightBlocks.Add(bucket7Result);
                 highlightBlockBuckets.Add((7, "Airborne TWR/APP relevance"));
                 excludedFromRest.UnionWith(bucket7Result.HighlightedCallsigns);
@@ -839,7 +843,7 @@ namespace Handoff.Plugin
 
             // Cumulative ms at the end of each stage -- read as differences (issue #223).
             _lastRecomputeBreakdown = "setup=" + lapSetup + " sequence=" + (lapSequence - lapSetup) +
-                " highlight=" + (lapHighlight - lapSequence) + " rest=" + (lapRest - lapHighlight) +
+                " highlight=" + (lapHighlight - lapSequence) + " (b7=" + (lapBucket7 > 0 ? lapBucket7 - lapSequence : 0) + ")" + " rest=" + (lapRest - lapHighlight) +
                 " order=" + (lapFinal - lapRest) + " build=" + (lapRank - lapFinal) +
                 " controllers=" + controllers.Count + (isOnGround ? " ground" : " airborne");
         }
@@ -1705,8 +1709,7 @@ namespace Handoff.Plugin
                 }
                 else if (tier == ControllerTier.AppDep)
                 {
-                    var ceilingFl = ResolveAppCeilingFl(c, regions, allOnlineControllers);
-                    if (pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ceilingFl) continue;
+                    if (IsAboveAppCeiling(c, pressureAltitudeFl, regions, allOnlineControllers)) continue;
 
                     var distance = ResolveAppDistanceNm(c, regions, allOnlineControllers, telemetry);
                     if (!PassesDeadband(_appRadiusCommitted, c.Callsign, distance, AppHighlightRadiusNm)) continue;
@@ -1730,7 +1733,12 @@ namespace Handoff.Plugin
             // 7c (APP/DEP) -- entering is independent of the 30nm highlight radius (a route/heading
             // convergence match can exist well beyond it), so a genuinely entering candidate is
             // added to IsHighlighted here too if it wasn't already.
+            // The documented 7b ceiling is the only vertical gate for APP/DEP, and it has to gate
+            // "entering" too, not just the highlight radius above: at cruise an approach sector
+            // is irrelevant however its polygon lines up with the route (EVRA_APP stayed
+            // IsLikelyNext at FL340, miles behind -- issue #223 flight test).
             var rawEntering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
+                .Where(x => !IsAboveAppCeiling(x.Owner, pressureAltitudeFl, regions, allOnlineControllers))
                 .GroupBy(x => x.Owner.Callsign, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.OrderBy(x => x.Match.DistanceNauticalMiles).First())
                 .ToList();
@@ -1752,6 +1760,7 @@ namespace Handoff.Plugin
             {
                 var owner = allOnlineControllers.FirstOrDefault(c => string.Equals(c.Callsign, callsign, StringComparison.OrdinalIgnoreCase));
                 if (owner == null) { _appDepEnteringCommitted.Remove(callsign); continue; }
+                if (IsAboveAppCeiling(owner, pressureAltitudeFl, regions, allOnlineControllers)) { _appDepEnteringCommitted.Remove(callsign); continue; }
                 var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
                 if (PassesEnteringDeadband(_appDepEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var distanceNm))
                 {
@@ -1785,7 +1794,23 @@ namespace Handoff.Plugin
         }
 
         /// <summary>Finds any VatGlasses sector level whose Owner chain resolves to this specific controller -- used to look up "the sector this online APP/DEP position is presumably responsible for" even when ownship isn't inside it (e.g. for 7b's altitude ceiling). Picks the first one found; not expected to matter in practice since an airport rarely has wildly different levels across identically-owned sectors.</summary>
-        private static VatGlassesSectorLevel FindAnySectorLevelForController(
+        private VatGlassesSectorLevel FindAnySectorLevelForController(
+            HandoffController controller,
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyCollection<HandoffController> allOnlineControllers)
+        {
+            // Issue #223: this scans every sector of every region and resolves ownership for
+            // each, and one recompute asks for the same controller up to three times (7b ceiling,
+            // 7b distance, 7b matched flag) plus the 7c/8a passes. The answer can't change within
+            // one recompute (regions and the online set are fixed for it), so memoize per
+            // recompute -- the cache is cleared at the start of RecomputeLocked.
+            if (_sectorLevelCache.TryGetValue(controller.Callsign, out var cached)) return cached;
+            var level = FindAnySectorLevelForControllerUncached(controller, regions, allOnlineControllers);
+            _sectorLevelCache[controller.Callsign] = level;
+            return level;
+        }
+
+        private static VatGlassesSectorLevel FindAnySectorLevelForControllerUncached(
             HandoffController controller,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
             IReadOnlyCollection<HandoffController> allOnlineControllers)
@@ -1804,7 +1829,12 @@ namespace Handoff.Plugin
             return null;
         }
 
-        private static double ResolveAppCeilingFl(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        private bool IsAboveAppCeiling(HandoffController controller, double? pressureAltitudeFl, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        {
+            return pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ResolveAppCeilingFl(controller, regions, allOnlineControllers);
+        }
+
+        private double ResolveAppCeilingFl(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
             var level = FindAnySectorLevelForController(controller, regions, allOnlineControllers);
             if (level?.MaxFlightLevel != null) return level.MaxFlightLevel.Value + AppCeilingMarginFl;
@@ -1818,7 +1848,7 @@ namespace Handoff.Plugin
         /// heading convergence checks, which aren't appropriate for a plain proximity check), else
         /// straight-line distance to the controller's own reported position.
         /// </summary>
-        private static double ResolveAppDistanceNm(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers, OwnshipTelemetry telemetry)
+        private double ResolveAppDistanceNm(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers, OwnshipTelemetry telemetry)
         {
             var level = FindAnySectorLevelForController(controller, regions, allOnlineControllers);
             if (level != null)
