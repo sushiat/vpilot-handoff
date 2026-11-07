@@ -820,14 +820,44 @@ namespace Handoff.Plugin.Tests
             // Sector's own published ceiling (FL100 + 50 margin = FL150) is tighter than the
             // flat FL290 fallback -- FL200 clears the fallback but must still be excluded. No
             // heading set -- isolates the 7b highlight-radius/ceiling check from 7c's separate
-            // "entering" signal, which (per docs/controller-ranking.md's open question on APP/DEP
-            // vertical gating) isn't altitude-gated at all today.
+            // "entering" signal (which the same ceiling gates too -- see the 7c tests below).
             var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
             AddController("EGLL_APP", 12345, 0, 0);
             _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.2, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200
             var model = CreateModel(vatGlassesData: vatGlasses);
 
             Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
+        public void Bucket7b_AppDep_AboveSectorCeiling_ButFarEnoughToDescend_Highlights()
+        {
+            // Issue #223 flight test: Bremen Radar's sector tops out at FL104 (ceiling FL154), yet
+            // being handed over from Center at FL200 is normal. FL200 is 46 levels over the ceiling
+            // (~14 NM of 3:1 descent) and the sector edge is ~18 NM away, so it must highlight.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
+            AddController("EGLL_APP", 12345, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.6, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single().IsHighlighted);
+        }
+
+        [Fact]
+        public void Bucket7b_AppDep_ControllerOnlineAfterFirstRecompute_StillGetsItsSectorCeiling()
+        {
+            // Issue #223: the controller -> sector level map is cached across recomputes, so a station
+            // that comes online later must invalidate it (online set changed) and be gated by its own
+            // sector ceiling (FL100 + 50 = FL150), not the flat FL290 fallback.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0, 0.3, "APP", "POS_APP", "EGLL_APP", "EGLL", minFl: 0, maxFl: 100));
+            AddController("EGLL_GND", 21800, 0, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0.2, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // FL200, inside the sector
+            var model = CreateModel(vatGlassesData: vatGlasses);
+            _ = model.Current; // first recompute builds the map without EGLL_APP
+
+            AddController("EGLL_APP", 12345, 0, 0);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "EGLL_APP").IsHighlighted);
         }
 
         [Fact]
@@ -870,6 +900,48 @@ namespace Handoff.Plugin.Tests
             Assert.True(ranked.IsHighlighted);
             Assert.False(ranked.IsNext);
             Assert.True(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_TooHighToDescendInTime_NotFlagged()
+        {
+            // Issue #223 flight test: an approach sector stayed IsLikelyNext at FL340 when it was
+            // too close to ever get down into. Ceiling FL100 + 50 margin = FL150; FL340 is 190
+            // levels above it, so a 3:1 descent needs ~57 NM and the box edge is only ~18 NM ahead.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0.5, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 0.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 34000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            var ranked = model.Current.Single(c => c.Callsign == "TEST_APP");
+            Assert.False(ranked.IsHighlighted);
+            Assert.False(ranked.IsNext);
+            Assert.False(ranked.IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_AboveCeilingButFarEnoughToDescend_StillFlagged()
+        {
+            // Issue #223 flight test: Bremen Radar's sector tops out at FL104 (ceiling FL154), but being
+            // handed over from Center at FL200 is normal -- 46 levels is ~14 NM of descent and the
+            // sector edge is ~108 NM ahead, so it must not be hidden.
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsLikelyNext);
+        }
+
+        [Fact]
+        public void Bucket7c_AppDep_Entering_BelowSectorCeiling_StillFlagged()
+        {
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(2, 0, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 100));
+            AddController("TEST_APP", 12345, 2, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 1.5, 0, DateTimeOffset.Now, pressureAltitudeFeet: 10000);
+            var model = CreateModel(vatGlassesData: vatGlasses);
+
+            Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsLikelyNext);
         }
 
         [Fact]
@@ -996,6 +1068,66 @@ namespace Handoff.Plugin.Tests
             _radio.RaiseChanged();
 
             Assert.False(model.Current.Single().IsHighlighted);
+        }
+
+        // Issue #223: the approach search is memoised across recomputes -- reused while ownship is
+        // within a few NM / seconds / degrees of where it ran, redone once any of those is exceeded.
+        private ControllerRankingModel CreateSearchCacheModel(out Action<TimeSpan> advance)
+        {
+            var clock = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(1.5, 0, 0.01, "CTR", "POS_CTR", "TEST_CTR", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_CTR", 13350, 1.5, 0);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 0, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            var holder = new[] { clock };
+            advance = d => holder[0] += d;
+            var model = CreateModel(vatGlassesData: vatGlasses, now: () => holder[0]);
+            return model;
+        }
+
+        [Fact]
+        public void ApproachSearch_RecomputeWithinWindowAndTolerance_ReusesCachedSearch()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            Assert.True(model.Current.Single().IsHighlighted);
+            var missesAfterFirst = model.ApproachSearchMisses;
+            Assert.True(missesAfterFirst > 0);
+
+            advance(TimeSpan.FromSeconds(1));
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 1, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000); // 1 deg turn: within tolerance
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.Equal(missesAfterFirst, model.ApproachSearchMisses);
+            Assert.True(model.ApproachSearchHits > 0);
+        }
+
+        [Fact]
+        public void ApproachSearch_AfterReuseWindowExpires_SearchesAgain()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            _ = model.Current;
+            var missesAfterFirst = model.ApproachSearchMisses;
+
+            advance(TimeSpan.FromSeconds(5));
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.True(model.ApproachSearchMisses > missesAfterFirst);
+        }
+
+        [Fact]
+        public void ApproachSearch_HeadingChangedBeyondTolerance_SearchesAgain()
+        {
+            var model = CreateSearchCacheModel(out var advance);
+            _ = model.Current;
+            var missesAfterFirst = model.ApproachSearchMisses;
+
+            advance(TimeSpan.FromSeconds(1));
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 5, 0, 0, DateTimeOffset.Now, pressureAltitudeFeet: 20000);
+            _radio.RaiseChanged();
+            _ = model.Current;
+
+            Assert.True(model.ApproachSearchMisses > missesAfterFirst);
         }
 
         [Fact]
@@ -1348,8 +1480,12 @@ namespace Handoff.Plugin.Tests
             AddController("TEST_APP", 12345, 0, 0.8);
 
             var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            // Starts on the ground at A, like a real flight, then lifts off in place: the route
+            // sequencer anchors at A before the takeoff latch sets, so it isn't synced mid-flight.
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, null, 0, 0, now);
             var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.RaiseChanged();
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
 
@@ -1366,6 +1502,49 @@ namespace Handoff.Plugin.Tests
             // the along-track sweep alone can never advance past B/C/D on this bearing (see this
             // test's own doc comment above).
             Assert.Equal("proximityCatchUp", model.BuildDebugSnapshot().LastWaypointAdvanceMechanism);
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_StartedMidFlightPastEarlyWaypoints_SyncsToNearestLeg()
+        {
+            // Issue #223 follow-up: plugin restarted at cruise, far along the route. A fresh
+            // sequencer used to start at index 0, keeping every waypoint behind ownship in the
+            // remaining route until a downstream one was overflown -- so a sector near the
+            // departure (here a box on W0) still looked like it was ahead.
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("W0", 0, 0.5),
+                new FlightPlanWaypoint("W1", 0, 2.0),
+                new FlightPlanWaypoint("W2", 0, 4.0),
+                new FlightPlanWaypoint("W3", 0, 6.0),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+            var vatGlasses = CreateVatGlassesDataModel(GroundBoxRegionJson(0, 0.5, 0.2, "APP", "POS_APP", "TEST_APP", "TEST", minFl: 0, maxFl: 660));
+            AddController("TEST_APP", 12345, 0, 0.5);
+
+            // Between W1 and W2, already airborne at the very first recompute.
+            _radio.Telemetry = new OwnshipTelemetry(false, 450, 30000, 0, 90, 0, 3.0, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan, vatGlassesData: vatGlasses);
+
+            Assert.False(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
+            Assert.Equal(2, model.BuildDebugSnapshot().CommittedWaypointIndex);
+        }
+
+        [Fact]
+        public async Task AbeamSequencing_StartedMidFlightBeforeTheFirstWaypoint_KeepsWholeRoute()
+        {
+            var waypoints = new List<FlightPlanWaypoint>
+            {
+                new FlightPlanWaypoint("W0", 0, 1.0),
+                new FlightPlanWaypoint("W1", 0, 3.0),
+            };
+            var flightPlan = await CreateFlightPlanAsync("AAAA", "DDDD", waypoints);
+
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, 90, 0, 0.1, DateTimeOffset.Now);
+            var model = CreateModel(flightPlan);
+            _ = model.Current;
+
+            Assert.Equal(0, model.BuildDebugSnapshot().CommittedWaypointIndex);
         }
 
         [Fact]
@@ -1387,8 +1566,10 @@ namespace Handoff.Plugin.Tests
             AddController("TEST_APP", 12345, 0, 0.8);
 
             var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
-            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.Telemetry = new OwnshipTelemetry(true, 0, 0, 0, null, 0, 0, now);
             var model = CreateModel(flightPlan, now: () => now, vatGlassesData: vatGlasses);
+            _radio.Telemetry = new OwnshipTelemetry(false, 250, 15000, 0, null, 0, 0, now);
+            _radio.RaiseChanged();
 
             Assert.True(model.Current.Single(c => c.Callsign == "TEST_APP").IsHighlighted);
 

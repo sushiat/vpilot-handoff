@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 namespace Handoff.Plugin
 {
@@ -91,6 +92,7 @@ namespace Handoff.Plugin
         // would have wrongly suppressed the flag.
         private const double AppHighlightRadiusNm = 30;
         private const double AppCeilingMarginFl = 50; // 5000ft, in FL units
+        private const double DescentNmPerThousandFeet = 3.0; // standard 3:1 descent, for the 7c "can still descend into it" gate
         private const double AppCeilingFallbackFl = 290; // FL290, used when the polygon has no altitude info at all
 
         // Bucket 8a: CTR airborne lateral+vertical convergence prediction.
@@ -209,7 +211,48 @@ namespace Handoff.Plugin
         // Issue #134: set by every upstream Changed subscription below instead of recomputing
         // inline -- the actual RecomputeLocked() call is deferred to the next public read (see
         // EnsureRecomputed()), so a burst of broker/feed events only ever costs one recompute.
-        private bool _dirty;
+        // Issue #223: an int driven through Interlocked, not a bool guarded by _gate -- the
+        // upstream Changed handlers (one of which runs on RadioHost's pipe reader thread) must
+        // never wait on _gate while a long RecomputeLocked() holds it, or the new radio state
+        // isn't even recorded until the recompute finishes.
+        private int _dirtyFlag;
+        private string _lastRecomputeBreakdown;
+        // Per-recompute memo for FindAnySectorLevelForController -- see there. Only touched under _gate inside RecomputeLocked.
+        // Issue #223: the route/sector approach search is the dearest step of a recompute (~200ms
+        // with 40+ controllers) and recompute runs about once a second, so the last result is kept
+        // ACROSS recomputes and reused while its inputs are still effectively the same -- see
+        // TryGetCachedApproachSearch. Only touched under _gate inside RecomputeLocked.
+        private readonly Dictionary<(bool UseRoute, double MaxNm), ApproachSearchMemo> _approachSearchCache =
+            new Dictionary<(bool UseRoute, double MaxNm), ApproachSearchMemo>();
+        private int _approachSearchHits;
+        private int _approachSearchMisses;
+        internal int ApproachSearchHits => _approachSearchHits;
+        internal int ApproachSearchMisses => _approachSearchMisses;
+        // A cached search is reused for at most this long, or until ownship has moved this far from where it ran
+        // (at cruise the time cap bites first: ~4s is about 3 NM, small against the 50+ NM search radius).
+        private static readonly TimeSpan ApproachSearchReuseWindow = TimeSpan.FromSeconds(4);
+        private const double ApproachSearchReuseMaxMovedNm = 3.0;
+        private const double ApproachSearchReuseMaxHeadingChangeDegrees = 2.0;
+
+        private sealed class ApproachSearchMemo
+        {
+            public IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> Matches;
+            public IReadOnlyDictionary<string, VatGlassesRegionData> Regions;
+            public IReadOnlyList<FlightPlanWaypoint> Waypoints;
+            public int WaypointCount;
+            public FlightPlanWaypoint FirstWaypoint;
+            public double Latitude;
+            public double Longitude;
+            public double? Heading;
+            public DateTimeOffset At;
+        }
+        // Controller callsign -> first sector level it owns; rebuilt only when the region data or the online set changes.
+        private Dictionary<string, VatGlassesSectorLevel> _sectorLevelMap = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyDictionary<string, VatGlassesRegionData> _sectorLevelMapRegions;
+        private string _sectorLevelMapSignature;
+        private bool _sectorLevelMapChecked; // validated already this recompute (reset at its start)
+        // Recomputes slower than this are logged (issue #223) so a slow geometry pass shows up.
+        private static readonly TimeSpan SlowRecomputeLogThreshold = TimeSpan.FromMilliseconds(100);
         private bool _debugModeEnabled;
         private RankingDebugExplain _lastRankingExplain;
         private bool _hasTakenOffThisSession;
@@ -263,15 +306,15 @@ namespace Handoff.Plugin
             // burst tens of times a tick in dense traffic/ATC -- each handler here only marks
             // state dirty; the actual recompute is deferred to the next public read via
             // EnsureRecomputed(), so a burst only ever costs one recompute.
-            _controllerState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _radioState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _flightPlanState.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatsimFeed.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _pilotSession.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatGlassesData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
-            _vatSpyData.Changed += (s, e) => { lock (_gate) { _dirty = true; } };
+            _controllerState.Changed += (s, e) => MarkDirty();
+            _radioState.Changed += (s, e) => MarkDirty();
+            _flightPlanState.Changed += (s, e) => MarkDirty();
+            _vatsimFeed.Changed += (s, e) => MarkDirty();
+            _pilotSession.Changed += (s, e) => MarkDirty();
+            _vatGlassesData.Changed += (s, e) => MarkDirty();
+            _vatSpyData.Changed += (s, e) => MarkDirty();
 
-            _dirty = true;
+            MarkDirty();
             EnsureRecomputed();
         }
 
@@ -306,7 +349,7 @@ namespace Handoff.Plugin
                 changed = _debugModeEnabled != enabled;
                 _debugModeEnabled = enabled;
                 if (!enabled) _lastRankingExplain = null;
-                if (changed) _dirty = true;
+                if (changed) MarkDirty();
             }
             if (changed) EnsureRecomputed();
         }
@@ -424,7 +467,7 @@ namespace Handoff.Plugin
                 {
                     _routeInvalidatedByDiversion = true;
                     _pendingDiversionDestination = null;
-                    _dirty = true;
+                    MarkDirty();
                 }
             }
             if (changed) EnsureRecomputed();
@@ -440,7 +483,7 @@ namespace Handoff.Plugin
             {
                 changed = _pendingDiversionDestination != null;
                 _pendingDiversionDestination = null;
-                if (changed) _dirty = true;
+                if (changed) MarkDirty();
             }
             if (changed) EnsureRecomputed();
         }
@@ -462,12 +505,19 @@ namespace Handoff.Plugin
             bool recomputed;
             lock (_gate)
             {
-                if (_newStationFlagActive) _dirty = true;
-                recomputed = _dirty;
-                if (_dirty)
+                if (_newStationFlagActive) MarkDirty();
+                // Exchange (not read-then-clear) so a MarkDirty() landing between the check and
+                // the clear from another thread can't be lost.
+                recomputed = Interlocked.Exchange(ref _dirtyFlag, 0) != 0;
+                if (recomputed)
                 {
-                    _dirty = false;
+                    var stopwatch = Stopwatch.StartNew();
                     RecomputeLocked();
+                    stopwatch.Stop();
+                    if (stopwatch.Elapsed >= SlowRecomputeLogThreshold)
+                    {
+                        Log("Slow ranking recompute: " + (int)stopwatch.Elapsed.TotalMilliseconds + "ms (" + _lastRecomputeBreakdown + ").");
+                    }
                 }
             }
             // Raised outside _gate so a Changed subscriber can't block other threads waiting to
@@ -475,9 +525,18 @@ namespace Handoff.Plugin
             if (recomputed) Changed?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>Lock-free: safe to call from any thread without touching _gate (issue #223).</summary>
+        private void MarkDirty()
+        {
+            Interlocked.Exchange(ref _dirtyFlag, 1);
+        }
+
         /// <summary>Assumes the caller (EnsureRecomputed, or BuildDebugSnapshot's Ensure call before its own lock) already holds _gate for the duration of this call.</summary>
         private void RecomputeLocked()
         {
+            _sectorLevelMapChecked = false;
+            var lapWatch = Stopwatch.StartNew();
+            long lapBucket7 = 0, lapSetup = 0, lapSequence = 0, lapHighlight = 0, lapRest = 0, lapFinal = 0, lapRank = 0;
             var controllers = _controllerState.Controllers;
             var radio = _radioState.Current;
             var telemetry = _radioState.Telemetry;
@@ -585,11 +644,13 @@ namespace Handoff.Plugin
                 flightPlan.OriginLatitude.HasValue && flightPlan.OriginLongitude.HasValue &&
                 GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, flightPlan.OriginLatitude.Value, flightPlan.OriginLongitude.Value) > OriginSanityGateMaxNauticalMiles;
 
+            lapSetup = lapWatch.ElapsedMilliseconds;
             var remainingWaypoints = _routeInvalidatedByDiversion || _isOriginMismatched || !telemetry.Latitude.HasValue || !telemetry.Longitude.HasValue
                 ? new List<FlightPlanWaypoint>()
                 : SequenceRemainingWaypoints(flightPlan, telemetry.Latitude.Value, telemetry.Longitude.Value);
 
             UpdateVerticalTrend(telemetry);
+            lapSequence = lapWatch.ElapsedMilliseconds;
 
             var pressureAltitudeFl = telemetry.PressureAltitudeFeet / 100.0;
             var qnhTrueAltitudeFl = telemetry.PressureAltitudeFeet.HasValue && telemetry.SeaLevelPressureHpa.HasValue
@@ -655,6 +716,7 @@ namespace Handoff.Plugin
             {
                 var twrAppCandidates = bucketCandidates.Where(c => IsTwrOrApp(c.Callsign.ParseControllerTier())).ToList();
                 var bucket7Result = ComputeBucket7Highlight(twrAppCandidates, controllers, routeAirport, remainingWaypoints, telemetry, vatGlassesRegions);
+                lapBucket7 = lapWatch.ElapsedMilliseconds;
                 highlightBlocks.Add(bucket7Result);
                 highlightBlockBuckets.Add((7, "Airborne TWR/APP relevance"));
                 excludedFromRest.UnionWith(bucket7Result.HighlightedCallsigns);
@@ -668,6 +730,7 @@ namespace Handoff.Plugin
                 etaMinutesByCallsign = ComputeEtaMinutesByCallsign(telemetry, bucket8Result);
             }
 
+            lapHighlight = lapWatch.ElapsedMilliseconds;
             var highlightedCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.HighlightedCallsigns), StringComparer.OrdinalIgnoreCase);
             var nextCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.NextCallsigns), StringComparer.OrdinalIgnoreCase);
             var likelyNextCallsigns = new HashSet<string>(highlightBlocks.SelectMany(b => b.LikelyNextCallsigns), StringComparer.OrdinalIgnoreCase);
@@ -694,6 +757,7 @@ namespace Handoff.Plugin
                 }
             }
 
+            lapRest = lapWatch.ElapsedMilliseconds;
             var finalOrder = new List<HandoffController>();
             finalOrder.AddRange(OrderCurrentBucket(controllers, currentCallsigns, radio));
             finalOrder.AddRange(OrderStandbyBucket(remaining.Where(c => standbyCallsigns.Contains(c.Callsign)), radio));
@@ -772,6 +836,7 @@ namespace Handoff.Plugin
                 _lastRankingExplain = null;
             }
 
+            lapFinal = lapWatch.ElapsedMilliseconds;
             var nowUtc = _now();
             var originPrefix = _hasTakenOffThisSession ? null : origin;
             var ranked = finalOrder.Select(c =>
@@ -807,6 +872,14 @@ namespace Handoff.Plugin
 
             _current = ranked;
             _newStationFlagActive = ranked.Any(r => r.IsNewStation);
+            lapRank = lapWatch.ElapsedMilliseconds;
+
+            // Cumulative ms at the end of each stage -- read as differences (issue #223).
+            _lastRecomputeBreakdown = "setup=" + lapSetup + " sequence=" + (lapSequence - lapSetup) +
+                " highlight=" + (lapHighlight - lapSequence) + " (b7=" + (lapBucket7 > 0 ? lapBucket7 - lapSequence : 0) + ")" + " rest=" + (lapRest - lapHighlight) +
+                " order=" + (lapFinal - lapRest) + " build=" + (lapRank - lapFinal) +
+                " controllers=" + controllers.Count + (isOnGround ? " ground" : " airborne") +
+                " search=" + _approachSearchHits + "hit/" + _approachSearchMisses + "miss";
         }
 
         /// <summary>Issue #186 -- a station that opened within <see cref="NewStationFlashWindow"/> whose callsign prefix (up to the first '_') is the departure airport's ICAO. Never true once the takeoff latch is set (the caller passes a null airport then).</summary>
@@ -1670,10 +1743,10 @@ namespace Handoff.Plugin
                 }
                 else if (tier == ControllerTier.AppDep)
                 {
-                    var ceilingFl = ResolveAppCeilingFl(c, regions, allOnlineControllers);
-                    if (pressureAltitudeFl.HasValue && pressureAltitudeFl.Value > ceilingFl) continue;
-
                     var distance = ResolveAppDistanceNm(c, regions, allOnlineControllers, telemetry);
+                    // Above the ceiling only counts if you can still descend to it over the distance left (same
+                    // rule as 7c's "entering"; a hard ceiling hid Bremen Radar when handed over at FL200).
+                    if (IsBeyondDescentReach(c, pressureAltitudeFl, distance, regions, allOnlineControllers)) continue;
                     if (!PassesDeadband(_appRadiusCommitted, c.Callsign, distance, AppHighlightRadiusNm)) continue;
 
                     result.HighlightedCallsigns.Add(c.Callsign);
@@ -1695,7 +1768,12 @@ namespace Handoff.Plugin
             // 7c (APP/DEP) -- entering is independent of the 30nm highlight radius (a route/heading
             // convergence match can exist well beyond it), so a genuinely entering candidate is
             // added to IsHighlighted here too if it wasn't already.
+            // "Entering" is a prediction, so it is vertically gated by whether the aircraft can still
+            // descend into the sector over the distance left (IsBeyondDescentReach), not by a hard
+            // ceiling: a hard one hid Bremen Radar (sector top FL104, ceiling FL154) when handed over
+            // from Center at FL200 -- issue #223 flight test. Close and high is still excluded.
             var rawEntering = FindEnteringOwnerMatches(telemetry, remainingWaypoints, regions, allOnlineControllers, ControllerTier.AppDep, RouteApproachMaxNauticalMiles, LateralApproachMaxNauticalMiles)
+                .Where(x => !IsBeyondDescentReach(x.Owner, pressureAltitudeFl, x.Match.DistanceNauticalMiles, regions, allOnlineControllers))
                 .GroupBy(x => x.Owner.Callsign, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.OrderBy(x => x.Match.DistanceNauticalMiles).First())
                 .ToList();
@@ -1720,6 +1798,7 @@ namespace Handoff.Plugin
                 var level = FindAnySectorLevelForController(owner, regions, allOnlineControllers);
                 if (PassesEnteringDeadband(_appDepEnteringCommitted, callsign, false, 0, level, telemetry, remainingWaypoints, out var distanceNm))
                 {
+                    if (IsBeyondDescentReach(owner, pressureAltitudeFl, distanceNm, regions, allOnlineControllers)) { _appDepEnteringCommitted.Remove(callsign); continue; }
                     entering.Add((owner, distanceNm));
                 }
             }
@@ -1750,26 +1829,58 @@ namespace Handoff.Plugin
         }
 
         /// <summary>Finds any VatGlasses sector level whose Owner chain resolves to this specific controller -- used to look up "the sector this online APP/DEP position is presumably responsible for" even when ownship isn't inside it (e.g. for 7b's altitude ceiling). Picks the first one found; not expected to matter in practice since an airport rarely has wildly different levels across identically-owned sectors.</summary>
-        private static VatGlassesSectorLevel FindAnySectorLevelForController(
+        private VatGlassesSectorLevel FindAnySectorLevelForController(
             HandoffController controller,
             IReadOnlyDictionary<string, VatGlassesRegionData> regions,
             IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
+            // Issue #223: asked for the same controller several times per recompute (7b ceiling,
+            // distance, matched flag, 7c/8a passes), and answering from scratch scanned every sector
+            // of every region against every online controller. One pass now maps every online
+            // controller to its first owning sector level, and that map is reused across recomputes
+            // until the data or the online set changes (see EnsureSectorLevelMap).
+            EnsureSectorLevelMap(regions, allOnlineControllers);
+            return _sectorLevelMap.TryGetValue(controller.Callsign, out var level) ? level : null;
+        }
+
+        private void EnsureSectorLevelMap(IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        {
+            if (_sectorLevelMapChecked && ReferenceEquals(_sectorLevelMapRegions, regions)) return;
+            _sectorLevelMapChecked = true;
+
+            var signature = string.Join("|", allOnlineControllers.Select(c => c.Callsign).OrderBy(cs => cs, StringComparer.OrdinalIgnoreCase));
+            if (ReferenceEquals(_sectorLevelMapRegions, regions) && string.Equals(_sectorLevelMapSignature, signature, StringComparison.Ordinal)) return;
+
+            var map = new Dictionary<string, VatGlassesSectorLevel>(StringComparer.OrdinalIgnoreCase);
             foreach (var region in regions.Values)
             {
                 foreach (var sector in region.Airspace)
                 {
-                    var owners = VatGlassesOwnershipResolver.ResolveOnlineControllers(sector.Owner, region.Positions, allOnlineControllers);
-                    if (owners.Any(o => string.Equals(o.Callsign, controller.Callsign, StringComparison.OrdinalIgnoreCase)))
+                    // Same "first sector found wins" rule as before, but resolving each sector's owners once for all controllers.
+                    var level = sector.Levels.FirstOrDefault();
+                    foreach (var owner in VatGlassesOwnershipResolver.ResolveOnlineControllers(sector.Owner, region.Positions, allOnlineControllers))
                     {
-                        return sector.Levels.FirstOrDefault();
+                        if (!map.ContainsKey(owner.Callsign)) map[owner.Callsign] = level;
                     }
                 }
             }
-            return null;
+            _sectorLevelMap = map;
+            _sectorLevelMapRegions = regions;
+            _sectorLevelMapSignature = signature;
         }
 
-        private static double ResolveAppCeilingFl(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        /// <summary>Issue #223: true when ownship is too high to get down to the sector's ceiling over the distance left to it, at <see cref="DescentNmPerThousandFeet"/> NM per 1000 ft. Below the ceiling it is never beyond reach; far enough away, even FL340 is reachable.</summary>
+        private bool IsBeyondDescentReach(HandoffController controller, double? pressureAltitudeFl, double distanceNm, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
+        {
+            if (!pressureAltitudeFl.HasValue) return false;
+            var ceilingFl = ResolveAppCeilingFl(controller, regions, allOnlineControllers);
+            // No sector data for this station: the flat fallback ceiling is arbitrary, so it stays a hard cutoff.
+            if (FindAnySectorLevelForController(controller, regions, allOnlineControllers) == null) return pressureAltitudeFl.Value > ceilingFl;
+            var excessThousandFeet = (pressureAltitudeFl.Value - ceilingFl) / 10.0;
+            return excessThousandFeet > 0 && excessThousandFeet * DescentNmPerThousandFeet > distanceNm;
+        }
+
+        private double ResolveAppCeilingFl(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers)
         {
             var level = FindAnySectorLevelForController(controller, regions, allOnlineControllers);
             if (level?.MaxFlightLevel != null) return level.MaxFlightLevel.Value + AppCeilingMarginFl;
@@ -1783,7 +1894,7 @@ namespace Handoff.Plugin
         /// heading convergence checks, which aren't appropriate for a plain proximity check), else
         /// straight-line distance to the controller's own reported position.
         /// </summary>
-        private static double ResolveAppDistanceNm(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers, OwnshipTelemetry telemetry)
+        private double ResolveAppDistanceNm(HandoffController controller, IReadOnlyDictionary<string, VatGlassesRegionData> regions, IReadOnlyCollection<HandoffController> allOnlineControllers, OwnshipTelemetry telemetry)
         {
             var level = FindAnySectorLevelForController(controller, regions, allOnlineControllers);
             if (level != null)
@@ -1793,6 +1904,38 @@ namespace Handoff.Plugin
                 return GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, clampedLat, clampedLon);
             }
             return GeoDistance.NauticalMiles(telemetry.Latitude.Value, telemetry.Longitude.Value, controller.Latitude, controller.Longitude);
+        }
+
+        /// <summary>Issue #223: true when the previous search with this key can stand in for a fresh one -- same region data, same remaining route (same first leg and length, i.e. no waypoint sequenced or route edited), ownship still within a few NM / seconds / degrees of where it ran.</summary>
+        private bool TryGetCachedApproachSearch(
+            (bool UseRoute, double MaxNm) key,
+            IReadOnlyDictionary<string, VatGlassesRegionData> regions,
+            IReadOnlyList<FlightPlanWaypoint> remainingWaypoints,
+            double lat,
+            double lon,
+            double? heading,
+            out IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> matches)
+        {
+            matches = null;
+            if (!_approachSearchCache.TryGetValue(key, out var memo)) return false;
+            if (!ReferenceEquals(memo.Regions, regions)) return false;
+            if (key.UseRoute)
+            {
+                if (memo.WaypointCount != remainingWaypoints.Count) return false;
+                if (!ReferenceEquals(memo.FirstWaypoint, remainingWaypoints[0])) return false;
+            }
+            else
+            {
+                if (!heading.HasValue || !memo.Heading.HasValue) return false;
+                var diff = Math.Abs(heading.Value - memo.Heading.Value) % 360.0;
+                if (diff > 180.0) diff = 360.0 - diff;
+                if (diff > ApproachSearchReuseMaxHeadingChangeDegrees) return false;
+            }
+            var age = _now() - memo.At;
+            if (age < TimeSpan.Zero || age >= ApproachSearchReuseWindow) return false;
+            if (GeoDistance.NauticalMiles(memo.Latitude, memo.Longitude, lat, lon) > ApproachSearchReuseMaxMovedNm) return false;
+            matches = memo.Matches;
+            return true;
         }
 
         /// <summary>Shared route/heading-projected "entering" search used by both bucket 7c (APP/DEP) and bucket 8 (CTR) -- walks approach matches nearest-first, resolves each to every online controller matching its chain (see VatGlassesOwnershipResolver -- more than one is possible for an ambiguous same-prefix/tier chain, deliberately not collapsed here so downstream tie-detection sees all of them), and keeps only ones matching tierFilter.</summary>
@@ -1810,17 +1953,45 @@ namespace Handoff.Plugin
 
             IReadOnlyList<VatGlassesSectorLookup.VatGlassesApproachMatch> approachMatches;
 
-            if (remainingWaypoints.Count > 0)
+            // Issue #223: bucket 7c (APP/DEP) and 8a (CTR) run this search with identical inputs, and
+            // consecutive recomputes differ only by a few seconds of flight, so reuse the last result
+            // while it is still effectively current (see TryGetCachedApproachSearch).
+            var useRoute = remainingWaypoints.Count > 0;
+            var searchKey = (useRoute, useRoute ? routeMaxNm : headingMaxNm);
+            var lat = telemetry.Latitude.Value;
+            var lon = telemetry.Longitude.Value;
+            if (TryGetCachedApproachSearch(searchKey, regions, remainingWaypoints, lat, lon, telemetry.HeadingDegrees, out var cachedMatches))
             {
-                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, remainingWaypoints, routeMaxNm);
-            }
-            else if (telemetry.HeadingDegrees.HasValue)
-            {
-                approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, telemetry.Latitude.Value, telemetry.Longitude.Value, telemetry.HeadingDegrees.Value, headingMaxNm);
+                approachMatches = cachedMatches;
+                _approachSearchHits++;
             }
             else
             {
-                return result;
+                if (useRoute)
+                {
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongRoute(regions, lat, lon, remainingWaypoints, routeMaxNm);
+                }
+                else if (telemetry.HeadingDegrees.HasValue)
+                {
+                    approachMatches = VatGlassesSectorLookup.FindApproachingSectorsAlongHeading(regions, lat, lon, telemetry.HeadingDegrees.Value, headingMaxNm);
+                }
+                else
+                {
+                    return result;
+                }
+                _approachSearchMisses++;
+                _approachSearchCache[searchKey] = new ApproachSearchMemo
+                {
+                    Matches = approachMatches,
+                    Regions = regions,
+                    Waypoints = remainingWaypoints,
+                    WaypointCount = remainingWaypoints.Count,
+                    FirstWaypoint = useRoute ? remainingWaypoints[0] : null,
+                    Latitude = lat,
+                    Longitude = lon,
+                    Heading = telemetry.HeadingDegrees,
+                    At = _now()
+                };
             }
 
             foreach (var approach in approachMatches.Where(a => regions.ContainsKey(a.Match.RegionFileName)))
@@ -2183,6 +2354,45 @@ namespace Handoff.Plugin
         /// gets the same flapping protection and re-anchors at ownship's position on commit --
         /// no new state, just another way naturalIndex can advance.
         /// </summary>
+        /// <summary>
+        /// Index of the first waypoint still ahead of (lat, lon), judged by the nearest route leg
+        /// the position projects onto. Falls back to the nearest waypoint when it projects onto no
+        /// leg (before the first or past the last). 0 means "nothing passed".
+        /// </summary>
+        private static int NearestRouteLegEndIndex(IReadOnlyList<FlightPlanWaypoint> all, double lat, double lon)
+        {
+            var bestLegEnd = -1;
+            var bestCrossTrack = double.MaxValue;
+            for (var i = 0; i + 1 < all.Count; i++)
+            {
+                var from = all[i];
+                var to = all[i + 1];
+                var legLength = GeoDistance.NauticalMiles(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
+                var alongTrack = GeoDistance.AlongTrackDistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude, lat, lon);
+                if (alongTrack < 0 || alongTrack > legLength) continue;
+                var crossTrack = GeoDistance.CrossTrackDistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude, lat, lon);
+                if (crossTrack < bestCrossTrack)
+                {
+                    bestCrossTrack = crossTrack;
+                    bestLegEnd = i + 1;
+                }
+            }
+            // Nearer to the very first waypoint than to any leg means ownship is still on the
+            // way to the start of the route (just after departure): nothing has been passed.
+            var distanceToFirst = GeoDistance.NauticalMiles(lat, lon, all[0].Latitude, all[0].Longitude);
+            if (bestLegEnd >= 0 && bestCrossTrack < distanceToFirst) return bestLegEnd;
+            if (bestLegEnd >= 0) return 0;
+
+            var nearest = 0;
+            var nearestDistance = double.MaxValue;
+            for (var i = 0; i < all.Count; i++)
+            {
+                var d = GeoDistance.NauticalMiles(lat, lon, all[i].Latitude, all[i].Longitude);
+                if (d < nearestDistance) { nearestDistance = d; nearest = i; }
+            }
+            return nearest;
+        }
+
         private List<FlightPlanWaypoint> SequenceRemainingWaypoints(FlightPlan flightPlan, double lat, double lon)
         {
             var all = flightPlan.Waypoints;
@@ -2212,6 +2422,21 @@ namespace Handoff.Plugin
                 {
                     _routeAnchorLat = lat;
                     _routeAnchorLon = lon;
+
+                    // First sight of this route while already airborne (plugin restarted mid-flight,
+                    // or a new plan fetched in flight): nothing has been "passed" from the sequencer's
+                    // point of view, so every waypoint behind ownship would stay in the remaining
+                    // route until a downstream one is overflown -- minutes, on a long direct. Sync
+                    // to the nearest leg instead, like an FMS does. Never on the ground pre-departure.
+                    if (_hasTakenOffThisSession)
+                    {
+                        var seeded = NearestRouteLegEndIndex(all, lat, lon);
+                        if (seeded > _committedWaypointIndex)
+                        {
+                            Log("Route sequencer started mid-flight -- syncing to waypoint index " + seeded + " of " + all.Count + " (nearest leg).");
+                            _committedWaypointIndex = seeded;
+                        }
+                    }
                 }
 
                 var anchorLat = _routeAnchorLat.Value;

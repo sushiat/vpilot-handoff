@@ -179,11 +179,21 @@ namespace Handoff.RadioHost
         // _rawSimConnect, draining this queue each poll tick before its own RequestData call.
         // See the class doc comment.
         private readonly BlockingCollection<Action> _commandQueue = new BlockingCollection<Action>();
+        // Issue #223 -- signalled on every enqueue so the poll loop's inter-tick wait ends
+        // immediately instead of running out the full poll interval (up to 1s) before a queued
+        // command is even picked up.
+        private readonly AutoResetEvent _commandQueued = new AutoResetEvent(false);
+
+        private void Enqueue(Action command)
+        {
+            _commandQueue.Add(command);
+            _commandQueued.Set();
+        }
 
         private volatile bool _dataDefinitionsRegistered;
         private bool _loggedFirstState;
         private SimConnect _rawSimConnect;
-        private int _msSinceLastTelemetryPoll;
+        private int _msSinceLastTelemetryPoll = int.MaxValue / 2; // first loop polls telemetry immediately
 
         // Tracks avionicsPowered across polls purely to log on transitions (see OnFsDataReceived)
         // -- diagnosing issue #55, where two prior candidate simvars both turned out to be stuck
@@ -226,25 +236,25 @@ namespace Handoff.RadioHost
         public void SetCom1Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _commandQueue.Add(() => SetFrequencyViaEvent("COM1 active", megahertz, Events.SetCom1FrequencyHz, () => _lastCom1FrequencyMhz));
+            Enqueue(() => SetFrequencyViaEvent("COM1 active", megahertz, Events.SetCom1FrequencyHz, () => _lastCom1FrequencyMhz));
         }
 
         public void SetCom2Frequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _commandQueue.Add(() => SetFrequencyViaEvent("COM2 active", megahertz, Events.SetCom2FrequencyHz, () => _lastCom2FrequencyMhz));
+            Enqueue(() => SetFrequencyViaEvent("COM2 active", megahertz, Events.SetCom2FrequencyHz, () => _lastCom2FrequencyMhz));
         }
 
         public void SetCom1StandbyFrequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _commandQueue.Add(() => SetFrequencyViaEvent("COM1 standby", megahertz, Events.SetCom1StandbyFrequencyHz, () => _lastCom1StandbyFrequencyMhz));
+            Enqueue(() => SetFrequencyViaEvent("COM1 standby", megahertz, Events.SetCom1StandbyFrequencyHz, () => _lastCom1StandbyFrequencyMhz));
         }
 
         public void SetCom2StandbyFrequency(double megahertz)
         {
             RadioFrequency.ValidateAirbandRange(megahertz);
-            _commandQueue.Add(() => SetFrequencyViaEvent("COM2 standby", megahertz, Events.SetCom2StandbyFrequencyHz, () => _lastCom2StandbyFrequencyMhz));
+            Enqueue(() => SetFrequencyViaEvent("COM2 standby", megahertz, Events.SetCom2StandbyFrequencyHz, () => _lastCom2StandbyFrequencyMhz));
         }
 
         /// <summary>
@@ -261,7 +271,7 @@ namespace Handoff.RadioHost
         {
             RadioFrequency.ValidateAirbandRange(activeMegahertz);
             RadioFrequency.ValidateAirbandRange(standbyMegahertz);
-            _commandQueue.Add(() => SetActiveAndStandbyViaEvents(
+            Enqueue(() => SetActiveAndStandbyViaEvents(
                 "COM1", activeMegahertz, Events.SetCom1FrequencyHz, standbyMegahertz, Events.SetCom1StandbyFrequencyHz,
                 () => _lastCom1FrequencyMhz, () => _lastCom1StandbyFrequencyMhz));
         }
@@ -270,7 +280,7 @@ namespace Handoff.RadioHost
         {
             RadioFrequency.ValidateAirbandRange(activeMegahertz);
             RadioFrequency.ValidateAirbandRange(standbyMegahertz);
-            _commandQueue.Add(() => SetActiveAndStandbyViaEvents(
+            Enqueue(() => SetActiveAndStandbyViaEvents(
                 "COM2", activeMegahertz, Events.SetCom2FrequencyHz, standbyMegahertz, Events.SetCom2StandbyFrequencyHz,
                 () => _lastCom2FrequencyMhz, () => _lastCom2StandbyFrequencyMhz));
         }
@@ -302,7 +312,7 @@ namespace Handoff.RadioHost
         /// </summary>
         public void SelectCom1Transmitter()
         {
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 Logger.Log("Selecting COM1 as transmitter via SimConnect event.");
                 TransmitPriorityEvent(Events.SelectCom1Transmitter, 0);
@@ -312,7 +322,7 @@ namespace Handoff.RadioHost
 
         public void SelectCom2Transmitter()
         {
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 Logger.Log("Selecting COM2 as transmitter via SimConnect event.");
                 TransmitPriorityEvent(Events.SelectCom2Transmitter, 0);
@@ -334,7 +344,7 @@ namespace Handoff.RadioHost
             // The already-X-skip check runs when this actually executes on the poll thread, not
             // at enqueue time -- _lastCom1ReceiveEnabled may well have moved on by then, and the
             // freshest read is what should decide whether a redundant SimConnect call is skipped.
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 if (_lastCom1ReceiveEnabled == enabled)
                 {
@@ -356,7 +366,7 @@ namespace Handoff.RadioHost
 
         public void SetCom2ReceiveEnabled(bool enabled)
         {
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 if (_lastCom2ReceiveEnabled == enabled)
                 {
@@ -379,7 +389,7 @@ namespace Handoff.RadioHost
         /// </summary>
         public void SetPollIntervals(int radioPollMs, int telemetryPollMs)
         {
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 _pollIntervalMs = radioPollMs;
                 _telemetryPollIntervalMs = telemetryPollMs;
@@ -393,7 +403,7 @@ namespace Handoff.RadioHost
             Handoff.Plugin.TransponderCode.ValidateSquawkRange(squawk);
             var targetBcd = Handoff.Plugin.TransponderCode.ToBcd(squawk);
 
-            _commandQueue.Add(() =>
+            Enqueue(() =>
             {
                 Logger.Log("Setting transponder code via XPNDR_SET: " + squawk + " (bcd=0x" + targetBcd.ToString("X4") + ")");
                 TransmitPriorityEvent(Events.SetTransponderCode, (uint)targetBcd);
@@ -656,14 +666,18 @@ namespace Handoff.RadioHost
                         _fsConnect.RequestData(Requests.AircraftRadioLvars, Requests.AircraftRadioLvars);
                         _fsConnect.RequestData(Requests.RadioSimVars, Requests.RadioSimVars);
 
-                        _msSinceLastTelemetryPoll += _pollIntervalMs;
                         if (_msSinceLastTelemetryPoll >= _telemetryPollIntervalMs)
                         {
                             _fsConnect.RequestData(Requests.OwnshipTelemetrySimVars, Requests.OwnshipTelemetrySimVars);
                             _msSinceLastTelemetryPoll = 0;
                         }
 
-                        Thread.Sleep(_pollIntervalMs);
+                        // Wakes early when a command is queued (issue #223). Telemetry cadence is
+                        // accumulated from the time actually waited, not the nominal interval, so
+                        // an early wake doesn't make telemetry poll faster than configured.
+                        var waitStopwatch = System.Diagnostics.Stopwatch.StartNew();
+                        _commandQueued.WaitOne(_pollIntervalMs);
+                        _msSinceLastTelemetryPoll += (int)waitStopwatch.ElapsedMilliseconds;
                     }
                     else
                     {
