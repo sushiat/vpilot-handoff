@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Plugin (issue #223): a tuned or standby station is now marked in the list sooner after a frequency
+  change. The radio helper no longer waits out its poll interval before acting on a tune command, the
+  ranking no longer blocks the incoming radio state while it recomputes, and a COM frequency change
+  now sends one extra station-list update right away instead of waiting for the next regular one.
+  Recomputes and broadcast ticks slower than 100 ms are now logged to help find any remaining lag.
+  The ranking also works out which sector each approach controller covers in one pass, reused until the
+  set of online controllers changes, and searches your route against the sector boundaries once per update
+  instead of several times; both were the main cost of a slow update in flight.
+  That route search is also reused for up to about four seconds while you have barely moved and the route
+  is unchanged, instead of being redone on every update.
+- Android (issue #222): controller rows now slide when the ranking reorders, instead of jumping, so a live
+  move is visible and a tap is less likely to land on a row that just moved.
 - Android (issue #216): the results of background and button-triggered operations (refreshes, syncs,
   connect/disconnect) now show as their own lines above the status bar, with the plugin's wording, instead
   of one small icon that only made sense with the drawer open. Every active operation gets a line while
@@ -33,6 +45,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the SimBrief user ID or username actually changed. Before, any save (a new theme, say) refetched it, which
   could swap in a plan prepared for the next leg while still flying the current one. Saving still
   reconnects, as before.
+
+### Fixed
+
+- Plugin (issue #223): an approach or departure controller could stay marked as likely-next at cruise
+  altitude, even when you were far too high to ever get down into their airspace. The "you are about to
+  enter their airspace" prediction now checks that you can still descend to the sector's ceiling over the
+  distance left (3 NM per 1000 ft), so a station is hidden when you are too high and close, but still shown
+  when you are above its ceiling and being handed over with room to descend. The nearby-station highlight
+  uses the same rule, so an approach whose sector tops out low (e.g. Bremen Radar, FL104) still lights up
+  when Center hands you over from FL200.
+- Plugin (issue #223): restarting the plugin or vPilot in flight no longer leaves the route stuck at its
+  first waypoint. Everything behind you on the route counted as still ahead until you next flew over a
+  waypoint, which on a long direct could take half an hour, so stations near your departure kept being
+  predicted as next. The route now syncs to your nearest leg as soon as it sees you airborne.
+- Android (issue #221): on a phone, or a tablet in a narrow split screen, a controller's PINNED badge was
+  cut off to "PI" next to another badge. It is now a pin icon, and any badges that still do not fit wrap
+  onto a second line. The full-width tablet layout is unchanged.
+- Android (issue #225): the tour no longer crashes the app in a very narrow window. Below about 300dp wide
+  the "?" now explains that the tour needs a wider window instead of opening it, and the header drops the
+  version number, which had wrapped letter by letter.
+- Android (issue #220): the system status and navigation bar icons now follow the app's theme. With the
+  app set to Light while the device was in dark mode (or the other way round), the icons were white on
+  the light header and hard to see.
 
 ## [0.9.0] - 2026-10-30
 

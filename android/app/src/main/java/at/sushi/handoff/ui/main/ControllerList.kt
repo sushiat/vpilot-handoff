@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,6 +49,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import at.sushi.handoff.ui.theme.RobotoMono
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -252,7 +256,10 @@ fun ControllerList(
             }.collect { settledAtTop -> if (settledAtTop) userScrolled = false }
         }
         LaunchedEffect(visibleControllers) {
-            if (!userScrolled) listState.scrollToItem(0)
+            // Issue #222: animated, so the viewport follows the reorder together with the sliding
+            // rows. An instant jump to 0 right after the reorder swallowed the placement animation
+            // whenever the list overflowed (a narrow split) and the key anchor had moved the viewport.
+            if (!userScrolled) listState.animateScrollToItem(0)
         }
         // A pilot who scrolled and then walked away shouldn't come back to a list that's stopped
         // following the top: once the list has sat untouched for UserScrollResetMillis, hand
@@ -284,26 +291,30 @@ fun ControllerList(
             itemsIndexed(visibleControllers, key = { _, controller -> controller.callsign }) { index, controller ->
                 val previousGroup = visibleControllers.getOrNull(index - 1)?.let { controllerRowGroup(it, com1Active, com2Active) }
                 val thisGroup = controllerRowGroup(controller, com1Active, com2Active)
-                if (previousGroup != null && previousGroup != thisGroup) {
-                    Spacer(Modifier.height(10.dp))
+                // Issue #222: one animated root per item, so the group-gap Spacer slides together
+                // with its row, and a live reorder is visible instead of an instant jump.
+                Column(Modifier.animateItem()) {
+                    if (previousGroup != null && previousGroup != thisGroup) {
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    ControllerRow(
+                        controller = controller,
+                        etaMinutes = controller.etaMinutes,
+                        callsignColWidth = callsignColWidth,
+                        frequencyTextWidth = frequencyTextWidth,
+                        com1Active = com1Active,
+                        com2Active = com2Active,
+                        com1Standby = com1Standby,
+                        com2Standby = com2Standby,
+                        onTogglePin = { onTogglePin(controller.callsign) },
+                        onOpenChat = { onOpenChatWith(controller.callsign) },
+                        onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
+                        onTuneCom2Active = { onTuneCom2Active(controller.frequency) },
+                        onTuneCom1Standby = { onTuneCom1Standby(controller.frequency) },
+                        onTuneCom2Standby = { onTuneCom2Standby(controller.frequency) },
+                        onDismissSelcal = { onDismissSelcal(controller.callsign) }
+                    )
                 }
-                ControllerRow(
-                    controller = controller,
-                    etaMinutes = controller.etaMinutes,
-                    callsignColWidth = callsignColWidth,
-                    frequencyTextWidth = frequencyTextWidth,
-                    com1Active = com1Active,
-                    com2Active = com2Active,
-                    com1Standby = com1Standby,
-                    com2Standby = com2Standby,
-                    onTogglePin = { onTogglePin(controller.callsign) },
-                    onOpenChat = { onOpenChatWith(controller.callsign) },
-                    onTuneCom1Active = { onTuneCom1Active(controller.frequency) },
-                    onTuneCom2Active = { onTuneCom2Active(controller.frequency) },
-                    onTuneCom1Standby = { onTuneCom1Standby(controller.frequency) },
-                    onTuneCom2Standby = { onTuneCom2Standby(controller.frequency) },
-                    onDismissSelcal = { onDismissSelcal(controller.callsign) }
-                )
             }
         }
     }
@@ -320,6 +331,9 @@ private const val UserScrollResetMillis = 60_000L
 private val RowHorizontalPadding = 32.dp // 16dp each side
 private val RowItemGap = 10.dp // Arrangement.spacedBy on the outer Row
 private val IconsGroupWidth = 62.dp // pin + message, 30dp each + 2dp gap
+// Rows narrower than this get compact badges (issue #221). A phone row is about 410dp, the tablet's
+// narrow split pane is well under it, and the full-width tablet list (capped at 500dp) is above it.
+private val CompactBadgesMaxRowWidth = 420.dp
 private val RatingBadgeWidth = 32.dp // ~30dp badge + 2dp gap to the icons group
 // Real name/CID + station suffix name have no fixed shape (unlike the frequency), so this is a
 // deliberately generous estimate for the purposes of deciding whether they'll fit -- overshooting
@@ -356,6 +370,9 @@ internal fun ControllerRow(
         if (etaMinutes != null) base + ControllerBadge.ETA else base
     }
     var menuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val phone = remember(configuration) { isPhoneClassDevice(context, configuration) }
 
     val rowPhaseA = rememberFlashPhaseA(rowColors.isFlashing)
     val background = if (rowColors.isFlashing && !rowPhaseA) FacilityColors.hazardYellow else rowColors.background
@@ -376,6 +393,9 @@ internal fun ControllerRow(
     val ratingLabel = controller.rating?.let { ratingLabels[it] }
     Box {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Issue #221: compact badges (pin icon, wrapping row) on a phone, and also on a tablet in a
+            // narrow split, where the callsign column is just as tight. A full-width tablet is wider.
+            val compactBadges = phone || maxWidth < CompactBadgesMaxRowWidth
             // Step 1: with the info column dropped, does callsign + frequency + icons still fit
             // inline? If not, frequency has to move to its own line regardless -- nothing else
             // left to drop that would free up enough room.
@@ -442,7 +462,7 @@ internal fun ControllerRow(
                             overflow = TextOverflow.Clip
                         )
                         if (badges.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val badgePills: @Composable () -> Unit = {
                                 badges.forEach { badge ->
                                     when {
                                         badge == ControllerBadge.ETA && etaMinutes != null ->
@@ -456,9 +476,24 @@ internal fun ControllerRow(
                                         (badge == ControllerBadge.TUNED || badge == ControllerBadge.STBY) &&
                                             !(rowColors.isFlashing && !rowPhaseA) && rowColors.tunedBadgeBackground != null ->
                                             BadgePill(badgeLabels.getValue(badge), rowColors.tunedBadgeText ?: text, rowColors.tunedBadgeBackground)
+                                        // Issue #221: the word PINNED is too wide next to another
+                                        // pill in a narrow callsign column, so those show a pin.
+                                        badge == ControllerBadge.PINNED && compactBadges ->
+                                            PinBadgePill(text, badgeBackground)
                                         else -> BadgePill(badgeLabels.getValue(badge), text, badgeBackground)
                                     }
                                 }
+                            }
+                            if (compactBadges) {
+                                // Issue #221: wrap onto a second line instead of clipping. Narrow rows
+                                // only, so the signed-off full-width tablet layout (a plain Row) is unchanged.
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) { badgePills() }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { badgePills() }
                             }
                         }
                     }
@@ -649,6 +684,23 @@ private fun BadgePill(label: String, contentColor: Color, background: Color) {
             style = androidx.compose.ui.text.TextStyle(
                 platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
             )
+        )
+    }
+}
+
+/** [BadgePill]'s phone stand-in for PINNED (issue #221): same pill, a pin glyph instead of the word. */
+@Composable
+private fun PinBadgePill(contentColor: Color, background: Color) {
+    Box(
+        Modifier
+            .background(background, RoundedCornerShape(5.dp))
+            .padding(horizontal = 7.dp, vertical = 3.dp)
+    ) {
+        Icon(
+            Icons.Filled.PushPin,
+            contentDescription = "Pinned",
+            tint = contentColor,
+            modifier = Modifier.size(11.dp)
         )
     }
 }
