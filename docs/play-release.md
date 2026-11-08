@@ -27,9 +27,11 @@ attached AAB is only needed as a manual fallback.
 Tracks in use: **internal** (automated) and **production** (manual). Closed testing is left empty,
 and open testing is unused until users ask for early builds.
 
-On every `v*` tag the `play` job in `release.yml` uploads `Handoff-vX.Y.Z.aab` to the internal track
-as a completed release named after the version. It runs independently of the GitHub release job, so
-a failure in one does not block the other, and it skips with a notice when the secret is unset.
+On every `v*` tag the last steps of the `android` job in `release.yml` upload `Handoff-vX.Y.Z.aab` to
+the internal track as a completed release named after the version. The job runs in the `production`
+environment, which also holds the signing keys, so a single approval covers build and upload. A
+failed upload fails that job but does not block the GitHub release (the release job only needs the
+build to have finished), and the upload skips with a notice when the secret is unset.
 Promotion to production is done by hand in Play Console (Testing > Internal testing > Promote
 release), as a staged rollout (for example 20%, then 100%) with managed publishing on so an approved
 release waits for the go-ahead. A promotion reuses the uploaded artifact; nothing is rebuilt.
@@ -41,13 +43,14 @@ One-time setup:
 2. Play Console > Users and permissions: invite the service account's email and grant it release
    permissions for this app only (**verify** the exact permission names in the console).
 3. GitHub: add the JSON key's full contents as the secret `PLAY_SERVICE_ACCOUNT_JSON` in the
-   `production` environment (Settings > Environments > production). The `play` job declares that
-   environment, so no other job can read the key. If the environment has a deployment-branch rule,
-   it must allow the `v*` tags; required reviewers would make each upload wait for an approval.
+   `production` environment (Settings > Environments > production), next to the signing secrets. Only
+   the `android` job declares that environment, so no other job can read the key. If the environment
+   has a deployment-branch rule, it must allow the `v*` tags; required reviewers make the tag's build
+   and upload wait for one approval.
 
 The upload fails if a build with the same `versionCode` is already on Play, so a tag cannot be re-run
-after a successful upload; bump the version instead. Re-running only the `play` job after a failed
-upload is fine.
+after a successful upload; bump the version instead. Re-running the failed `android` job after a failed
+upload is fine (it rebuilds, so it needs approval again).
 
 ### The switches (`app/src/<flavor>/java/at/sushi/handoff/ChannelFeatures.kt`)
 
