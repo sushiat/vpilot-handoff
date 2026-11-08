@@ -39,7 +39,7 @@ release — see the top-level `CHANGELOG.md` for that. Only gets an entry here w
 this contract actually changes shape. A release with no protocol changes still gets a one-line
 "no protocol changes" section, so a missing version means "not checked", not "nothing changed".
 
-### Unreleased
+### [0.10.0] - 2026-11-08
 
 Issue #185 -- new client→server `squawkIdent` (no fields): answers "squawk ident" through vPilot.
 Additive per the Compatibility section -- an older plugin logs it as unrecognized and never

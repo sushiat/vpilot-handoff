@@ -185,6 +185,8 @@ jobs:
     name: Build Android release APK
     runs-on: ubuntu-latest
     needs: validate
+    outputs:
+      built: ${{ steps.built.outputs.built }}
     # Signing secrets live on this environment, not as repo-level secrets -- gated on a
     # v* tag (matches the workflow trigger, belt-and-suspenders) and, once the repo is
     # public (required reviewers on environments needs a paid plan for private repos),
@@ -240,10 +242,46 @@ jobs:
             Handoff-*.apk
             Handoff-*.aab
 
+      - name: Mark build as done
+        # Lets the release job tell "build failed" (no artifact, don't release) from "build fine but
+        # the Play upload below failed" (still publish the GitHub release).
+        id: built
+        run: echo "built=true" >> "$GITHUB_OUTPUT"
+
+      # Issue #233: the Play service account key sits in this same `production` environment as the
+      # signing keys, so one approval covers build + upload. Only the internal track is automated;
+      # promotion to production (staged rollout) is a deliberate manual step in Play Console, since a
+      # production release is public and hard to undo.
+      - name: Check Play credentials
+        id: creds
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON secret not set -- skipping the Google Play upload."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload AAB to the Google Play internal track
+        if: steps.creds.outputs.present == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: at.sushi.handoff
+          releaseFiles: Handoff-*.aab
+          releaseName: ${{ needs.validate.outputs.version }}
+          track: internal
+          status: completed
+
   release:
     name: Publish GitHub release
     runs-on: ubuntu-latest
     needs: [validate, plugin, android]
+    # A failed Play upload (last step of the android job) must not block the GitHub release; a failed
+    # build or plugin job still does.
+    if: ${{ !cancelled() && needs.validate.result == 'success' && needs.plugin.result == 'success' && needs.android.outputs.built == 'true' }}
     permissions:
       contents: write
     steps:
