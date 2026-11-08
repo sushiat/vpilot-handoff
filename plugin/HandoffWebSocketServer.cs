@@ -515,6 +515,9 @@ namespace Handoff.Plugin
                 case ClientCommand.TypeDisconnectNetwork:
                     _networkConnection.Disconnect(command.OperationId);
                     break;
+                case ClientCommand.TypeSquawkIdent:
+                    _networkConnection.SquawkIdent();
+                    break;
                 case ClientCommand.TypeRefreshVatsimFeed:
                     _vatsimDataFeed.RefreshNow();
                     break;

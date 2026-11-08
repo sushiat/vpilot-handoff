@@ -569,6 +569,15 @@ data class RefreshVatsimFeedCommand(
     override fun encode() = json.encodeToString(RefreshVatsimFeedCommand.serializer(), this)
 }
 
+/** Issue #185 -- answers "squawk ident" through vPilot. Carries no fields; the plugin reports the
+ *  outcome as a self-finishing `operationProgress`. */
+@Serializable
+data class SquawkIdentCommand(
+    val type: String = "squawkIdent"
+) : ClientCommand {
+    override fun encode() = json.encodeToString(SquawkIdentCommand.serializer(), this)
+}
+
 /** Issue #171 -- leaves the VATSIM network (vPilot keeps running). Outcome reported through
  *  `operationProgress` under [operationId], same as [ConnectNetworkCommand]. */
 @Serializable

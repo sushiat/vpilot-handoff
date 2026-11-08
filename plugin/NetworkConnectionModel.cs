@@ -128,6 +128,30 @@ namespace Handoff.Plugin
             }
         }
 
+        /// <summary>Issue #185 -- answers "squawk ident" through IBroker.SquawkIdent. Fire and forget:
+        /// ident is momentary, so the outcome is a plugin-minted operationProgress that finishes at
+        /// once (the client has no operationId of its own to match, unlike connect/disconnect).</summary>
+        public void SquawkIdent()
+        {
+            var operationId = "squawkIdent-" + Guid.NewGuid().ToString("N");
+
+            try
+            {
+                _broker.SquawkIdent();
+                Log("Sent squawk ident.");
+                _operationProgress.Finish(operationId, "Ident sent.", success: true);
+            }
+            catch (NotConnectedException)
+            {
+                _operationProgress.Finish(operationId, "Not connected to VATSIM.", success: false);
+            }
+            catch (Exception ex)
+            {
+                Log("SquawkIdent threw: " + ex);
+                _operationProgress.Finish(operationId, "Couldn't send ident: " + ex.Message, success: false);
+            }
+        }
+
         private void OnNetworkConnected(object sender, NetworkConnectedEventArgs e)
         {
             string operationId;

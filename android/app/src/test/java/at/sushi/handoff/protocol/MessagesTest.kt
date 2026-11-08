@@ -565,6 +565,11 @@ class MessagesTest {
     }
 
     @Test
+    fun encodesSquawkIdentCommand() {
+        assertEquals("""{"type":"squawkIdent"}""", SquawkIdentCommand().encode())
+    }
+
+    @Test
     fun encodesPinControllerCommand() {
         val json = PinControllerCommand(callsign = "EGLL_TWR").encode()
         assertEquals("""{"type":"pinController","callsign":"EGLL_TWR"}""", json)

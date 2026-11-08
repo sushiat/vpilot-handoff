@@ -116,6 +116,10 @@ fun KeypadKey(
             fontSize = fontSize,
             fontWeight = FontWeight.SemiBold,
             fontFamily = RobotoMono,
+            // Key labels are one short line; a narrow cell (phone, large system font) must not
+            // push the last character onto a second line.
+            maxLines = 1,
+            softWrap = false,
             color = (contentColor ?: colors.text).copy(alpha = if (enabled) 1f else 0.3f)
         )
     }

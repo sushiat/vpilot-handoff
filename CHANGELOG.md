@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin and Android (issue #185): an IDENT button on the transponder dialog answers "squawk ident"
+  from the tablet. It takes two presses (the key turns into "Confirm?" for 3 seconds) so a stray tap
+  can't ident to a controller. The plugin forwards it to vPilot's squawk-ident call and reports the
+  outcome in the status bar ("Ident sent." or why it failed). Hidden only when the connected plugin is
+  older than 0.10.0; demo mode shows it and answers locally.
 - Android (issue #218): new "Keep screen on" setting with Off, On and Charging (the default, the previous
   behavior: on at start when charging, and whenever a charger connects). Off and On fix the starting
   state regardless of the charger; the footer icon can still be flipped for the current session.

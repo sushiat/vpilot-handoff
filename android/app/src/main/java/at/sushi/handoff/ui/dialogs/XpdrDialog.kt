@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,27 +21,49 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import at.sushi.handoff.ui.theme.RobotoMono
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import at.sushi.handoff.ui.main.isPhoneClassDevice
 import at.sushi.handoff.ui.theme.LocalHandoffColors
+import kotlinx.coroutines.delay
 
 private val quickSetCodes = listOf(2000, 1000, 7000, 1200)
+
+/** How long the IDENT key stays on "Confirm?" before falling back to "IDENT". */
+private const val IdentConfirmWindowMs = 3_000L
 
 /** Transponder dialog -- issue #13 screen 3, matching the design reference's JS exactly. Same
  *  construction/theming as the COM dialog. Unlike COM entry, every digit 0-7 is legal at every
  *  position (no prefix validation), so the reference never colors the entry red or mutes
  *  untyped positions -- the whole readout is one uniform color, underscore-padded. Mode C isn't
- *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge). */
+ *  editable here -- it's sim-driven, read-only (shown only on the main screen's XPDR badge).
+ *  [showIdent] is the IDENT button (issue #185); shown unless the caller knows the plugin is too
+ *  old to support it. */
 @Composable
 fun XpdrDialog(
     onDismiss: () -> Unit,
-    onSetCode: (Int) -> Unit
+    onSetCode: (Int) -> Unit,
+    showIdent: Boolean = true,
+    onIdent: () -> Unit = {}
 ) {
     var typed by remember { mutableStateOf("") }
+    var identArmed by remember { mutableStateOf(false) }
     val colors = LocalHandoffColors.current
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val phone = remember(configuration) { isPhoneClassDevice(context, configuration) }
+
+    LaunchedEffect(identArmed) {
+        if (identArmed) {
+            delay(IdentConfirmWindowMs)
+            identArmed = false
+        }
+    }
 
     KeypadDialogPanel(title = "TRANSPONDER", onDismiss = onDismiss) {
         Text(
@@ -86,8 +109,30 @@ fun XpdrDialog(
                 KeypadKey("⌫", enabled = typed.isNotEmpty()) { typed = typed.dropLast(1) }
             }
             item {
-                // Hidden spacer, matching the reference's invisible placeholder in this slot.
-                Box(Modifier)
+                if (showIdent) {
+                    // Issue #185 -- takes the reference's empty slot. Two presses, so a stray tap
+                    // can't ident to a controller: the first arms it ("Confirm?"), the second
+                    // within IdentConfirmWindowMs sends it. The ident is for whatever code the
+                    // sim has now -- the command carries none, and [typed] stays local until the
+                    // confirm key sends it.
+                    KeypadKey(
+                        if (identArmed) "Confirm?" else "IDENT",
+                        background = if (identArmed) colors.attentionBg else null,
+                        contentColor = if (identArmed) colors.attention else null,
+                        // "Confirm?" is wider than the phone's key cell; the tablet keeps 13sp.
+                        fontSize = if (phone) 11.sp else 13.sp
+                    ) {
+                        if (identArmed) {
+                            onIdent()
+                            onDismiss()
+                        } else {
+                            identArmed = true
+                        }
+                    }
+                } else {
+                    // Hidden spacer, matching the reference's invisible placeholder in this slot.
+                    Box(Modifier)
+                }
             }
             item {
                 val enabled = typed.length == 4

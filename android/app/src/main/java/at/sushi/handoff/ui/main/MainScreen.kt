@@ -76,6 +76,8 @@ import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetSimbriefCredentialsCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
 import at.sushi.handoff.protocol.SetUpdateIntervalCommand
+import at.sushi.handoff.protocol.SquawkIdentCommand
+import at.sushi.handoff.util.SquawkIdent
 import at.sushi.handoff.protocol.ChatEntry
 import at.sushi.handoff.ui.chat.ChatOverlayWindow
 import at.sushi.handoff.ui.chat.ChatPanelContent
@@ -1003,7 +1005,13 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
     if (xpdrDialogOpen) {
         XpdrDialog(
             onDismiss = { xpdrDialogOpen = false },
-            onSetCode = { code -> send(SetTransponderCodeCommand(transponderCode = code)) }
+            onSetCode = { code -> send(SetTransponderCodeCommand(transponderCode = code)) },
+            showIdent = SquawkIdent.isOffered(
+                demoMode = demoModeEnabled,
+                pluginConnected = connectionStatus == ConnectionStatus.CONNECTED,
+                pluginVersion = subsystemStatus.pluginVersion
+            ),
+            onIdent = { send(SquawkIdentCommand()) }
         )
     }
 

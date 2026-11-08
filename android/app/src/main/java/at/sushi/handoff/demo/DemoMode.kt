@@ -12,6 +12,7 @@ import at.sushi.handoff.protocol.DismissSelcalCommand
 import at.sushi.handoff.protocol.MarkChatReadCommand
 import at.sushi.handoff.protocol.PinControllerCommand
 import at.sushi.handoff.protocol.RadioFrequency
+import at.sushi.handoff.protocol.OperationProgressMessage
 import at.sushi.handoff.protocol.RadioStateMessage
 import at.sushi.handoff.protocol.SelcalAlert
 import at.sushi.handoff.protocol.SelectCom1TransmitterCommand
@@ -27,6 +28,7 @@ import at.sushi.handoff.protocol.SetCom2FrequencyCommand
 import at.sushi.handoff.protocol.SetCom2ReceiveEnabledCommand
 import at.sushi.handoff.protocol.SetCom2StandbyFrequencyCommand
 import at.sushi.handoff.protocol.SetTransponderCodeCommand
+import at.sushi.handoff.protocol.SquawkIdentCommand
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -239,6 +241,15 @@ object DemoMode {
             is SendRadioMessageCommand -> appendChat(channel = "radio", peer = null, text = command.message)
             is SendPrivateMessageCommand -> appendChat(channel = "private", peer = command.to, text = command.message)
             is MarkChatReadCommand -> markRead(command.tab, command.throughId)
+            // Same self-finishing ack the real plugin broadcasts (issue #185), so the demo's
+            // IDENT button answers in the status bar like the real one.
+            is SquawkIdentCommand -> HandoffState.update(
+                OperationProgressMessage(
+                    operationId = "squawkIdent-demo-" + System.currentTimeMillis(),
+                    status = "Ident sent.",
+                    finished = true
+                )
+            )
             else -> Unit
         }
     }

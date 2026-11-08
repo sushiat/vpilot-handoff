@@ -373,6 +373,14 @@ namespace Handoff.Plugin.Tests
         }
 
         [Fact]
+        public void ParseClientCommand_SquawkIdent()
+        {
+            var command = ProtocolMessages.ParseClientCommand("{\"type\":\"squawkIdent\"}");
+
+            Assert.Equal(ClientCommand.TypeSquawkIdent, command.Type);
+        }
+
+        [Fact]
         public void ParseClientCommand_RefreshVatsimFeed()
         {
             var command = ProtocolMessages.ParseClientCommand("{\"type\":\"refreshVatsimFeed\"}");
