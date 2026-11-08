@@ -40,7 +40,10 @@ One-time setup:
    project, and create a JSON key for the account.
 2. Play Console > Users and permissions: invite the service account's email and grant it release
    permissions for this app only (**verify** the exact permission names in the console).
-3. GitHub: add the JSON key's full contents as the repository secret `PLAY_SERVICE_ACCOUNT_JSON`.
+3. GitHub: add the JSON key's full contents as the secret `PLAY_SERVICE_ACCOUNT_JSON` in the
+   `production` environment (Settings > Environments > production). The `play` job declares that
+   environment, so no other job can read the key. If the environment has a deployment-branch rule,
+   it must allow the `v*` tags; required reviewers would make each upload wait for an approval.
 
 The upload fails if a build with the same `versionCode` is already on Play, so a tag cannot be re-run
 after a successful upload; bump the version instead. Re-running only the `play` job after a failed
