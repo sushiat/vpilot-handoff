@@ -794,7 +794,7 @@ class HandoffConnectionService : Service() {
                         // The airport qualifies but the backend doesn't track this flight (yet) -- it can lag
                         // a filed plan by minutes to an hour -- so show a placeholder instead of nothing:
                         // proves the feature is active and keeps the TOBT dialog reachable.
-                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis(), airport?.taxiTime) ?: cdmWaitingDisplay())
+                        HandoffState.setCdmSlot(deriveCdmSlotDisplay(mine, System.currentTimeMillis(), airport.taxiTime) ?: cdmWaitingDisplay())
                         awaitNextCdmPoll()
                     }
                 }
