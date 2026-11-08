@@ -240,6 +240,42 @@ jobs:
             Handoff-*.apk
             Handoff-*.aab
 
+  play:
+    name: Upload AAB to Google Play (internal track)
+    runs-on: ubuntu-latest
+    needs: [validate, android]
+    # Issue #233: only the internal track is automated. Promotion to production (staged rollout) is a
+    # deliberate manual step in Play Console, since a production release is public and hard to undo.
+    # Independent of the `release` job on purpose: a Play upload failure must not block the GitHub
+    # release, and a failed GitHub release must not block Play.
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-package
+
+      - name: Check Play credentials
+        id: creds
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON secret not set -- skipping the Google Play upload."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to the internal track
+        if: steps.creds.outputs.present == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: at.sushi.handoff
+          releaseFiles: Handoff-*.aab
+          releaseName: ${{ needs.validate.outputs.version }}
+          track: internal
+          status: completed
+
   release:
     name: Publish GitHub release
     runs-on: ubuntu-latest

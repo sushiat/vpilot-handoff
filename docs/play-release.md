@@ -18,8 +18,33 @@ Same `applicationId` (`at.sushi.handoff`) and same `versionCode` (derived from `
 was refused and required uninstalling the sideload version first (seen on the 0.7.0 internal test), so
 the two channels cannot update each other. Switching channels is a one-time uninstall and re-pair; see
 "Signing" below. Both artifacts are built
-by `.github/workflows/release.yml` on a `v*` tag and attached to the GitHub release. The AAB is
-there so it can be downloaded and uploaded to Play Console by hand.
+by `.github/workflows/release.yml` on a `v*` tag and attached to the GitHub release. The same
+workflow also uploads the AAB to Play's **internal** track (see "Automated upload" below), so the
+attached AAB is only needed as a manual fallback.
+
+## Automated upload (issue #233)
+
+Tracks in use: **internal** (automated) and **production** (manual). Closed testing is left empty,
+and open testing is unused until users ask for early builds.
+
+On every `v*` tag the `play` job in `release.yml` uploads `Handoff-vX.Y.Z.aab` to the internal track
+as a completed release named after the version. It runs independently of the GitHub release job, so
+a failure in one does not block the other, and it skips with a notice when the secret is unset.
+Promotion to production is done by hand in Play Console (Testing > Internal testing > Promote
+release), as a staged rollout (for example 20%, then 100%) with managed publishing on so an approved
+release waits for the go-ahead. A promotion reuses the uploaded artifact; nothing is rebuilt.
+
+One-time setup:
+
+1. Google Cloud: create a service account, enable the *Google Play Android Developer API* for its
+   project, and create a JSON key for the account.
+2. Play Console > Users and permissions: invite the service account's email and grant it release
+   permissions for this app only (**verify** the exact permission names in the console).
+3. GitHub: add the JSON key's full contents as the repository secret `PLAY_SERVICE_ACCOUNT_JSON`.
+
+The upload fails if a build with the same `versionCode` is already on Play, so a tag cannot be re-run
+after a successful upload; bump the version instead. Re-running only the `play` job after a failed
+upload is fine.
 
 ### The switches (`app/src/<flavor>/java/at/sushi/handoff/ChannelFeatures.kt`)
 
