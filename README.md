@@ -8,6 +8,12 @@
 [![GitHub all releases](https://img.shields.io/github/downloads/sushiat/vPilot-Handoff/total.svg)](https://github.com/sushiat/vPilot-Handoff/releases)
 
 > [!IMPORTANT]
+> **Android:** Handoff is now on **[Google Play](https://play.google.com/store/apps/details?id=at.sushi.handoff&referrer=utm_source%3Dgithub)**.
+> It is the same app as the APK on the [Releases page](../../releases), and updates arrive
+> through Play. Already installed the APK or use Obtainium? See
+> [Installation](#android) before switching, as the two builds can't update each other.
+
+> [!IMPORTANT]
 > **iOS/iPadOS:** an independent native client built by Thomas is on the App Store as
 > **[vPilot Remote](https://apps.apple.com/us/app/vpilot-remote/id6817687242)** — the
 > controller list, two-way chat, radio and transponder control, built against this
@@ -74,22 +80,28 @@ More screenshots in the [gallery](assets/gallery.md).
 ## Installation
 
 Two independent pieces to install: the vPilot plugin (Windows) and the Android app.
-Both come from the same [GitHub Release](../../releases), tagged together.
+The plugin comes from the [GitHub Release](../../releases); the Android app comes from
+Google Play, or as an APK from the same release (both are tagged together).
 
 ### Android
 
-**Recommended: [Obtainium](https://github.com/ImranR98/Obtainium).** Install
-Obtainium once, then add this repo as a source (its GitHub URL) - Obtainium finds the
-release APK automatically and checks for updates from then on. This avoids repeating
-the "allow installs from unknown sources" prompt for every future update.
+**Recommended: [Google Play](https://play.google.com/store/apps/details?id=at.sushi.handoff&referrer=utm_source%3Dgithub).**
+Install it like any other app and it updates itself. Android 8.0 or newer.
 
-**Manual alternative:** download the `Handoff-v*.apk` asset directly from this repo's
-[Releases page](../../releases) and sideload it. You'll need to allow installs from
-unknown sources for whichever app you download it with.
+**Alternative: the APK from GitHub.** Install [Obtainium](https://github.com/ImranR98/Obtainium)
+once, then add this repo as a source (its GitHub URL). Obtainium finds the release APK
+automatically and checks for updates from then on, so you don't have to repeat the "allow
+installs from unknown sources" prompt for every update. Or download the `Handoff-v*.apk`
+asset from the [Releases page](../../releases) and sideload it by hand.
 
-Either way, GitHub shows a SHA256 checksum for each release asset on the release
-page itself if you want to confirm your download wasn't corrupted or tampered with
-in transit.
+**Switching between the two:** the Play build is signed by Google and the APK by this project,
+so Android can't update one into the other. To switch, uninstall the one you have, install the
+other and pair with your PC again. Settings and pairing don't carry over. The Play build
+leaves out two developer extras (the full-device screenshot in the debug window and the
+GitHub update check); everything else is the same.
+
+GitHub shows a SHA256 checksum for each release asset on the release page, if you want to
+confirm your APK download wasn't corrupted or tampered with in transit.
 
 ### vPilot plugin
 
