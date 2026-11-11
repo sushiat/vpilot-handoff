@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android (issue #238): short aviation-style sounds for new chat messages, contact-me requests and SELCAL
+  calls, each switchable on or off in Settings (all on by default). They play whether or not the app is on
+  screen, and the background notifications themselves are now silent so you don't hear the sound twice.
+  The tones are original works made for this project.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added

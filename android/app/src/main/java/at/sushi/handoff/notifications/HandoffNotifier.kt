@@ -10,6 +10,8 @@ import at.sushi.handoff.HandoffState
 import at.sushi.handoff.MainActivity
 import at.sushi.handoff.R
 import at.sushi.handoff.protocol.ChatMessage
+import at.sushi.handoff.sound.EventSound
+import at.sushi.handoff.sound.EventSoundPlayer
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.ui.chat.RADIO_TAB
@@ -22,7 +24,8 @@ import at.sushi.handoff.ui.chat.readThroughByTab
  *  [HandoffState.appVisible] is false (the user doesn't want notifications competing with
  *  anything already visible on screen, fullscreen or split-screen) -- this is a deliberate
  *  product decision, not a missing feature: while the app is on screen at all, the UI itself is
- *  the notification.
+ *  the notification. Issue #238 -- the event *sounds* are the exception: they play regardless of
+ *  visibility (each toggleable in settings), via [EventSoundPlayer].
  *
  *  Diffs each incoming message against the previous one to find only *new* events (a rising edge
  *  on `requestsContactMe`, a chat/SELCAL entry not seen before) -- the protocol always resends
@@ -40,7 +43,7 @@ import at.sushi.handoff.ui.chat.readThroughByTab
  *  plugins that predate issue #151 too. A chat notification from such an older plugin (no `id` on
  *  the entry) simply never gets tracked for cancellation -- it keeps today's behavior, left
  *  showing until tapped. */
-class HandoffNotifier(private val context: Context) {
+class HandoffNotifier(private val context: Context, private val soundPlayer: EventSoundPlayer) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
 
     private var seededControllers = false
@@ -65,7 +68,7 @@ class HandoffNotifier(private val context: Context) {
             NotificationChannel(ChannelSelcal, "SELCAL alerts", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(ChannelIncomingRadio, "Incoming radio messages", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(ChannelIncomingPrivate, "Incoming private messages", NotificationManager.IMPORTANCE_DEFAULT),
-            // Visual only, like every other alert here (vPilot already beeps for what matters).
+            // Notifications are posted silent (see notify); event tones come from EventSoundPlayer.
             NotificationChannel(ChannelServiceStatus, "Background connection status", NotificationManager.IMPORTANCE_LOW)
         ).forEach(notificationManager::createNotificationChannel)
     }
@@ -136,6 +139,10 @@ class HandoffNotifier(private val context: Context) {
             cancelResolvedContactMeAndSelcal(message)
             return
         }
+        // Issue #238 -- the sound plays whether or not the app is on screen, unlike the notification.
+        if (message.controllers.any { it.requestsContactMe && it.callsign !in previousRequestingContactMe }) {
+            soundPlayer.play(EventSound.ContactMe)
+        }
         if (!HandoffState.appVisible.value) {
             message.controllers.forEach { controller ->
                 if (controller.requestsContactMe && controller.callsign !in previousRequestingContactMe) {
@@ -185,6 +192,13 @@ class HandoffNotifier(private val context: Context) {
             previousChatMessages = messagesNow
             previousSelcalAlerts = selcalNow
             return
+        }
+        // Issue #238 -- sounds play whether or not the app is on screen, unlike the notifications.
+        if (message.messages.any { it.direction == "incoming" && it !in previousChatMessages }) {
+            soundPlayer.play(EventSound.Chat)
+        }
+        if (message.selcalAlerts.any { it !in previousSelcalAlerts }) {
+            soundPlayer.play(EventSound.Selcal)
         }
         if (!HandoffState.appVisible.value) {
             message.messages.forEach { entry ->
@@ -241,6 +255,9 @@ class HandoffNotifier(private val context: Context) {
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
+            // Issue #238 -- the tone comes from EventSoundPlayer (toggleable, plays while the app
+            // is visible too); silent here so the channel's default sound doesn't double it up.
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
         val notificationId = idKey.hashCode()

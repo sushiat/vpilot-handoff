@@ -213,6 +213,10 @@ object HandoffState {
     private val _hideTunedControllers = MutableStateFlow(false)
     val hideTunedControllers: StateFlow<Boolean> = _hideTunedControllers.asStateFlow()
 
+    // Issue #238 -- per-event sound switches (chat / contact-me / SELCAL), all on by default.
+    private val _eventSounds = MutableStateFlow(at.sushi.handoff.sound.EventSoundSettings())
+    val eventSounds: StateFlow<at.sushi.handoff.sound.EventSoundSettings> = _eventSounds.asStateFlow()
+
     // Issue #177 -- persisted "I don't want that" answer to the floating-chat overlay-permission
     // explainer: split-screen then uses the in-window chat instead, and the explainer never shows.
     private val _floatingChatDeclined = MutableStateFlow(false)
@@ -408,6 +412,10 @@ object HandoffState {
 
     fun setHideTunedControllers(hide: Boolean) {
         _hideTunedControllers.value = hide
+    }
+
+    fun setEventSounds(settings: at.sushi.handoff.sound.EventSoundSettings) {
+        _eventSounds.value = settings
     }
 
     fun setFloatingChatDeclined(declined: Boolean) {

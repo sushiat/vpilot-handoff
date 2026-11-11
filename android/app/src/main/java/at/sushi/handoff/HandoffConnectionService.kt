@@ -83,6 +83,10 @@ class HandoffConnectionService : Service() {
         const val PrefKeyKeypadBlockMode = "keypad_block_mode"
         const val PrefKeyKeepScreenOnMode = "keep_screen_on_mode"
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
+        // Issue #238 -- per-event sound switches.
+        const val PrefKeySoundChat = "sound_chat"
+        const val PrefKeySoundContactMe = "sound_contact_me"
+        const val PrefKeySoundSelcal = "sound_selcal"
         // Issue #177 -- pilot answered "I don't want that" to the floating-chat permission explainer.
         const val PrefKeyFloatingChatDeclined = "floating_chat_declined"
         // Issue #188 -- pilot acknowledged the "stay at your sim" notice. The suffix is the notice's
@@ -131,6 +135,7 @@ class HandoffConnectionService : Service() {
     private lateinit var client: HandoffWebSocketClient
     private lateinit var notificationManager: NotificationManager
     private lateinit var notifier: HandoffNotifier
+    private lateinit var soundPlayer: at.sushi.handoff.sound.EventSoundPlayer
 
     // Stable per-install identifier sent as authenticate's deviceId (issue #15) -- lets the
     // plugin recognize a re-pair from the same physical device and drop its old paired-client
@@ -224,7 +229,8 @@ class HandoffConnectionService : Service() {
         super.onCreate()
         instance = this
         notificationManager = getSystemService(NotificationManager::class.java)
-        notifier = HandoffNotifier(this)
+        soundPlayer = at.sushi.handoff.sound.EventSoundPlayer(this)
+        notifier = HandoffNotifier(this, soundPlayer)
         createConnectionNotificationChannel()
         notifier.createChannels()
         // Static and silent -- Android requires an active notification for a foreground service
@@ -364,6 +370,7 @@ class HandoffConnectionService : Service() {
             unregisterReceiver(powerConnectedReceiver)
         }
         ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
+        soundPlayer.release()
         instance = null
         super.onDestroy()
         if (quitRequested) {
@@ -511,6 +518,13 @@ class HandoffConnectionService : Service() {
         }
         HandoffState.setHideTunedControllers(prefs.getBoolean(PrefKeyHideTunedControllers, false))
         HandoffState.setFloatingChatDeclined(prefs.getBoolean(PrefKeyFloatingChatDeclined, false))
+        HandoffState.setEventSounds(
+            at.sushi.handoff.sound.EventSoundSettings(
+                chat = prefs.getBoolean(PrefKeySoundChat, true),
+                contactMe = prefs.getBoolean(PrefKeySoundContactMe, true),
+                selcal = prefs.getBoolean(PrefKeySoundSelcal, true)
+            )
+        )
         // Issue #21 -- resolves the persisted active row-color theme id against the saved list /
         // built-in presets, falling back to DefaultRowColorPalette (RowColorThemeStore's own
         // default) if unset/deleted.
