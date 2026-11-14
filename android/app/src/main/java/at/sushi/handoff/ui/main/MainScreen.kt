@@ -1162,6 +1162,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             initialKeypadBlockMode = keypadBlockMode,
             initialKeepScreenOnMode = keepScreenOnMode,
             initialFloatingChat = !floatingChatDeclined,
+            initialEventSounds = HandoffState.eventSounds.value,
             showFloatingChatSetting = ChannelFeatures.FloatingOverlay && !isPhoneClassDevice(context, configuration),
             // Plugin-authoritative (issue #88): prefer the tier the plugin currently reports over
             // our own last-saved pref, so the dialog reflects the real live state. Falls back to
@@ -1175,7 +1176,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
             onClearIgnoredDevices = { IgnoredDeviceStore.clearAll(prefs) },
             onDismiss = { settingsDialogOpen = false },
             onOpenRowColorEditor = { rowColorDialogOpen = true },
-            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newKeepScreenOnMode, newFloatingChat, newUpdateInterval ->
+            onSave = { host, simbriefUserId, simbriefUsername, newTheme, newSpacing, newKeypadMode, newKeepScreenOnMode, newFloatingChat, newUpdateInterval, newEventSounds ->
                 // Read before the edit below overwrites them (issue #216).
                 val simbriefChanged = SimbriefCredentials.changed(
                     prefs.getString(HandoffConnectionService.PrefKeySimbriefUserId, null),
@@ -1193,7 +1194,12 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                     putString(HandoffConnectionService.PrefKeyKeypadBlockMode, newKeypadMode.name)
                     putString(HandoffConnectionService.PrefKeyKeepScreenOnMode, newKeepScreenOnMode.name)
                     putString(HandoffConnectionService.PrefKeyUpdateInterval, newUpdateInterval.wire)
+                    putBoolean(HandoffConnectionService.PrefKeySoundChat, newEventSounds.chat)
+                    putBoolean(HandoffConnectionService.PrefKeySoundRadioToYou, newEventSounds.radioToYou)
+                    putBoolean(HandoffConnectionService.PrefKeySoundContactMe, newEventSounds.contactMe)
+                    putBoolean(HandoffConnectionService.PrefKeySoundSelcal, newEventSounds.selcal)
                 }
+                HandoffState.setEventSounds(newEventSounds)
                 HandoffState.setTheme(newTheme)
                 HandoffState.setDefaultChannelSpacing(newSpacing)
                 HandoffState.setKeypadBlockMode(newKeypadMode)

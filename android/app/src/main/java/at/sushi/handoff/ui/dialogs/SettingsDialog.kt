@@ -46,6 +46,8 @@ import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.UpdateInterval
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.protocol.SetDebugModeCommand
+import at.sushi.handoff.sound.EventSound
+import at.sushi.handoff.sound.EventSoundSettings
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
 import at.sushi.handoff.ui.theme.ScrollbarTrack
@@ -97,6 +99,7 @@ fun SettingsDialog(
     initialKeypadBlockMode: KeypadBlockMode,
     initialKeepScreenOnMode: KeepScreenOnMode,
     initialFloatingChat: Boolean,
+    initialEventSounds: EventSoundSettings,
     // False on phone-class devices (never split-screen side by side) and builds without the overlay.
     showFloatingChatSetting: Boolean,
     initialUpdateInterval: UpdateInterval,
@@ -113,7 +116,8 @@ fun SettingsDialog(
         keypadBlockMode: KeypadBlockMode,
         keepScreenOnMode: KeepScreenOnMode,
         floatingChat: Boolean,
-        updateInterval: UpdateInterval
+        updateInterval: UpdateInterval,
+        eventSounds: EventSoundSettings
     ) -> Unit
 ) {
     val colors = LocalHandoffColors.current
@@ -127,6 +131,7 @@ fun SettingsDialog(
     var keepScreenOnMode by remember { mutableStateOf(initialKeepScreenOnMode) }
     var floatingChat by remember { mutableStateOf(initialFloatingChat) }
     var updateInterval by remember { mutableStateOf(initialUpdateInterval) }
+    var eventSounds by remember { mutableStateOf(initialEventSounds) }
     var discoveryStatus by remember { mutableStateOf("") }
     var ignoredDeviceCount by remember { mutableStateOf(initialIgnoredDeviceCount) }
     val scope = rememberCoroutineScope()
@@ -169,7 +174,8 @@ fun SettingsDialog(
             keypadBlockMode,
             keepScreenOnMode,
             floatingChat,
-            updateInterval
+            updateInterval,
+            eventSounds
         )
         onDismiss()
     }
@@ -387,6 +393,43 @@ fun SettingsDialog(
                                         ),
                                         floatingChat
                                     ) { floatingChat = it }
+                                }
+
+                                // Issue #238 -- short tones for important vPilot events, played
+                                // whether or not the app is on screen. Per-event, since vPilot
+                                // itself already beeps for some of them. Tapping "On" (again too)
+                                // plays the tone as a preview.
+                                SectionLabel("SOUND: OTHER CHAT MESSAGES")
+                                ToggleRow(
+                                    listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
+                                    eventSounds.chat
+                                ) {
+                                    eventSounds = eventSounds.copy(chat = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.Chat)
+                                }
+                                SectionLabel("SOUND: RADIO MESSAGE TO YOU")
+                                ToggleRow(
+                                    listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
+                                    eventSounds.radioToYou
+                                ) {
+                                    eventSounds = eventSounds.copy(radioToYou = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.RadioToYou)
+                                }
+                                SectionLabel("SOUND: CONTACT ME")
+                                ToggleRow(
+                                    listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
+                                    eventSounds.contactMe
+                                ) {
+                                    eventSounds = eventSounds.copy(contactMe = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.ContactMe)
+                                }
+                                SectionLabel("SOUND: SELCAL")
+                                ToggleRow(
+                                    listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
+                                    eventSounds.selcal
+                                ) {
+                                    eventSounds = eventSounds.copy(selcal = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.Selcal)
                                 }
 
                                 // Issue #88 -- how often the plugin polls the sim and broadcasts to us.

@@ -163,6 +163,7 @@ Handoff's controller ranking and flight-plan awareness depend on data from:
 - [SimBrief](https://www.simbrief.com) by Navigraph (flight plan data)
 - [vPilot](https://vpilot.rosscarlson.dev) (the pilot client this plugin runs inside)
 - [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) (Android app UI font) - [![License: OFL 1.1](https://img.shields.io/badge/License-OFL%201.1-lightgrey.svg)](https://scripts.sil.org/OFL)
+- [Cabin announcement chime](https://pixabay.com/sound-effects/film-special-effects-airbus-cabin-pa-beep-tone-passenger-announcement-chime-358248/) by arunangshubanerjee from Pixabay (Android contact-me sound, converted to OGG) - [Pixabay Content License](https://pixabay.com/service/license-summary/)
 
 Many aspects of the implementation in this repo were performed or assisted by
 [Claude Code](https://claude.com/claude-code).
@@ -180,3 +181,6 @@ The Handoff logo (`plugin/Assets/handoff.svg` and its derived icons/images throu
 the repo) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 You're welcome to use it for ports, forks, or related projects - attribution to Handoff
 appreciated.
+
+The contact-me sound in the Android app (`android/app/src/main/res/raw/sound_contact_me.ogg`)
+is not covered by the MIT License; it keeps its own license, see [Credits](#credits).
