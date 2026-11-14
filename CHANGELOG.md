@@ -11,11 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Android (issue #238): short aviation-style sounds for new chat messages, contact-me requests and SELCAL
   calls, each switchable on or off in Settings (all on by default). A radio message that mentions your
-  callsign gets its own, brighter sound, apart from other radio traffic and private messages. They play whether or not the app is on
-  screen, and the background notifications themselves are now silent so you don't hear the sound twice.
-  Tapping "On" in Settings plays the tone as a preview, as often as you tap it.
-  The chat and SELCAL tones are synthesized for this project (the SELCAL one imitates a real SELCAL
-  call: two bursts of two simultaneous tones); the contact-me sound is a licensed cabin ding-dong.
+  callsign gets its own sound (a short double blip), apart from other radio traffic and private messages,
+  which share a soft noise burst. They play whether or not the app is on screen, and the background
+  notifications themselves are now silent so you don't hear the sound twice. Tapping "On" in Settings
+  plays the sound as a preview, as often as you tap it. The chat, radio-to-you and SELCAL sounds are
+  synthesized for this project (the SELCAL one imitates a real SELCAL call: two bursts of two
+  simultaneous tones, with an HF-radio treatment); the contact-me sound is a licensed cabin ding-dong.
 
 ## [0.10.0] - 2026-11-08
 
