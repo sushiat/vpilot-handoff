@@ -1,5 +1,5 @@
 """Generates the synthesized event tones in android/app/src/main/res/raw (issue #238):
-sound_chat (radio squelch burst), sound_radio_to_you (brighter double blip, for a radio call
+sound_chat (radio squelch burst), sound_radio_to_you (short 600 Hz double blip, for a radio call
 addressed to this aircraft) and sound_selcal (a real SELCAL-style call).
 sound_contact_me is NOT generated here -- it is a licensed cabin ding-dong recording, converted
 once with: ffmpeg -i dingdong.mp3 -ac 1 -c:a libvorbis -q:a 4 sound_contact_me.ogg
@@ -49,7 +49,7 @@ def write_ogg(name, samples, audio_filter=None):
 
 # Radio squelch (normal chat): a short burst of plain white noise with a flat body and tiny edge
 # fades (no click). A real squelch burst is essentially just this -- noise that stops abruptly.
-def squelch(dur=0.2, peak=0.4, seed=238):
+def squelch(dur=0.15, peak=0.14, seed=238):
     rng = random.Random(seed)
     n = int(RATE * dur)
     noise = [rng.gauss(0, 1) for _ in range(n)]
@@ -62,9 +62,22 @@ def squelch(dur=0.2, peak=0.4, seed=238):
 
 
 write_ogg("sound_chat", squelch())
-# Radio message addressed to this aircraft: higher, brighter, two quick blips -- clearly distinct
-# from the single soft chat tone and from the longer contact-me ding-dong.
-write_ogg("sound_radio_to_you", tone(988, 0.16, decay=14.0) + silence(0.07) + tone(1319, 0.3, decay=9.0))
+# Radio message addressed to this aircraft: a very short, punchy double blip -- two ~50 ms pulses of
+# a 600 Hz sine, each opening with a brief bright ~6 kHz "tik", a few ms apart. Modelled on the
+# character of a classic radio client's direct-message alert (measured, not copied), and clearly
+# distinct from the noise-burst chat sound and the longer contact-me ding-dong.
+def blip_pulse(click_hz, dur=0.05, body_hz=600, vol=0.4):
+    n = int(RATE * dur)
+    out = []
+    for i in range(n):
+        t = i / RATE
+        env = min(1.0, t / 0.002, (dur - t) / 0.008)
+        click = 0.6 * math.exp(-t / 0.006) * math.sin(2 * math.pi * click_hz * t)
+        out.append(vol * env * (math.sin(2 * math.pi * body_hz * t) + click) / 1.4)
+    return out
+
+
+write_ogg("sound_radio_to_you", blip_pulse(6050) + silence(0.005) + blip_pulse(5700))
 # SELCAL: two successive bursts of ~1 s, each two simultaneous pure tones from the standard 16
 # SELCAL frequencies (A=312.6 ... S=1479.1 Hz), ~0.2 s apart -- here the code "AM-CS" --
 # then run through hf_radio() for a shortwave-radio sound.
