@@ -182,7 +182,7 @@ jobs:
           path: Handoff-Setup-*.exe
 
   android:
-    name: Build Android release APK
+    name: Build Android release and upload to Play
     runs-on: ubuntu-latest
     needs: validate
     outputs:
@@ -272,7 +272,7 @@ jobs:
           packageName: at.sushi.handoff
           releaseFiles: Handoff-*.aab
           releaseName: ${{ needs.validate.outputs.version }}
-          track: internal
+          tracks: internal
           status: completed
 
   release:

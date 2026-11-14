@@ -87,17 +87,15 @@ jobs:
           # org.gradle.caching=true in gradle.properties to actually populate the build cache.
           cache-read-only: ${{ github.ref != 'refs/heads/master' }}
 
-      - name: Build debug APK
-        # Builds both distribution channels (sideload + play flavors, issue #153).
+      - name: Build debug APKs, Play bundle and run tests
+        # One Gradle invocation instead of three (issue #235): the JVM start, Gradle startup and
+        # configuration phase are paid once, and Gradle can schedule independent tasks together.
+        # - assembleDebug builds both distribution channels (sideload + play flavors, issue #153).
+        # - bundlePlayRelease is unsigned here (no keystore on PR builds) -- it only proves the play
+        #   flavor's manifest overlay and the AAB packaging still work, so a break shows up before
+        #   a tag does.
+        # - test runs the unit tests of every variant.
+        # --continue keeps going after a failure so one run reports every broken task; a failure is
+        # attributed by its task name in the Gradle output rather than by step name.
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Build Play release bundle
-        # Unsigned here (no keystore on PR builds) -- this only proves the play flavor's manifest
-        # overlay and the AAB packaging still work, so a break shows up before a tag does.
-        working-directory: android
-        run: ./gradlew bundlePlayRelease --no-daemon
-
-      - name: Test
-        working-directory: android
-        run: ./gradlew test --no-daemon
+        run: ./gradlew assembleDebug bundlePlayRelease test --continue --no-daemon
