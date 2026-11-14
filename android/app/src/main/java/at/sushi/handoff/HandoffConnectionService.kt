@@ -85,6 +85,7 @@ class HandoffConnectionService : Service() {
         const val PrefKeyHideTunedControllers = "hide_tuned_controllers"
         // Issue #238 -- per-event sound switches.
         const val PrefKeySoundChat = "sound_chat"
+        const val PrefKeySoundRadioToYou = "sound_radio_to_you"
         const val PrefKeySoundContactMe = "sound_contact_me"
         const val PrefKeySoundSelcal = "sound_selcal"
         // Issue #177 -- pilot answered "I don't want that" to the floating-chat permission explainer.
@@ -358,6 +359,9 @@ class HandoffConnectionService : Service() {
         return START_STICKY
     }
 
+    /** Issue #238 -- settings-dialog preview of an event's tone. */
+    fun previewEventSound(event: at.sushi.handoff.sound.EventSound) = soundPlayer.preview(event)
+
     override fun onDestroy() {
         connectionJob?.cancel()
         pingJob?.cancel()
@@ -521,6 +525,7 @@ class HandoffConnectionService : Service() {
         HandoffState.setEventSounds(
             at.sushi.handoff.sound.EventSoundSettings(
                 chat = prefs.getBoolean(PrefKeySoundChat, true),
+                radioToYou = prefs.getBoolean(PrefKeySoundRadioToYou, true),
                 contactMe = prefs.getBoolean(PrefKeySoundContactMe, true),
                 selcal = prefs.getBoolean(PrefKeySoundSelcal, true)
             )

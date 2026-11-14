@@ -23,6 +23,7 @@ class EventSoundPlayer(context: Context) {
 
     private val soundIds = mapOf(
         EventSound.Chat to soundPool.load(context, R.raw.sound_chat, 1),
+        EventSound.RadioToYou to soundPool.load(context, R.raw.sound_radio_to_you, 1),
         EventSound.ContactMe to soundPool.load(context, R.raw.sound_contact_me, 1),
         EventSound.Selcal to soundPool.load(context, R.raw.sound_selcal, 1)
     )
@@ -30,6 +31,12 @@ class EventSoundPlayer(context: Context) {
     /** No-op when the pilot turned this event's sound off. */
     fun play(event: EventSound) {
         if (!HandoffState.eventSounds.value.isEnabled(event)) return
+        preview(event)
+    }
+
+    /** Plays regardless of the switch -- the settings dialog previews a sound the moment the
+     *  pilot taps "On", before the new setting is saved. */
+    fun preview(event: EventSound) {
         soundIds[event]?.let { soundPool.play(it, 1f, 1f, 1, 0, 1f) }
     }
 

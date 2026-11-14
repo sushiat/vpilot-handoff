@@ -46,6 +46,7 @@ import at.sushi.handoff.ThemeMode
 import at.sushi.handoff.UpdateInterval
 import at.sushi.handoff.network.HandoffDiscoveryClient
 import at.sushi.handoff.protocol.SetDebugModeCommand
+import at.sushi.handoff.sound.EventSound
 import at.sushi.handoff.sound.EventSoundSettings
 import at.sushi.handoff.ui.theme.HandoffTextField
 import at.sushi.handoff.ui.theme.LocalHandoffColors
@@ -396,22 +397,40 @@ fun SettingsDialog(
 
                                 // Issue #238 -- short tones for important vPilot events, played
                                 // whether or not the app is on screen. Per-event, since vPilot
-                                // itself already beeps for some of them.
-                                SectionLabel("SOUND: CHAT MESSAGES")
+                                // itself already beeps for some of them. Tapping "On" (again too)
+                                // plays the tone as a preview.
+                                SectionLabel("SOUND: OTHER CHAT MESSAGES")
                                 ToggleRow(
                                     listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
                                     eventSounds.chat
-                                ) { eventSounds = eventSounds.copy(chat = it) }
+                                ) {
+                                    eventSounds = eventSounds.copy(chat = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.Chat)
+                                }
+                                SectionLabel("SOUND: RADIO MESSAGE TO YOU")
+                                ToggleRow(
+                                    listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
+                                    eventSounds.radioToYou
+                                ) {
+                                    eventSounds = eventSounds.copy(radioToYou = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.RadioToYou)
+                                }
                                 SectionLabel("SOUND: CONTACT ME")
                                 ToggleRow(
                                     listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
                                     eventSounds.contactMe
-                                ) { eventSounds = eventSounds.copy(contactMe = it) }
+                                ) {
+                                    eventSounds = eventSounds.copy(contactMe = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.ContactMe)
+                                }
                                 SectionLabel("SOUND: SELCAL")
                                 ToggleRow(
                                     listOf(ToggleOption(true, "On"), ToggleOption(false, "Off")),
                                     eventSounds.selcal
-                                ) { eventSounds = eventSounds.copy(selcal = it) }
+                                ) {
+                                    eventSounds = eventSounds.copy(selcal = it)
+                                    if (it) HandoffConnectionService.instance?.previewEventSound(EventSound.Selcal)
+                                }
 
                                 // Issue #88 -- how often the plugin polls the sim and broadcasts to us.
                                 // The plugin owns the actual cadences each tier maps to and is the

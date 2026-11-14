@@ -12,6 +12,7 @@ import at.sushi.handoff.R
 import at.sushi.handoff.protocol.ChatMessage
 import at.sushi.handoff.sound.EventSound
 import at.sushi.handoff.sound.EventSoundPlayer
+import at.sushi.handoff.sound.soundForNewChat
 import at.sushi.handoff.protocol.ChatReadStateMessage
 import at.sushi.handoff.protocol.ControllersMessage
 import at.sushi.handoff.ui.chat.RADIO_TAB
@@ -194,9 +195,10 @@ class HandoffNotifier(private val context: Context, private val soundPlayer: Eve
             return
         }
         // Issue #238 -- sounds play whether or not the app is on screen, unlike the notifications.
-        if (message.messages.any { it.direction == "incoming" && it !in previousChatMessages }) {
-            soundPlayer.play(EventSound.Chat)
-        }
+        soundForNewChat(
+            message.messages.filter { it !in previousChatMessages },
+            HandoffState.flightPlan.value.vatsimCallsign
+        )?.let(soundPlayer::play)
         if (message.selcalAlerts.any { it !in previousSelcalAlerts }) {
             soundPlayer.play(EventSound.Selcal)
         }

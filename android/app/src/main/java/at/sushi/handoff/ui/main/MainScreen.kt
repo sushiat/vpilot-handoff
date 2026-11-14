@@ -1195,6 +1195,7 @@ private fun MainScreenContent(onAttendedSimAcknowledged: () -> Unit) {
                     putString(HandoffConnectionService.PrefKeyKeepScreenOnMode, newKeepScreenOnMode.name)
                     putString(HandoffConnectionService.PrefKeyUpdateInterval, newUpdateInterval.wire)
                     putBoolean(HandoffConnectionService.PrefKeySoundChat, newEventSounds.chat)
+                    putBoolean(HandoffConnectionService.PrefKeySoundRadioToYou, newEventSounds.radioToYou)
                     putBoolean(HandoffConnectionService.PrefKeySoundContactMe, newEventSounds.contactMe)
                     putBoolean(HandoffConnectionService.PrefKeySoundSelcal, newEventSounds.selcal)
                 }
