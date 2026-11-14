@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-14
+
 ### Added
 
 - Android (issue #238): short aviation-style sounds for new chat messages, contact-me requests and SELCAL
@@ -833,7 +835,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed waypoint index — the normal along-track sweep or issue #66's proximity catch-up
   fallback — and when, surfaced in both the live view and the snapshot file.
 
-[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/sushiat/vpilot-handoff/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/sushiat/vpilot-handoff/compare/v0.7.0...v0.8.0
