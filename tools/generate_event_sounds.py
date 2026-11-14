@@ -6,6 +6,8 @@ once with: ffmpeg -i dingdong.mp3 -ac 1 -c:a libvorbis -q:a 4 sound_contact_me.o
 
 Pure-Python synthesis to WAV, then ffmpeg encodes to OGG Vorbis:
     python tools/generate_event_sounds.py
+The synthesis is seeded and deterministic: the .ogg bytes differ per run (the encoder writes a
+random stream id), but the decoded audio is identical to the committed files.
 """
 import math
 import random
